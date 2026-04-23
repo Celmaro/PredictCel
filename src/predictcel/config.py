@@ -40,6 +40,13 @@ class LiveDataConfig:
 
 
 @dataclass(frozen=True)
+class PositionConfig:
+    take_profit_pct: float
+    stop_loss_pct: float
+    max_hold_minutes: int
+
+
+@dataclass(frozen=True)
 class ExecutionConfig:
     enabled: bool
     dry_run: bool
@@ -50,6 +57,7 @@ class ExecutionConfig:
     order_type: str
     chain_id: int
     signature_type: int
+    position: PositionConfig
 
 
 @dataclass(frozen=True)
@@ -83,7 +91,7 @@ def load_config(path: str | Path) -> AppConfig:
     live_data_payload = payload.get("live_data")
     live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
     execution_payload = payload.get("execution")
-    execution = ExecutionConfig(**execution_payload) if execution_payload else None
+    execution = _build_execution_config(execution_payload) if execution_payload else None
 
     if not baskets:
         raise ConfigError("At least one basket is required.")
@@ -122,6 +130,13 @@ def load_config(path: str | Path) -> AppConfig:
             raise ConfigError("execution order_type must be FOK or FAK.")
         if execution.signature_type not in {0, 1, 2}:
             raise ConfigError("signature_type must be 0, 1, or 2.")
+        pc = execution.position
+        if pc.take_profit_pct < 0:
+            raise ConfigError("take_profit_pct must be non-negative.")
+        if pc.stop_loss_pct < 0:
+            raise ConfigError("stop_loss_pct must be non-negative.")
+        if pc.max_hold_minutes < 0:
+            raise ConfigError("max_hold_minutes must be non-negative.")
 
     return AppConfig(
         baskets=baskets,
@@ -131,4 +146,25 @@ def load_config(path: str | Path) -> AppConfig:
         market_snapshots_path=payload["market_snapshots_path"],
         live_data=live_data,
         execution=execution,
+    )
+
+
+def _build_execution_config(payload: dict) -> ExecutionConfig:
+    position_payload = payload.get("position", {})
+    position_config = PositionConfig(
+        take_profit_pct=float(position_payload.get("take_profit_pct", 0.0)),
+        stop_loss_pct=float(position_payload.get("stop_loss_pct", 0.0)),
+        max_hold_minutes=int(position_payload.get("max_hold_minutes", 0)),
+    )
+    return ExecutionConfig(
+        enabled=payload["enabled"],
+        dry_run=payload["dry_run"],
+        min_copyability_score=float(payload["min_copyability_score"]),
+        max_orders_per_run=int(payload["max_orders_per_run"]),
+        buy_amount_usd=float(payload["buy_amount_usd"]),
+        worst_price_buffer=float(payload["worst_price_buffer"]),
+        order_type=payload["order_type"],
+        chain_id=int(payload["chain_id"]),
+        signature_type=int(payload["signature_type"]),
+        position=position_config,
     )
