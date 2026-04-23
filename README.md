@@ -17,7 +17,7 @@ The current version is intentionally small and safe:
 Instead, V1 focuses on the alpha layer we actually want to test:
 - topic baskets of source wallets
 - quorum-based consensus signals
-- copyability filters like drift, liquidity, category match, and orderbook quality
+- copyability filters like drift, liquidity, category match, orderbook quality, and market regime
 - wallet quality ranking from recent behavior
 - deterministic arbitrage detection from market snapshots
 
@@ -29,6 +29,7 @@ Instead, V1 focuses on the alpha layer we actually want to test:
   - live public Polymarket read mode
 - evaluates wallet quality from recent eligible trades
 - evaluates basket consensus per market
+- classifies copy-signal markets as trend, range, transition, or unstable regimes
 - emits paper-mode copy candidates with copyability scores
 - scans for simple YES/NO underpricing opportunities
 - can plan live copy orders from top-ranked signals
@@ -77,9 +78,9 @@ It still does not place trades.
 python -m predictcel.main --config config/predictcel.example.json --db predictcel.db --live-data
 ```
 
-### Wallet discovery reports
+### Wallet discovery and basket auto-update
 
-Wallet discovery is report-only by default. It reads candidate wallets from public Polymarket data, classifies their trade topics, scores candidate quality, recommends basket assignments, and writes JSON plans without changing your config.
+Wallet discovery defaults to `auto_update`. It reads candidate wallets from public Polymarket data, classifies their trade topics, scores candidate quality, recommends basket assignments, writes JSON reports, and appends approved `add` actions to the configured basket JSON.
 
 ```bash
 python -m predictcel.main discover-wallets --config config/predictcel.example.json --output-dir data
@@ -88,7 +89,12 @@ python -m predictcel.main discover-wallets --config config/predictcel.example.js
 The command writes:
 - `wallet_discovery_report.json` for scored candidates and rejection reasons
 - `basket_assignments.json` for topic affinities and recommended baskets
-- `basket_manager_plan.json` for proposed add/observe actions
+- `basket_manager_plan.json` for add/observe actions
+- `updated_config` when `wallet_discovery.mode` is `auto_update`
+
+Use `wallet_discovery.mode: "propose_config"` to write `predictcel.proposed.json` without touching the source config. Use `wallet_discovery.mode: "report_only"` to write reports only.
+
+Use `--config-output path/to/config.json` to send auto-updated or proposed config output to a separate file.
 
 ### Guarded live trading mode
 
@@ -153,13 +159,13 @@ The Railway worker catches per-cycle exceptions, logs JSON events, waits for the
 - `src/predictcel/wallets.py` - file-backed wallet trade loading
 - `src/predictcel/polymarket.py` - public Polymarket live ingestion, token normalization, retries, and orderbook enrichment
 - `src/predictcel/scoring.py` - wallet quality and copyability scoring
-- `src/predictcel/copy_engine.py` - basket-consensus paper signal engine
+- `src/predictcel/copy_engine.py` - basket-consensus paper signal engine with market regime scoring
 - `src/predictcel/arb_sidecar.py` - simple arbitrage scanner
 - `src/predictcel/wallet_topics.py` - wallet topic classification from trade metadata
 - `src/predictcel/wallet_sources.py` - public wallet source adapters
-- `src/predictcel/wallet_discovery.py` - wallet discovery pipeline and JSON reports
+- `src/predictcel/wallet_discovery.py` - wallet discovery pipeline, JSON reports, and config mutation
 - `src/predictcel/basket_assignment.py` - wallet-to-basket assignment scoring
-- `src/predictcel/basket_manager.py` - report-only basket action planner
+- `src/predictcel/basket_manager.py` - basket action planner
 - `src/predictcel/execution.py` - execution planning and guarded live order submission
 - `src/predictcel/storage.py` - SQLite logging, positions, and duplicate-signal fingerprints
 - `src/predictcel/main.py` - CLI entrypoint
@@ -180,6 +186,7 @@ Copyability score is currently based on:
 - available market liquidity
 - side-specific spread from the public order book
 - side-specific top-of-book ask depth
+- market regime score from trend/range/unstable classification
 
 These are intentionally simple V1 heuristics. They are meant to rank and filter, not to pretend we already have production alpha.
 
