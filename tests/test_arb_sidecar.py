@@ -58,7 +58,7 @@ def test_skips_when_costs_destroy_net_edge() -> None:
         ArbitrageConfig(
             min_gross_edge=0.02,
             min_liquidity_usd=5000,
-            variable_cost_rate=0.03,
+            variable_cost_rate=0.05,
             slippage_rate=0.01,
         )
     )
@@ -74,7 +74,7 @@ def test_skips_when_min_profitable_position_exceeds_cap() -> None:
         ArbitrageConfig(
             min_gross_edge=0.02,
             min_liquidity_usd=5000,
-            gas_cost_per_tx_usd=1.0,
+            gas_cost_per_tx_usd=2.0,
             settlement_tx_count=2,
             max_position_usd=50.0,
         )
