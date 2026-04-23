@@ -212,3 +212,4 @@ Once this guarded path looks sane, the next layers should be:
 5. cross-platform sidecars only after the core engine is validated
 
 
+
