@@ -77,7 +77,9 @@ def main() -> None:
     timings["wallet_scoring_ms"] = _elapsed_ms(started)
 
     started = time.perf_counter()
-    copy_candidates = CopyEngine(config).evaluate(trades, markets, wallet_qualities)
+    copy_engine = CopyEngine(config)
+    copy_candidates = copy_engine.evaluate(trades, markets, wallet_qualities)
+    copy_engine_diagnostics = getattr(copy_engine, "last_diagnostics", {})
     timings["copy_engine_ms"] = _elapsed_ms(started)
 
     started = time.perf_counter()
@@ -138,6 +140,7 @@ def main() -> None:
         "latency_ms": timings,
         "live_input_diagnostics": live_input_diagnostics,
         "scoring_diagnostics": scoring_diagnostics,
+        "copy_engine_diagnostics": copy_engine_diagnostics,
         "portfolio_summary": _portfolio_summary(store, config),
         "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
@@ -156,6 +159,7 @@ def main() -> None:
             "summary": summary,
             "live_input_diagnostics": live_input_diagnostics,
             "scoring_diagnostics": scoring_diagnostics,
+            "copy_engine_diagnostics": copy_engine_diagnostics,
         },
     )
     print(json.dumps(output, indent=2, default=str))
@@ -205,6 +209,8 @@ def _load_live_inputs(config):
     if supplemental_rows:
         markets.update(build_market_snapshots(supplemental_rows))
 
+    market_ids_after_supplemental = set(markets)
+    matched_trade_market_ids = [market_id for market_id in trade_market_ids if market_id in market_ids_after_supplemental]
     diagnostics = {
         "requested_wallets": len(raw_topic_by_wallet),
         "valid_wallets": len(topic_by_wallet),
@@ -216,23 +222,12 @@ def _load_live_inputs(config):
         "supplemental_market_ids_requested": len(missing_trade_market_ids),
         "supplemental_market_rows_loaded": len(supplemental_rows),
         "market_cache_entries": len(markets),
+        "market_crossref": {
+            "unique_trade_market_ids": len(trade_market_ids),
+            "matched_count": len(matched_trade_market_ids),
+            "match_rate_pct": round((len(matched_trade_market_ids) / len(trade_market_ids)) * 100, 1) if trade_market_ids else 0.0,
+        },
     }
-    # === CAMEL PATCH: market crossref diagnostics ===
-    trade_mids = set()
-    for wp in wallet_payloads.values():
-        for p in wp:
-            if m := p.get("market_id"):
-                trade_mids.add(m)
-    loaded_mids = set(m.id for m in markets.values())
-    matched = trade_mids & loaded_mids
-    diagnostics["market_crossref"] = {
-        "unique_trade_market_ids": len(trade_mids),
-        "loaded_market_count": len(loaded_mids),
-        "matched_count": len(matched),
-        "match_rate_pct": round(len(matched) / len(trade_mids) * 100, 1) if trade_mids else 0,
-    }
-    # === END CAMEL PATCH ===
-
     return trades, enrich_market_snapshots_with_orderbooks(markets, client), diagnostics
 
 
