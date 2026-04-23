@@ -60,7 +60,7 @@ class MarketRegimeConfig:
 class WalletDiscoveryConfig:
     enabled: bool = False
     mode: str = "auto_update"
-    candidate_limit: int = 100
+    candidate_limit: int = 250
     trade_limit_per_wallet: int = 100
     min_trades: int = 20
     min_recent_trades: int = 5
@@ -68,8 +68,8 @@ class WalletDiscoveryConfig:
     min_avg_trade_size_usd: float = 10.0
     min_assignment_score: float = 0.50
     exclude_existing_wallets: bool = True
-    max_wallets_per_basket: int = 20
-    max_new_wallets_per_run: int = 3
+    max_wallets_per_basket: int = 50
+    max_new_wallets_per_run: int = 10
     topics: dict[str, list[str]] = field(default_factory=_default_topic_keywords)
 
 
