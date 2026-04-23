@@ -13,6 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+trade = ["py-clob-client>=0.34.6"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
