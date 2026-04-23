@@ -10,6 +10,17 @@
     "trade_limit": 25,
     "request_timeout_seconds": 15
   },
+  "execution": {
+    "enabled": false,
+    "dry_run": true,
+    "min_copyability_score": 0.72,
+    "max_orders_per_run": 2,
+    "buy_amount_usd": 25.0,
+    "worst_price_buffer": 0.02,
+    "order_type": "FOK",
+    "chain_id": 137,
+    "signature_type": 0
+  },
   "baskets": [
     {
       "topic": "geopolitics",
