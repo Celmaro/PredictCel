@@ -12,6 +12,7 @@ def make_execution_config() -> ExecutionConfig:
         min_copyability_score=0.72,
         max_orders_per_run=2,
         buy_amount_usd=25.0,
+        min_signal_allocation_usd=5.0,
         worst_price_buffer=0.02,
         order_type="FOK",
         chain_id=137,
@@ -153,6 +154,21 @@ def test_execution_planner_uses_suggested_position_size_with_caps() -> None:
     intents = planner.plan(candidates, markets, held_market_ids=set(), current_exposure_usd=10.0)
 
     assert [intent.amount_usd for intent in intents] == [50.0, 15.0]
+
+
+def test_execution_planner_applies_minimum_signal_allocation() -> None:
+    config = make_execution_config()
+    planner = ExecutionPlanner(config, config.position)
+    candidates = [
+        CopyCandidate("topic", "m1", "YES", 1.0, 0.5, 0.51, 10000, ["w1"], 1.0, 0.9, "ok", suggested_position_usd=1.25),
+    ]
+    markets = {
+        "m1": MarketSnapshot("m1", "topic", "One", 0.51, 0.48, 0.5, 10000, 180, yes_token_id="yes_1", yes_ask_size=200, orderbook_ready=True),
+    }
+
+    intents = planner.plan(candidates, markets, held_market_ids=set(), current_exposure_usd=0.0)
+
+    assert [intent.amount_usd for intent in intents] == [5.0]
 
 
 def test_execution_planner_respects_exposure_across_planned_orders() -> None:
