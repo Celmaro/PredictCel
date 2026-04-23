@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from predictcel.polymarket import (
+    PolymarketPublicClient,
     _extract_list,
     build_market_snapshots,
     build_wallet_trades,
@@ -19,8 +20,9 @@ class FakeClient:
         return self.books.get(token_id, {})
 
 
-class FakeGammaClient:
+class FakeGammaClient(PolymarketPublicClient):
     def __init__(self):
+        super().__init__()
         self.urls = []
 
     def _get_json(self, url: str):
