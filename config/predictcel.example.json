@@ -15,7 +15,7 @@
     "dry_run": true,
     "min_copyability_score": 0.72,
     "max_orders_per_run": 1,
-    "buy_amount_usd": 10.0,
+    "buy_amount_usd": 10,
     "worst_price_buffer": 0.02,
     "order_type": "FOK",
     "chain_id": 137,
@@ -26,28 +26,28 @@
       "max_hold_minutes": 1440
     },
     "exposure": {
-      "max_total_exposure_usd": 100.0,
-      "max_single_position_usd": 10.0
+      "max_total_exposure_usd": 100,
+      "max_single_position_usd": 10
     },
     "max_retries": 3,
-    "retry_base_delay_seconds": 1.0
+    "retry_base_delay_seconds": 1
   },
   "consensus": {
     "recency_half_life_seconds": 1800,
     "min_weighted_consensus": 0.2,
-    "confidence_prio_strength": 2.0,
+    "confidence_prio_strength": 2,
     "min_confidence_score": 0.3,
     "conflict_penalty_weight": 0.25,
-    "bankroll_usd": 100.0,
+    "bankroll_usd": 100,
     "kelly_fraction": 0.25,
-    "max_suggested_position_usd": 10.0
+    "max_suggested_position_usd": 10
   },
   "market_regime": {
     "enabled": true,
     "trend_price_skew": 0.15,
     "range_price_skew": 0.08,
     "max_stable_spread": 0.06,
-    "min_depth_usd": 50.0,
+    "min_depth_usd": 50,
     "trend_bonus": 0.05,
     "range_bonus": 0.02,
     "unstable_penalty": 0.1
@@ -60,20 +60,22 @@
     "min_trades": 20,
     "min_recent_trades": 5,
     "recent_window_seconds": 2592000,
-    "min_avg_trade_size_usd": 10.0,
+    "min_avg_trade_size_usd": 10,
     "min_assignment_score": 0.5,
     "exclude_existing_wallets": true,
     "max_wallets_per_basket": 50,
     "max_new_wallets_per_run": 10,
     "topics": {
       "geopolitics": [
-        "election",
-        "trump",
-        "biden",
         "war",
-        "federal",
-        "senate",
-        "president"
+        "israel",
+        "iran",
+        "ukraine",
+        "russia",
+        "china",
+        "military",
+        "nato",
+        "ceasefire"
       ],
       "sports": [
         "nba",
@@ -83,7 +85,12 @@
         "ufc",
         "soccer",
         "football",
-        "tennis"
+        "tennis",
+        "esport",
+        "gaming",
+        "dota",
+        "counter-strike",
+        "cs2"
       ],
       "crypto": [
         "btc",
@@ -91,23 +98,37 @@
         "sol",
         "bitcoin",
         "ethereum",
-        "crypto"
+        "crypto",
+        "up or down"
       ],
-      "macro": [
-        "economy",
-        "gdp",
-        "inflation",
-        "rates",
-        "stock",
-        "recession"
+      "trump": [
+        "trump",
+        "biden",
+        "election",
+        "senate",
+        "congress",
+        "governor",
+        "presidential",
+        "approval rating"
+      ],
+      "longterm_crypto": [
+        "higher than",
+        "above $",
+        "reach $",
+        "bitcoin above",
+        "end of year",
+        "target price"
       ],
       "weather": [
         "weather",
+        "temperature",
+        "hurricane",
+        "storm",
         "rain",
         "snow",
-        "hurricane",
-        "temperature",
-        "storm"
+        "tornado",
+        "typhoon",
+        "heat wave"
       ]
     }
   },
@@ -134,7 +155,13 @@
         "0xead152b855effa6b5b5837f53b24c0756830c76a",
         "0x84ad9c5c547a82ec9a08547b94bd922446e5bfb7",
         "0x5eeb2911bf927d7ded5fccf150293105ef7e01b2",
-        "0x204f72f35326db932158cba6adff0b9a1da95e14"
+        "0x204f72f35326db932158cba6adff0b9a1da95e14",
+        "0x47138dc1eef25f1ea91f3b2fda0e0f455c634d21",
+        "0x7e0be260bf431c091d7218e2d7960fc940944dd5",
+        "0x267336b7b2b6e6ad4a06d1ac4fdd2ce14e0e5ac9",
+        "0x1b8cad7a4209cb3d4b21f168d5ec6899dc189de1",
+        "0xc866c27965a4e2f28b17c6e973ac8952f2dd8c6d",
+        "0xfd54eaff68aa030cb3a2206ee7f928ae810488a5"
       ],
       "quorum_ratio": 0.2
     },
@@ -150,63 +177,57 @@
         "0x5e2b9261b0c4f697b55bf921ff2bc227183d9101",
         "0xc454873a20721f5ebe1c3e42694a0ac28fda8c23",
         "0x26e76ef9ba06a0095fd03a06321306a9ec4b21dc",
-        "0x941e9756c3588cdc806d9e1005528a5cdcfa1fbf"
+        "0x941e9756c3588cdc806d9e1005528a5cdcfa1fbf",
+        "0x2a2c53bd278c04da9962fcf96490e17f3dfb9bc1",
+        "0x2005d16a84ceefa912d4e380cd32e7ff827875ea",
+        "0x53423aa6c48cd41304c94f61cf411ee6e29dd243",
+        "0x74bb665c6af437f384bd1c830b74136aeb324f26",
+        "0x8888a4f8c8d3834482d77405530d7f5428a40b39"
       ],
       "quorum_ratio": 0.2
     },
     {
-      "topic": "esports",
+      "topic": "trump",
       "wallets": [
-        "0x913c76e1edf609b3d6dd7d597d1f9afc6c6039b3",
-        "0xc987780e16fbc8228ca408a5558a854013aa123a",
-        "0x629da223adfc9957329e02de95ae3d263f92756c",
-        "0xd24ac673d85e284be7b7fc6c5a9e7e33ce010b7f",
-        "0xf21d8c8523f3734d9dea7b4ac1c4b685b8ca922b"
-      ],
-      "quorum_ratio": 0.2
-    },
-    {
-      "topic": "politics",
-      "wallets": [
-        "0x3bee4397037c3e2f024c93e0a3b083493a92a715",
-        "0xae7c98235d5dc797edfa3d3af2e0334238a4487e",
-        "0x2f8a5981614ae809ff2a75832fc10a72793ef086",
-        "0x793ed200a1e8344d608a17763d9cb8773b3643bf",
-        "0xe4b40d75a8aec9c5198564df662dbaf51dba874d",
-        "0x0f4f3fc28737deae56dcbeddaa25933708c91bd9",
-        "0xb22e406c0123f16d9bd2f4a4e305bff812376d88",
-        "0xa40fa2ce4ea68b1e6fc249ffb9e572ce6b1970dc"
-      ],
-      "quorum_ratio": 0.2
-    },
-    {
-      "topic": "tennis_golf_mma",
-      "wallets": [
-        "0x7a5d94f83ff0195387eaf9f4463433d03eda54db",
-        "0x0dd0193fdc5fc75e1518a77c3e0b43f548e44a59",
-        "0xfc33008a25811adb3015d0f4d8c1f278a6d5729c",
-        "0x53757615de1c42b83f893b79d4241a009dc2aeea"
+        "0x27abdfc9393c72a6330a3be987da4b46c726e521",
+        "0xd1a63a243042d864520512fbdbd2fd20e0ab1507",
+        "0x84c386331355f47057afca0c06c7211f4dbe35d4",
+        "0x5c898593e6745d475faa40ccbb9dd1b913dbc8ff",
+        "0xe3726a1b9c6ba2f06585d1c9e01d00afaedaeb38",
+        "0xb69a4501852c60a12c48643057bece21cdd17c05",
+        "0x1a3d83418c5fa02a0478e4f769649fda5e12fea1",
+        "0x2d5241f89b392ccf3c440c78af049f50d0b1df50",
+        "0x6e507746a76b863a749e9b2d7c60fb3a08176a26"
       ],
       "quorum_ratio": 0.2
     },
     {
       "topic": "longterm_crypto",
       "wallets": [
-        "0x6d8745c21229356d19fb76d5f5d2f93d3b8c4f67",
-        "0xbb0823629729373f0391e92725e3fa6d18e97765",
-        "0x65ed172ae0a9b54bea78ab4e7afc05b514e4151d"
+        "0xf705fa045201391d9632b7f3cde06a5e24453ca7",
+        "0xe5f85d076f0b1edd4ec89bfb95e123a9036a8d75",
+        "0x991f81e6344646ed7f419d79ddf9e6a9dea6d3c2",
+        "0x388537259dc9e693c1c9b96fdf07a63f6b7aca77",
+        "0x6e1d5040d0ac73709b0621f620d2a60b80d2d0fa",
+        "0x434f15599b49b65cd63e2aa3f140dc605e934d09",
+        "0x17559efac103ac7f361be37ec0b93888d4c55aac",
+        "0x50733d0627e4763d7d7e81a69abc345edf6416a7",
+        "0xd634c33f7de4aa342c3136ac8b5b36ef390f77ad"
       ],
       "quorum_ratio": 0.2
     },
     {
       "topic": "weather",
       "wallets": [
-        "0x293ed5233e9cab8af3ce9b1c3aa0ec4688099962",
-        "0xd484bbc677cdb474949583ae0253eb41c0eb046f",
-        "0x04dcf8d1328b2bf5fa6e7aa8a200df95751cd572",
-        "0x23d18416645924e097c453e8ceadd4bfeb6a353f",
-        "0xcb32934773126ed9267babaee1e68f0c375779aa",
-        "0x34eccd57d85a42273ea46d8699a2666ac600b7cf"
+        "0x2a25f7cbf3fc823e315c31602d2eccab85788055",
+        "0x66a17b44f6187745c4f273622a702e2f1b423de8",
+        "0x97be1eca98026e9f9ee693a1829c5fcdc3e27404",
+        "0x2dbae7438b292f52f79091cdf5fc83169de45b01",
+        "0xef7e483edcda9f0259de0ce2ef75fb9148faaee8",
+        "0x16d9d184f45cfed6d216465149b0b48381ddf0b0",
+        "0x0f18937034a2a20178c3b7641305440157145b28",
+        "0xb9dfd0b5db8991353b57820f8d576a1e366f1e41",
+        "0xf7c8ebd09e715ce1e95c89f5a4b60782fc7dbd6b"
       ],
       "quorum_ratio": 0.2
     }
@@ -222,12 +243,12 @@
   "arbitrage": {
     "min_gross_edge": 0.02,
     "min_liquidity_usd": 10000,
-    "variable_cost_rate": 0.0,
+    "variable_cost_rate": 0,
     "gas_cost_per_tx_usd": 0.02,
     "settlement_tx_count": 2,
     "slippage_rate": 0.0001,
-    "min_profitable_position_usd": 5.0,
-    "max_position_usd": 50.0,
+    "min_profitable_position_usd": 5,
+    "max_position_usd": 50,
     "edge_weight": 0.35,
     "liquidity_weight": 0.25,
     "speed_weight": 0.2,
