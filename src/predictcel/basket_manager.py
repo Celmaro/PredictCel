@@ -32,13 +32,21 @@ class BasketManagerPlanner:
                 if added_by_basket.get(basket, 0) >= self.config.wallet_discovery.max_new_wallets_per_run:
                     actions.append(self._action("observe", basket, assignment, "max new wallets per run reached"))
                     continue
-                actions.append(self._action("add", basket, assignment, "report-only recommendation; manual approval required"))
+                actions.append(self._action("add", basket, assignment, self._add_reason()))
                 added_by_basket[basket] = added_by_basket.get(basket, 0) + 1
                 added = True
             if not added and not assignment.recommended_baskets:
                 actions.append(self._action("observe", assignment.primary_topic, assignment, "no configured basket matched topic profile"))
 
         return actions
+
+    def _add_reason(self) -> str:
+        mode = self.config.wallet_discovery.mode
+        if mode == "auto_update":
+            return "auto-update eligible recommendation"
+        if mode == "propose_config":
+            return "config proposal recommendation"
+        return "report-only recommendation; manual approval required"
 
     def _action(self, action: str, basket: str, assignment: BasketAssignment, reason: str) -> BasketManagerAction:
         return BasketManagerAction(
