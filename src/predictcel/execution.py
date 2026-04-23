@@ -1,26 +1,37 @@
 from __future__ import annotations
 
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from datetime import UTC, datetime
 from typing import Any
 
-from .config import ExecutionConfig, LiveDataConfig
-from .models import CopyCandidate, ExecutionIntent, ExecutionResult, MarketSnapshot
+from .config import ExecutionConfig, LiveDataConfig, PositionConfig
+from .models import (
+    CopyCandidate,
+    ExecutionIntent,
+    ExecutionResult,
+    MarketSnapshot,
+    Position,
+)
 
 
 class ExecutionPlanner:
-    def __init__(self, config: ExecutionConfig) -> None:
+    def __init__(self, config: ExecutionConfig, position_config: PositionConfig) -> None:
         self.config = config
+        self.position_config = position_config
 
     def plan(
         self,
         candidates: list[CopyCandidate],
         markets: dict[str, MarketSnapshot],
+        held_market_ids: set[str],
     ) -> list[ExecutionIntent]:
         ranked = sorted(candidates, key=lambda item: item.copyability_score, reverse=True)
         intents: list[ExecutionIntent] = []
         for candidate in ranked:
             if candidate.copyability_score < self.config.min_copyability_score:
+                continue
+            if candidate.market_id in held_market_ids:
                 continue
             market = markets.get(candidate.market_id)
             if market is None or not market.orderbook_ready:
@@ -44,7 +55,7 @@ class ExecutionPlanner:
                     worst_price=worst_price,
                     copyability_score=candidate.copyability_score,
                     order_type=self.config.order_type.upper(),
-                    reason="copyability threshold, token id, and top-of-book depth checks passed",
+                    reason="copyability threshold, no open position, token id, and top-of-book depth checks passed",
                 )
             )
             if len(intents) >= self.config.max_orders_per_run:
@@ -147,6 +158,101 @@ class LiveOrderExecutor:
                 copyability_score=intent.copyability_score,
                 reason=intent.reason,
             )
+
+
+class ExitRunner:
+    def __init__(self, config: ExecutionConfig, live_data: LiveDataConfig | None) -> None:
+        self.config = config
+        self.live_data = live_data
+
+    def evaluate_and_close(
+        self,
+        positions: list[Position],
+        markets: dict[str, MarketSnapshot],
+    ) -> tuple[list[ExecutionIntent], list[Position]]:
+        close_intents: list[ExecutionIntent] = []
+        updated_positions: list[Position] = []
+        now = datetime.now(UTC)
+
+        for pos in positions:
+            market = markets.get(pos.market_id)
+            if market is None:
+                updated_positions.append(pos)
+                continue
+
+            # Determine current price and PnL
+            if pos.side == "YES":
+                current_price = market.yes_ask
+                close_price = market.yes_bid
+                close_token = market.yes_token_id
+            else:
+                current_price = market.no_ask
+                close_price = market.no_bid
+                close_token = market.no_token_id
+
+            if current_price == 0.0:
+                current_price = pos.current_price
+
+            if pos.side == "YES":
+                pnl_pct = (current_price - pos.entry_price) / pos.entry_price
+            else:
+                pnl_pct = (pos.entry_price - current_price) / pos.entry_price
+            unrealized_pnl = round(pos.entry_amount_usd * pnl_pct, 4)
+
+            # Update current state
+            updated_pos = replace(
+                pos,
+                current_price=current_price,
+                unrealized_pnl=unrealized_pnl,
+                last_updated=now,
+            )
+
+            # Check close conditions
+            should_close = False
+            reason = ""
+
+            # Take profit
+            if pos.take_profit_pct > 0 and pnl_pct >= pos.take_profit_pct:
+                should_close = True
+                reason = f"take_profit triggered: pnl={pnl_pct:.4f} >= tp={pos.take_profit_pct}"
+
+            # Stop loss
+            elif pos.stop_loss_pct > 0 and pnl_pct <= -pos.stop_loss_pct:
+                should_close = True
+                reason = f"stop_loss triggered: pnl={pnl_pct:.4f} <= sl={pos.stop_loss_pct}"
+
+            # Time-based exit
+            elif pos.max_hold_minutes > 0:
+                elapsed_minutes = (now - pos.opened_at).total_seconds() / 60.0
+                if elapsed_minutes >= pos.max_hold_minutes:
+                    should_close = True
+                    reason = f"max_hold exceeded: {elapsed_minutes:.1f} min >= {pos.max_hold_minutes} min"
+
+            # Resolution imminent (safety net)
+            if not should_close and market.minutes_to_resolution > 0 and market.minutes_to_resolution <= 10:
+                should_close = True
+                reason = f"market resolving soon: {market.minutes_to_resolution} min to resolution"
+
+            if should_close:
+                if close_price > 0 and close_token:
+                    close_intents.append(
+                        ExecutionIntent(
+                            market_id=pos.market_id,
+                            topic=pos.topic,
+                            side="CLOSE",
+                            token_id=close_token,
+                            amount_usd=pos.entry_amount_usd,
+                            worst_price=close_price,
+                            copyability_score=0.0,
+                            order_type=self.config.order_type.upper(),
+                            reason=reason,
+                        )
+                    )
+                updated_positions.append(replace(updated_pos, status="closing"))
+            else:
+                updated_positions.append(updated_pos)
+
+        return close_intents, updated_positions
 
 
 def intents_as_dicts(intents: list[ExecutionIntent]) -> list[dict[str, Any]]:
