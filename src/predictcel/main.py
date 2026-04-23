@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from .models import Position
 from .polymarket import PolymarketPublicClient, build_market_snapshots, build_wallet_trades, enrich_market_snapshots_with_orderbooks
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
+from .wallet_discovery import WalletDiscoveryPipeline
 from .wallets import load_wallet_trades
 
 TRUSTED_POSITION_STATUSES = {"filled", "matched", "success", "submitted"}
@@ -28,7 +30,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_discovery_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="PredictCel wallet discovery reports")
+    parser.add_argument("discover-wallets")
+    parser.add_argument("--config", required=True, help="Path to config JSON file")
+    parser.add_argument("--output-dir", default="data", help="Directory for discovery JSON reports")
+    return parser
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "discover-wallets":
+        _run_wallet_discovery()
+        return
+
     args = build_parser().parse_args()
     config = load_config(args.config)
     use_live_data = bool(args.live_data or (config.live_data and config.live_data.enabled))
@@ -93,6 +107,13 @@ def main() -> None:
         "close_results": [result.__dict__ for result in close_results],
         "open_positions": [pos.__dict__ for pos in open_positions],
     }, indent=2, default=str))
+
+
+def _run_wallet_discovery() -> None:
+    args = build_discovery_parser().parse_args()
+    config = load_config(args.config)
+    files = WalletDiscoveryPipeline(config).write_reports(args.output_dir)
+    print(json.dumps({"mode": "wallet_discovery", "reports": files}, indent=2))
 
 
 def _persist_execution_side_effects(store: SignalStore, config: Any, execution_results: list) -> None:
