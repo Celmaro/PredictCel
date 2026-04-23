@@ -40,7 +40,13 @@
     },
     {
       "topic": "sports",
-      "wallets": ["sports_sharp_1", "sports_sharp_2", "sports_sharp_3"],
+      "wallets": [
+        "0x861ae65ad67b06b5cdabe24ba6de052269221f15",
+        "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
+        "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
+        "0xa8e089ade142c95538e06196e09c85681112ad50",
+        "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0"
+      ],
       "quorum_ratio": 0.66
     }
   ],
