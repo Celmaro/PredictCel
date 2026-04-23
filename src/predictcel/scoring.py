@@ -69,17 +69,23 @@ def compute_copyability_score(
     average_age_seconds: float,
     drift: float,
     liquidity_usd: float,
+    side_spread: float,
+    side_depth_usd: float,
     filters: FilterConfig,
 ) -> float:
     freshness_score = max(0.0, 1.0 - (average_age_seconds / filters.max_trade_age_seconds))
     drift_score = max(0.0, 1.0 - (drift / filters.max_price_drift)) if filters.max_price_drift else 0.0
     liquidity_score = min(liquidity_usd / (filters.min_liquidity_usd * 3), 1.0) if filters.min_liquidity_usd else 0.0
+    spread_score = max(0.0, 1.0 - (side_spread / 0.1))
+    depth_score = min(side_depth_usd / max(filters.min_position_size_usd, 1.0), 1.0)
 
     score = (
-        consensus_ratio * 0.35
-        + wallet_quality_score * 0.3
+        consensus_ratio * 0.3
+        + wallet_quality_score * 0.25
         + freshness_score * 0.15
         + drift_score * 0.1
-        + liquidity_score * 0.1
+        + liquidity_score * 0.08
+        + spread_score * 0.07
+        + depth_score * 0.05
     )
     return round(score, 4)
