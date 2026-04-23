@@ -196,7 +196,9 @@
         "0x16b29c50f2439faf627209b2ac0c7bbddaa8a881",
         "0x02227b8f5a9636e895607edd3185ed6ee5598ff7",
         "0xd38b71f3e8ed1af71983e5c309eac3dfa9b35029",
-        "0x9d84ce0306f8551e02efef1680475fc0f1dc1344"
+        "0x9d84ce0306f8551e02efef1680475fc0f1dc1344",
+        "0x37c1874a60d348903594a96703e0507c518fc53a",
+        "0x07bdcabf60da99be8fad11092bf4e8412cffe993"
       ],
       "quorum_ratio": 0.2,
       "note": "War, Ukraine, Russia, Iran, Israel, NATO, Taiwan"
@@ -232,7 +234,8 @@
         "0x8119010a6e589062aa03583bb3f39ca632d9f887",
         "0xee613b3fc183ee44f9da9c05f53e2da107e3debf",
         "0x94a428cfa4f84b264e01f70d93d02bc96cb36356",
-        "0x2bf64b86b64c315d879571b07a3b76629e467cd0"
+        "0x2bf64b86b64c315d879571b07a3b76629e467cd0",
+        "0xc8075693f48668a264b9fa313b47f52712fcc12b"
       ],
       "quorum_ratio": 0.2,
       "note": "Trump approval, impeachment, pardon, admin decisions"
@@ -296,7 +299,29 @@
         "0x23786fdad0073692157c6d7dc81f281843a35fcb",
         "0xdb27bf2ac5d428a9c63dbc914611036855a6c56e",
         "0x006cc834cc092684f1b56626e23bedb3835c16ea",
-        "0x7fb7ad0d194d7123e711e7db6c9d418fac14e33d"
+        "0x7fb7ad0d194d7123e711e7db6c9d418fac14e33d",
+        "0xc6474ca778dde50b2f2d8074b8ea914a54b75e87",
+        "0x11dc2b4145b0497fcbdd70599dd61513efa51502",
+        "0x9b95638015b4adaa7f4f7435b0f5816b687f6c4a",
+        "0x6e9443babf02148408bbd05413f9ea6aba2b9b29",
+        "0x2d3a2efa0516f700165b10561d90fa5a77287d4a",
+        "0xbf289b9f2b78a6f83d222fec98209339f5d78f93",
+        "0xf613d20d8ede6f4705a1288e6d2f668b1c78b2d4",
+        "0xae94949d4778af469e631a92383fd2eac615af2c",
+        "0x4705408c791455edffc66782d4cea30c17afd03e",
+        "0x8e64bf9ddbe4f0a98693f64c6c826761a4c317e4",
+        "0x65a7e6303e0a625b15a6001524c334d31dec8060",
+        "0x3e6d998a25793c1d0ca5b59d7d7ac7f8d0132671",
+        "0xdb7e93cd4668dda1b73abb2acd1687a88173b4c7",
+        "0x01a9160c6a2aa8591a11a88badbc505e824575dd",
+        "0x71bf7564bdae113a21e2116d471cbcb5619495de",
+        "0xd9d65d9b4d41c9bbd77b332009a6d849b886b245",
+        "0xcdf79098337926ce014ac680d98cc9728439824e",
+        "0x27f041f8786c43281c853623dade7fdbf7ffe9e6",
+        "0x5b69fe7048a533847b4e3abe1b9eea261a91a6af",
+        "0xa67d00591c8f609e69d39dcd1503a771fb3c85c6",
+        "0x3f3b427368f7cc3f9560c57cdedce6fa18fe3a4c",
+        "0x5bc331ff6a2f3a679f0c98cca0d92cdda5c47a59"
       ],
       "quorum_ratio": 0.2,
       "note": "BTC/ETH/SOL short-term up-or-down"
@@ -347,7 +372,12 @@
         "0xdbade4c82fb72780a0db9a38f821d8671aba9c95",
         "0xf5fe759cece500f58a431ef8dacea321f6e3e23d",
         "0x0562c423912e325f83fa79df55085979e1f5594f",
-        "0xc2e7800b5af46e6093872b177b7a5e7f0563be51"
+        "0xc2e7800b5af46e6093872b177b7a5e7f0563be51",
+        "0x50b1db131a24a9d9450bbd0372a95d32ea88f076",
+        "0x36a3f17401e395ef4cb1b7f42bcdb8ab8e15fafb",
+        "0x777d9f00c2b4f7b829c9de0049ca3e707db05143",
+        "0xf195721ad850377c96cd634457c70cd9e8308057",
+        "0x59a0744db1f39ff3afccd175f80e6e8dfc239a09"
       ],
       "quorum_ratio": 0.2,
       "note": "NBA, NFL, MLB, UFC, Super Bowl"
@@ -375,7 +405,9 @@
         "0x7e0be268f8b4f39e8a12c57daff3b0ef5dc92f74",
         "0x267336b05a82e14dc5f2b1ae94ac38ad9f93e5d8",
         "0x1b8cad78a3b8e59f6dc24f57eabef2c5de49f73a",
-        "0x3b5c629f114098b0dee345fb78b7a3a013c7126e"
+        "0x3b5c629f114098b0dee345fb78b7a3a013c7126e",
+        "0x9f2fe025f84839ca81dd8e0338892605702d2ca8",
+        "0xa5ea13a81d2b7e8e424b182bdc1db08e756bd96a"
       ],
       "quorum_ratio": 0.2,
       "note": "CS2, Valorant, Dota, League of Legends, F1"
@@ -439,6 +471,38 @@
       ],
       "quorum_ratio": 0.2,
       "note": "OpenAI, Nvidia, Meta, Apple, AI stocks"
+    },
+    {
+      "topic": "entertainment",
+      "wallets": [
+        "0x192f5dada45fead2cf48cccea130a52b8d31639c",
+        "0xf524bfb554fc488324dafe01ce36178156c38178"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "Oscars, Grammy, Emmy, celebrity events, pop culture, viral moments"
+    },
+    {
+      "topic": "science",
+      "wallets": [
+        "0xcd91a549956854fdc38efad7e80ff5da8f5432b8",
+        "0x99c97ff0da44d5aab0d3bd59d5ea0c524fb24c22",
+        "0x36901eb0f21519cc9055662a6d2483e96da1e16f",
+        "0x91aa4d41bf886e073d9cf772fee77c8367d90209",
+        "0xffd87246e85ec478d221ade469c3c19ed3be1a4d"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "AI model races, space missions, medical breakthroughs, climate tech"
+    },
+    {
+      "topic": "degen",
+      "wallets": [
+        "0xbc13c7d56f6144af394335ab837d28167b1b5578",
+        "0x632378d502d023faa01dfd94997c529e516329ed",
+        "0x3f084183bd7135768605c7525ea3d94a39a6e919",
+        "0x0f15bca68d73e79fda8ad13794861c6644ce0ce5"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "Short-term volatile markets, meme/trending topics, obscure events"
     }
   ],
   "filters": {
