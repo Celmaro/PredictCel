@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 
 from .config import FilterConfig
@@ -7,8 +8,9 @@ from .models import MarketSnapshot, WalletQuality, WalletTrade
 
 
 class WalletQualityScorer:
-    def __init__(self, filters: FilterConfig) -> None:
+    def __init__(self, filters: FilterConfig, recency_half_life_seconds: int | None = None) -> None:
         self.filters = filters
+        self.recency_half_life_seconds = recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1)
 
     def score(self, trades: list[WalletTrade], markets: dict[str, MarketSnapshot]) -> dict[str, WalletQuality]:
         grouped: dict[str, list[WalletTrade]] = defaultdict(list)
@@ -26,7 +28,7 @@ class WalletQualityScorer:
             drifts = [self._trade_drift(trade, markets[trade.market_id]) for trade in eligible if trade.market_id in markets]
             average_drift = sum(drifts) / len(drifts) if drifts else self.filters.max_price_drift
 
-            freshness_score = max(0.0, 1.0 - (average_age / self.filters.max_trade_age_seconds))
+            freshness_score = freshness_decay(average_age, self.recency_half_life_seconds)
             drift_score = max(0.0, 1.0 - (average_drift / self.filters.max_price_drift)) if self.filters.max_price_drift else 0.0
             sample_score = min(len(eligible) / 5.0, 1.0)
             quality_score = round((freshness_score * 0.35) + (drift_score * 0.4) + (sample_score * 0.25), 4)
@@ -38,7 +40,7 @@ class WalletQualityScorer:
                 eligible_trade_count=len(eligible),
                 average_age_seconds=average_age,
                 average_drift=average_drift,
-                reason="freshness, drift discipline, and sample size",
+                reason="exponential freshness, drift discipline, and sample size",
             )
         return scores
 
@@ -63,6 +65,12 @@ class WalletQualityScorer:
         return abs(current_price - trade.price)
 
 
+def freshness_decay(age_seconds: float, half_life_seconds: int | float) -> float:
+    if half_life_seconds <= 0:
+        return 0.0
+    return max(0.0, min(1.0, math.exp(-math.log(2) * max(age_seconds, 0.0) / half_life_seconds)))
+
+
 def compute_copyability_score(
     consensus_ratio: float,
     wallet_quality_score: float,
@@ -72,8 +80,9 @@ def compute_copyability_score(
     side_spread: float,
     side_depth_usd: float,
     filters: FilterConfig,
+    recency_half_life_seconds: int | None = None,
 ) -> float:
-    freshness_score = max(0.0, 1.0 - (average_age_seconds / filters.max_trade_age_seconds))
+    freshness_score = freshness_decay(average_age_seconds, recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1))
     drift_score = max(0.0, 1.0 - (drift / filters.max_price_drift)) if filters.max_price_drift else 0.0
     liquidity_score = min(liquidity_usd / (filters.min_liquidity_usd * 3), 1.0) if filters.min_liquidity_usd else 0.0
     spread_score = max(0.0, 1.0 - (side_spread / 0.1))
