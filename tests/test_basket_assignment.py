@@ -57,7 +57,7 @@ def test_assignment_recommends_matching_baskets() -> None:
     assert assignment.confidence == "HIGH"
 
 
-def test_manager_proposes_add_in_report_only_mode() -> None:
+def test_manager_proposes_add_in_auto_update_mode() -> None:
     config = make_config()
     assignment = BasketAssignmentEngine(config.wallet_discovery).assign(make_candidate())
 
@@ -65,7 +65,7 @@ def test_manager_proposes_add_in_report_only_mode() -> None:
 
     assert actions[0].action == "add"
     assert actions[0].basket == "sports"
-    assert "manual approval" in actions[0].reason
+    assert "auto-update" in actions[0].reason
 
 
 def test_manager_observes_low_score_assignment() -> None:
