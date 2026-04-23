@@ -40,6 +40,19 @@ class LiveDataConfig:
 
 
 @dataclass(frozen=True)
+class ExecutionConfig:
+    enabled: bool
+    dry_run: bool
+    min_copyability_score: float
+    max_orders_per_run: int
+    buy_amount_usd: float
+    worst_price_buffer: float
+    order_type: str
+    chain_id: int
+    signature_type: int
+
+
+@dataclass(frozen=True)
 class AppConfig:
     baskets: list[BasketRule]
     filters: FilterConfig
@@ -47,6 +60,7 @@ class AppConfig:
     wallet_trades_path: str
     market_snapshots_path: str
     live_data: LiveDataConfig | None
+    execution: ExecutionConfig | None
 
 
 class ConfigError(ValueError):
@@ -68,6 +82,8 @@ def load_config(path: str | Path) -> AppConfig:
     arbitrage = ArbitrageConfig(**payload["arbitrage"])
     live_data_payload = payload.get("live_data")
     live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
+    execution_payload = payload.get("execution")
+    execution = ExecutionConfig(**execution_payload) if execution_payload else None
 
     if not baskets:
         raise ConfigError("At least one basket is required.")
@@ -93,6 +109,20 @@ def load_config(path: str | Path) -> AppConfig:
         if live_data.request_timeout_seconds <= 0:
             raise ConfigError("request_timeout_seconds must be positive.")
 
+    if execution is not None:
+        if not 0 <= execution.min_copyability_score <= 1:
+            raise ConfigError("min_copyability_score must be between 0 and 1.")
+        if execution.max_orders_per_run <= 0:
+            raise ConfigError("max_orders_per_run must be positive.")
+        if execution.buy_amount_usd <= 0:
+            raise ConfigError("buy_amount_usd must be positive.")
+        if not 0 <= execution.worst_price_buffer <= 1:
+            raise ConfigError("worst_price_buffer must be between 0 and 1.")
+        if execution.order_type.upper() not in {"FOK", "FAK"}:
+            raise ConfigError("execution order_type must be FOK or FAK.")
+        if execution.signature_type not in {0, 1, 2}:
+            raise ConfigError("signature_type must be 0, 1, or 2.")
+
     return AppConfig(
         baskets=baskets,
         filters=filters,
@@ -100,4 +130,5 @@ def load_config(path: str | Path) -> AppConfig:
         wallet_trades_path=payload["wallet_trades_path"],
         market_snapshots_path=payload["market_snapshots_path"],
         live_data=live_data,
+        execution=execution,
     )
