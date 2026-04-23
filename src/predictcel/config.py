@@ -47,6 +47,12 @@ class PositionConfig:
 
 
 @dataclass(frozen=True)
+class ExposureConfig:
+    max_total_exposure_usd: float
+    max_single_position_usd: float
+
+
+@dataclass(frozen=True)
 class ExecutionConfig:
     enabled: bool
     dry_run: bool
@@ -58,6 +64,9 @@ class ExecutionConfig:
     chain_id: int
     signature_type: int
     position: PositionConfig
+    exposure: ExposureConfig | None
+    max_retries: int
+    retry_base_delay_seconds: float
 
 
 @dataclass(frozen=True)
@@ -137,6 +146,15 @@ def load_config(path: str | Path) -> AppConfig:
             raise ConfigError("stop_loss_pct must be non-negative.")
         if pc.max_hold_minutes < 0:
             raise ConfigError("max_hold_minutes must be non-negative.")
+        if execution.max_retries < 0:
+            raise ConfigError("max_retries must be non-negative.")
+        if execution.retry_base_delay_seconds <= 0:
+            raise ConfigError("retry_base_delay_seconds must be positive.")
+        if execution.exposure is not None:
+            if execution.exposure.max_total_exposure_usd < 0:
+                raise ConfigError("max_total_exposure_usd must be non-negative.")
+            if execution.exposure.max_single_position_usd < 0:
+                raise ConfigError("max_single_position_usd must be non-negative.")
 
     return AppConfig(
         baskets=baskets,
@@ -156,6 +174,11 @@ def _build_execution_config(payload: dict) -> ExecutionConfig:
         stop_loss_pct=float(position_payload.get("stop_loss_pct", 0.0)),
         max_hold_minutes=int(position_payload.get("max_hold_minutes", 0)),
     )
+    exposure_payload = payload.get("exposure")
+    exposure_config = ExposureConfig(
+        max_total_exposure_usd=float(exposure_payload.get("max_total_exposure_usd", 0.0)) if exposure_payload else 0.0,
+        max_single_position_usd=float(exposure_payload.get("max_single_position_usd", 0.0)) if exposure_payload else 0.0,
+    ) if exposure_payload else None
     return ExecutionConfig(
         enabled=payload["enabled"],
         dry_run=payload["dry_run"],
@@ -167,4 +190,7 @@ def _build_execution_config(payload: dict) -> ExecutionConfig:
         chain_id=int(payload["chain_id"]),
         signature_type=int(payload["signature_type"]),
         position=position_config,
+        exposure=exposure_config,
+        max_retries=int(payload.get("max_retries", 3)),
+        retry_base_delay_seconds=float(payload.get("retry_base_delay_seconds", 1.0)),
     )
