@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from typing import Any
 
@@ -43,14 +45,27 @@ def main() -> None:
         _run_wallet_discovery(sys.argv[2:])
         return
 
+    cycle_started = time.perf_counter()
+    timings: dict[str, int] = {}
     args = build_parser().parse_args()
     config = load_config(args.config)
     use_live_data = bool(args.live_data or (config.live_data and config.live_data.enabled))
-    trades, markets = _load_live_inputs(config) if use_live_data else (load_wallet_trades(config.wallet_trades_path), load_market_snapshots(config.market_snapshots_path))
 
-    wallet_qualities = WalletQualityScorer(config.filters).score(trades, markets)
+    started = time.perf_counter()
+    trades, markets = _load_live_inputs(config) if use_live_data else (load_wallet_trades(config.wallet_trades_path), load_market_snapshots(config.market_snapshots_path))
+    timings["input_load_ms"] = _elapsed_ms(started)
+
+    started = time.perf_counter()
+    wallet_qualities = WalletQualityScorer(config.filters, config.consensus.recency_half_life_seconds).score(trades, markets)
+    timings["wallet_scoring_ms"] = _elapsed_ms(started)
+
+    started = time.perf_counter()
     copy_candidates = CopyEngine(config).evaluate(trades, markets, wallet_qualities)
+    timings["copy_engine_ms"] = _elapsed_ms(started)
+
+    started = time.perf_counter()
     arbitrage_opportunities = ArbitrageSidecar(config.arbitrage).scan(markets)
+    timings["arbitrage_scan_ms"] = _elapsed_ms(started)
 
     execution_intents: list = []
     execution_results: list = []
@@ -59,6 +74,7 @@ def main() -> None:
     skipped_duplicate_signals = 0
     store = SignalStore(args.db)
 
+    started = time.perf_counter()
     if args.live_trading:
         if config.execution is None or not config.execution.enabled:
             raise ValueError("--live-trading was requested but execution is not enabled in config.")
@@ -76,11 +92,16 @@ def main() -> None:
         execution_intents = ExecutionPlanner(config.execution, config.execution.position).plan(fresh_candidates, markets, store.get_held_market_ids(), current_exposure_usd)
         execution_results = LiveOrderExecutor(config.execution, config.live_data).execute(execution_intents)
         _persist_execution_side_effects(store, config, execution_results)
+    timings["execution_ms"] = _elapsed_ms(started)
 
+    started = time.perf_counter()
     store.save_copy_candidates(copy_candidates)
     store.save_arbitrage_opportunities(arbitrage_opportunities)
     store.save_execution_results(execution_results + close_results)
     open_positions = store.get_open_positions()
+    timings["storage_ms"] = _elapsed_ms(started)
+    timings["total_cycle_ms"] = _elapsed_ms(cycle_started)
+
     summary = {
         "markets_loaded": len(markets),
         "wallet_trades_loaded": len(trades),
@@ -94,9 +115,10 @@ def main() -> None:
         "close_results": len(close_results),
         "open_positions": len(open_positions),
     }
-    print(json.dumps({
+    output = {
         "mode": "live" if use_live_data else "file",
         "summary": summary,
+        "latency_ms": timings,
         "portfolio_summary": _portfolio_summary(store, config),
         "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
@@ -106,14 +128,17 @@ def main() -> None:
         "close_intents": intents_as_dicts(close_intents),
         "close_results": [result.__dict__ for result in close_results],
         "open_positions": [pos.__dict__ for pos in open_positions],
-    }, indent=2, default=str))
+    }
+    _log_event("predictcel_cycle_latency", {"mode": output["mode"], "latency_ms": timings, "summary": summary})
+    print(json.dumps(output, indent=2, default=str))
 
 
 def _run_wallet_discovery(argv: list[str]) -> None:
+    started = time.perf_counter()
     args = build_discovery_parser().parse_args(argv)
     config = load_config(args.config)
     files = WalletDiscoveryPipeline(config).write_reports(args.output_dir, args.config, args.config_output)
-    print(json.dumps({"mode": "wallet_discovery", "reports": files}, indent=2))
+    print(json.dumps({"mode": "wallet_discovery", "reports": files, "latency_ms": {"total_cycle_ms": _elapsed_ms(started)}}, indent=2))
 
 
 def _persist_execution_side_effects(store: SignalStore, config: Any, execution_results: list) -> None:
@@ -138,15 +163,26 @@ def _load_live_inputs(config):
         raise ValueError("--live-data was requested but live_data is not configured.")
     client = PolymarketPublicClient(config.live_data.gamma_base_url, config.live_data.data_base_url, config.live_data.clob_base_url, config.live_data.request_timeout_seconds)
     topic_by_wallet = {wallet: basket.topic for basket in config.baskets for wallet in basket.wallets}
-    wallet_payloads = {}
-    for wallet in topic_by_wallet:
-        try:
-            wallet_payloads[wallet] = client.fetch_wallet_trades(wallet, config.live_data.trade_limit)
-        except Exception:
-            wallet_payloads[wallet] = []
+    wallet_payloads = _fetch_wallet_payloads(client, list(topic_by_wallet), config.live_data.trade_limit)
     trades = build_wallet_trades(wallet_payloads, topic_by_wallet)
     markets = build_market_snapshots(client.fetch_active_markets(config.live_data.market_limit))
     return trades, enrich_market_snapshots_with_orderbooks(markets, client)
+
+
+def _fetch_wallet_payloads(client: PolymarketPublicClient, wallets: list[str], limit: int) -> dict[str, list[dict[str, Any]]]:
+    if not wallets:
+        return {}
+    payloads: dict[str, list[dict[str, Any]]] = {}
+    workers = max(1, min(8, len(wallets)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(client.fetch_wallet_trades, wallet, limit): wallet for wallet in wallets}
+        for future in as_completed(futures):
+            wallet = futures[future]
+            try:
+                payloads[wallet] = future.result()
+            except Exception:
+                payloads[wallet] = []
+    return payloads
 
 
 def _filter_duplicate_candidates(store: SignalStore, candidates: list) -> tuple[list, int]:
@@ -156,6 +192,14 @@ def _filter_duplicate_candidates(store: SignalStore, candidates: list) -> tuple[
 
 def _is_trusted_execution_result(result) -> bool:
     return str(result.status).strip().lower() in TRUSTED_POSITION_STATUSES and bool(str(result.order_id).strip())
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)
+
+
+def _log_event(event: str, payload: dict[str, Any]) -> None:
+    print(json.dumps({"event": event, "ts": datetime.now(UTC).isoformat(), **payload}, sort_keys=True, default=str), flush=True)
 
 
 if __name__ == "__main__":

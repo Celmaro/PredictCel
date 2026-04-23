@@ -34,6 +34,7 @@ Instead, V1 focuses on the alpha layer we actually want to test:
 - scans for simple YES/NO underpricing opportunities
 - can plan live copy orders from top-ranked signals
 - stores signals, duplicate-signal fingerprints, positions, and execution results into SQLite
+- emits per-cycle latency timings for the load, scoring, copy, arbitrage, execution, and storage stages
 
 ## What V1 does not do
 
@@ -72,7 +73,7 @@ It reads:
 - recent wallet trades from the Data API
 - public order books from the CLOB API
 
-It still does not place trades.
+It still does not place trades. Wallet and orderbook reads are fetched with bounded parallelism, and public API retries include jittered exponential backoff.
 
 ```bash
 python -m predictcel.main --config config/predictcel.example.json --db predictcel.db --live-data
@@ -135,7 +136,7 @@ Recommended worker variables:
 - `PREDICTCEL_MODE=live-data` for public Polymarket reads without trading
 - `PREDICTCEL_MODE=dry-run-trading` for live data plus execution planning while `execution.dry_run` remains true
 - `PREDICTCEL_MODE=live-trading` only after credentials, config, and jurisdictional eligibility are verified
-- `PREDICTCEL_RUN_INTERVAL_SECONDS=300`
+- `PREDICTCEL_RUN_INTERVAL_SECONDS=300` for paper mode; omit it for live modes to use the 60 second live default
 - `PREDICTCEL_RUN_ONCE=false`
 - `PREDICTCEL_CONFIG=config/predictcel.example.json`
 - `PREDICTCEL_DB=/data/predictcel.db`
@@ -149,7 +150,7 @@ Live trading variables:
 - `PREDICTCEL_POLY_FUNDER`
 - optional: `PREDICTCEL_POLY_HOST`
 
-The Railway worker catches per-cycle exceptions, logs JSON events, waits for the next interval, and continues. Each normal run prints a compact `summary` object with counts for markets, wallet trades, copy candidates, duplicate skips, execution intents, and open positions.
+The Railway worker catches per-cycle exceptions, logs JSON events, waits for the next interval, and continues. Each normal run prints a compact `summary` object with counts for markets, wallet trades, copy candidates, duplicate skips, execution intents, and open positions, plus a `latency_ms` object for stage-level timing.
 
 ## Project layout
 
@@ -174,14 +175,14 @@ The Railway worker catches per-cycle exceptions, logs JSON events, waits for the
 ## Notes on scoring
 
 Wallet quality is currently based on:
-- freshness of recent trades
+- exponential freshness decay using `consensus.recency_half_life_seconds`
 - drift discipline versus current market pricing proxy
 - sample size of eligible recent trades
 
 Copyability score is currently based on:
 - basket consensus ratio
 - average source wallet quality
-- freshness of aligned trades
+- exponential freshness decay using `consensus.recency_half_life_seconds`
 - drift from reference entry
 - available market liquidity
 - side-specific spread from the public order book

@@ -1,6 +1,6 @@
 from predictcel.config import FilterConfig
 from predictcel.models import MarketSnapshot, WalletTrade
-from predictcel.scoring import WalletQualityScorer, compute_copyability_score
+from predictcel.scoring import WalletQualityScorer, compute_copyability_score, freshness_decay
 
 
 def make_filters() -> FilterConfig:
@@ -38,6 +38,7 @@ def test_wallet_quality_scores_eligible_wallet() -> None:
     assert "w1" in scores
     assert scores["w1"].score > 0
     assert scores["w1"].eligible_trade_count == 2
+    assert "exponential freshness" in scores["w1"].reason
 
 
 def test_compute_copyability_score_rewards_better_inputs() -> None:
@@ -64,3 +65,9 @@ def test_compute_copyability_score_rewards_better_inputs() -> None:
     )
 
     assert strong > weak
+
+
+def test_freshness_decay_uses_true_half_life() -> None:
+    assert freshness_decay(0, 1800) == 1.0
+    assert round(freshness_decay(1800, 1800), 4) == 0.5
+    assert round(freshness_decay(3600, 1800), 4) == 0.25

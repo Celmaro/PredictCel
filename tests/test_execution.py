@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from predictcel.config import ExecutionConfig, ExposureConfig, LiveDataConfig, PositionConfig
-from predictcel.execution import ExecutionPlanner, ExitRunner, LiveOrderExecutor
+from predictcel.execution import ExecutionPlanner, ExitRunner, LiveOrderExecutor, retry_delay
 from predictcel.models import CopyCandidate, ExecutionIntent, MarketSnapshot, Position
 
 
@@ -310,3 +310,9 @@ def test_live_executor_dry_run_preserves_close_side() -> None:
 
     assert results[0].side == "CLOSE"
     assert results[0].status == "dry_run"
+
+
+def test_retry_delay_adds_bounded_jitter() -> None:
+    for _ in range(20):
+        delay = retry_delay(1.0, 2)
+        assert 2.0 <= delay <= 6.0

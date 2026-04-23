@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import random
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -58,7 +60,7 @@ class PolymarketPublicClient:
             except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
                 if attempt >= self.max_retries - 1:
                     raise
-                time.sleep(self.retry_base_delay_seconds * (2 ** attempt))
+                time.sleep(_retry_delay(self.retry_base_delay_seconds, attempt))
         return None
 
 
@@ -74,39 +76,50 @@ def build_market_snapshots(items: list[dict[str, Any]]) -> dict[str, MarketSnaps
 def enrich_market_snapshots_with_orderbooks(
     snapshots: dict[str, MarketSnapshot],
     client: PolymarketPublicClient,
+    max_workers: int = 8,
 ) -> dict[str, MarketSnapshot]:
+    if not snapshots:
+        return {}
+
     enriched: dict[str, MarketSnapshot] = {}
-    for market_id, snapshot in snapshots.items():
-        try:
-            yes_book = client.fetch_order_book(snapshot.yes_token_id) if snapshot.yes_token_id else {}
-            no_book = client.fetch_order_book(snapshot.no_token_id) if snapshot.no_token_id else {}
-        except Exception:
-            enriched[market_id] = snapshot
-            continue
-
-        yes_bid = _book_best_price(yes_book, "bids")
-        no_bid = _book_best_price(no_book, "bids")
-        yes_ask = _book_best_price(yes_book, "asks") or snapshot.yes_ask
-        no_ask = _book_best_price(no_book, "asks") or snapshot.no_ask
-        yes_ask_size = _book_best_size(yes_book, "asks")
-        no_ask_size = _book_best_size(no_book, "asks")
-        yes_spread = round(max(yes_ask - yes_bid, 0.0), 4) if yes_ask and yes_bid else 0.0
-        no_spread = round(max(no_ask - no_bid, 0.0), 4) if no_ask and no_bid else 0.0
-
-        enriched[market_id] = replace(
-            snapshot,
-            yes_ask=yes_ask,
-            no_ask=no_ask,
-            best_bid=max(yes_bid, no_bid, snapshot.best_bid),
-            yes_bid=yes_bid,
-            no_bid=no_bid,
-            yes_ask_size=yes_ask_size,
-            no_ask_size=no_ask_size,
-            yes_spread=yes_spread,
-            no_spread=no_spread,
-            orderbook_ready=bool(yes_book or no_book),
-        )
+    workers = max(1, min(max_workers, len(snapshots)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_enrich_one_snapshot, snapshot, client): market_id for market_id, snapshot in snapshots.items()}
+        for future in as_completed(futures):
+            market_id = futures[future]
+            try:
+                enriched[market_id] = future.result()
+            except Exception:
+                enriched[market_id] = snapshots[market_id]
     return enriched
+
+
+def _enrich_one_snapshot(snapshot: MarketSnapshot, client: PolymarketPublicClient) -> MarketSnapshot:
+    yes_book = client.fetch_order_book(snapshot.yes_token_id) if snapshot.yes_token_id else {}
+    no_book = client.fetch_order_book(snapshot.no_token_id) if snapshot.no_token_id else {}
+
+    yes_bid = _book_best_price(yes_book, "bids")
+    no_bid = _book_best_price(no_book, "bids")
+    yes_ask = _book_best_price(yes_book, "asks") or snapshot.yes_ask
+    no_ask = _book_best_price(no_book, "asks") or snapshot.no_ask
+    yes_ask_size = _book_best_size(yes_book, "asks")
+    no_ask_size = _book_best_size(no_book, "asks")
+    yes_spread = round(max(yes_ask - yes_bid, 0.0), 4) if yes_ask and yes_bid else 0.0
+    no_spread = round(max(no_ask - no_bid, 0.0), 4) if no_ask and no_bid else 0.0
+
+    return replace(
+        snapshot,
+        yes_ask=yes_ask,
+        no_ask=no_ask,
+        best_bid=max(yes_bid, no_bid, snapshot.best_bid),
+        yes_bid=yes_bid,
+        no_bid=no_bid,
+        yes_ask_size=yes_ask_size,
+        no_ask_size=no_ask_size,
+        yes_spread=yes_spread,
+        no_spread=no_spread,
+        orderbook_ready=bool(yes_book or no_book),
+    )
 
 
 def build_wallet_trades(
@@ -292,3 +305,7 @@ def _parse_datetime(value: Any) -> datetime:
         normalized = value.replace("Z", "+00:00")
         return datetime.fromisoformat(normalized).astimezone(UTC)
     raise ValueError("Unsupported datetime value")
+
+
+def _retry_delay(base_delay: float, attempt: int) -> float:
+    return base_delay * (2 ** attempt) * random.uniform(0.5, 1.5)
