@@ -63,9 +63,32 @@ class PolymarketPublicClient:
         return _extract_list(payload)[:limit]
 
     def fetch_wallet_trades(self, wallet: str, limit: int) -> list[dict[str, Any]]:
-        query = urlencode({"user": wallet, "limit": limit})
-        payload = self._get_json(f"{self.data_base_url}/trades?{query}")
-        return _extract_list(payload)
+        request_variants = [
+            (f"{self.data_base_url}/trades", {"user": wallet, "limit": limit}),
+            (f"{self.data_base_url}/trades", {"address": wallet, "limit": limit}),
+            (f"{self.data_base_url}/activity", {"user": wallet, "limit": limit}),
+            (f"{self.data_base_url}/activity", {"address": wallet, "limit": limit}),
+            (f"{self.data_base_url}/v1/trades", {"user": wallet, "limit": limit}),
+            (f"{self.data_base_url}/v1/trades", {"address": wallet, "limit": limit}),
+        ]
+        best_rows: list[dict[str, Any]] = []
+        for base_url, params in request_variants:
+            query = urlencode(params)
+            try:
+                payload = self._get_json(f"{base_url}?{query}")
+            except Exception:
+                continue
+            rows = _extract_list(payload)
+            if not rows:
+                continue
+            normalized = [_flatten_trade_payload(item) for item in rows]
+            if _count_trade_items_with_ids(normalized) > _count_trade_items_with_ids(best_rows):
+                best_rows = normalized
+            elif len(normalized) > len(best_rows):
+                best_rows = normalized
+            if _count_trade_items_with_ids(best_rows) >= min(limit, len(best_rows)):
+                break
+        return best_rows[:limit]
 
     def fetch_order_book(self, token_id: str) -> dict[str, Any]:
         query = urlencode({"token_id": token_id})
@@ -239,11 +262,25 @@ def wallet_trade_from_data(
     if not market_id or side not in {"YES", "NO"}:
         return None
 
-    timestamp = item.get("timestamp") or item.get("createdAt") or item.get("created_at")
+    timestamp = (
+        item.get("timestamp")
+        or item.get("createdAt")
+        or item.get("created_at")
+        or item.get("timeStamp")
+        or item.get("updatedAt")
+    )
     age_seconds = _age_seconds(timestamp, now)
 
-    price = float(item.get("price") or 0.0)
-    size_usd = float(item.get("size") or item.get("sizeUsd") or item.get("amount") or 0.0)
+    price = float(item.get("price") or item.get("matchedPrice") or item.get("avgPrice") or item.get("lastPrice") or 0.0)
+    size_usd = float(
+        item.get("size")
+        or item.get("sizeUsd")
+        or item.get("usdc_size")
+        or item.get("amount")
+        or item.get("amountUsd")
+        or item.get("notional")
+        or 0.0
+    )
 
     return WalletTrade(
         wallet=wallet,
@@ -260,7 +297,7 @@ def _extract_list(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
     if isinstance(payload, dict):
-        for key in ("data", "markets", "trades", "users", "leaderboard", "results"):
+        for key in ("data", "markets", "trades", "users", "leaderboard", "results", "history", "activity"):
             value = payload.get(key)
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
@@ -268,7 +305,22 @@ def _extract_list(payload: Any) -> list[dict[str, Any]]:
 
 
 def _trade_market_id(item: dict[str, Any]) -> str:
-    for key in ("conditionId", "condition_id", "conditionID", "condition", "market_id", "marketId", "market"):
+    for key in (
+        "conditionId",
+        "condition_id",
+        "conditionID",
+        "condition",
+        "market_id",
+        "marketId",
+        "market",
+        "asset",
+        "asset_id",
+        "tokenID",
+        "tokenId",
+        "token_id",
+        "clobTokenId",
+        "clob_token_id",
+    ):
         value = item.get(key)
         if value is not None and str(value).strip():
             return str(value).strip()
@@ -301,15 +353,23 @@ def _normalize_topics(value: str | list[str] | tuple[str, ...] | set[str] | None
 
 
 def _trade_side(item: dict[str, Any]) -> str:
-    raw_side = str(item.get("outcome") or item.get("position") or "").upper().strip()
-    if raw_side in {"YES", "NO"}:
-        return raw_side
+    for key in ("outcome", "position", "side", "tradeSide"):
+        raw_value = item.get(key)
+        if raw_value is None:
+            continue
+        raw_side = str(raw_value).upper().strip()
+        if raw_side in {"YES", "NO"}:
+            return raw_side
+        if raw_side in {"BUY_YES", "LONG_YES", "BID_YES"}:
+            return "YES"
+        if raw_side in {"BUY_NO", "LONG_NO", "BID_NO"}:
+            return "NO"
     outcome_index = item.get("outcomeIndex")
     if outcome_index == 0:
         return "YES"
     if outcome_index == 1:
         return "NO"
-    return raw_side
+    return ""
 
 
 def _parse_outcome_prices(value: Any) -> list[float]:
@@ -346,6 +406,31 @@ def _parse_token_ids(item: dict[str, Any]) -> list[str]:
                     result.append(str(token_id))
         return result
     return []
+
+
+def _flatten_trade_payload(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    nested_market = item.get("market")
+    if isinstance(nested_market, dict):
+        for source_key, target_key in (
+            ("conditionId", "conditionId"),
+            ("condition_id", "condition_id"),
+            ("slug", "marketSlug"),
+            ("question", "question"),
+            ("title", "title"),
+        ):
+            if target_key not in normalized and nested_market.get(source_key) is not None:
+                normalized[target_key] = nested_market.get(source_key)
+    nested_asset = item.get("asset")
+    if isinstance(nested_asset, dict):
+        for source_key, target_key in (("id", "asset"), ("tokenId", "tokenId"), ("token_id", "token_id")):
+            if target_key not in normalized and nested_asset.get(source_key) is not None:
+                normalized[target_key] = nested_asset.get(source_key)
+    return normalized
+
+
+def _count_trade_items_with_ids(items: list[dict[str, Any]]) -> int:
+    return sum(1 for item in items if _trade_market_id(item))
 
 
 def _book_best_price(book: dict[str, Any], side: str) -> float:
