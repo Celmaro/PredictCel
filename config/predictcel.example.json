@@ -11,11 +11,11 @@
     "request_timeout_seconds": 15
   },
   "execution": {
-    "enabled": false,
+    "enabled": true,
     "dry_run": true,
     "min_copyability_score": 0.72,
-    "max_orders_per_run": 2,
-    "buy_amount_usd": 25.0,
+    "max_orders_per_run": 1,
+    "buy_amount_usd": 10.0,
     "worst_price_buffer": 0.02,
     "order_type": "FOK",
     "chain_id": 137,
@@ -26,8 +26,8 @@
       "max_hold_minutes": 1440
     },
     "exposure": {
-      "max_total_exposure_usd": 500.0,
-      "max_single_position_usd": 50.0
+      "max_total_exposure_usd": 100.0,
+      "max_single_position_usd": 10.0
     },
     "max_retries": 3,
     "retry_base_delay_seconds": 1.0
@@ -56,7 +56,7 @@
     "min_liquidity_usd": 5000,
     "min_minutes_to_resolution": 60,
     "max_minutes_to_resolution": 1440,
-    "min_position_size_usd": 100
+    "min_position_size_usd": 10
   },
   "arbitrage": {
     "min_gross_edge": 0.02,
