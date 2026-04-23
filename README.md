@@ -16,7 +16,7 @@ The current version is intentionally small and safe:
 Instead, V1 focuses on the alpha layer we actually want to test:
 - topic baskets of source wallets
 - quorum-based consensus signals
-- copyability filters like drift, liquidity, and category match
+- copyability filters like drift, liquidity, category match, and orderbook quality
 - wallet quality ranking from recent behavior
 - deterministic arbitrage detection from market snapshots
 
@@ -66,6 +66,7 @@ This mode uses public Polymarket endpoints only.
 It reads:
 - active markets from Gamma
 - recent wallet trades from the Data API
+- public order books from the CLOB API
 
 It still does not place trades.
 
@@ -81,7 +82,7 @@ To use this meaningfully, replace the example basket wallets in `config/predictc
 - `src/predictcel/models.py` - small dataclasses used by the engines
 - `src/predictcel/markets.py` - file-backed market snapshot loading
 - `src/predictcel/wallets.py` - file-backed wallet trade loading
-- `src/predictcel/polymarket.py` - public Polymarket live ingestion and normalization
+- `src/predictcel/polymarket.py` - public Polymarket live ingestion, token normalization, and orderbook enrichment
 - `src/predictcel/scoring.py` - wallet quality and copyability scoring
 - `src/predictcel/copy_engine.py` - basket-consensus paper signal engine
 - `src/predictcel/arb_sidecar.py` - simple arbitrage scanner
@@ -102,13 +103,16 @@ Copyability score is currently based on:
 - freshness of aligned trades
 - drift from reference entry
 - available market liquidity
+- side-specific spread from the public order book
+- side-specific top-of-book ask depth
 
 These are intentionally simple V1 heuristics. They are meant to rank and filter, not to pretend we already have production alpha.
 
 ## Notes on live mode
 
 The live mode is intentionally approximate and conservative:
-- it uses public market pricing fields as a lightweight proxy for current tradable levels
+- it normalizes `clobTokenIds` from Gamma into YES and NO token identifiers when possible
+- it enriches market snapshots with public CLOB top-of-book data
 - it uses wallet trade history for basket detection only
 - it skips markets whose metadata cannot be normalized safely
 
@@ -117,7 +121,7 @@ This is enough for signal generation and paper-mode evaluation, not enough for r
 ## Next steps
 
 Once the paper engine looks sane, the next layers should be:
-1. real Polymarket adapters for richer market snapshots and order book data
-2. execution-safe live order posting behind an explicit flag
-3. richer basket maintenance and wallet rotation rules
+1. execution-safe live order posting behind an explicit flag
+2. richer basket maintenance and wallet rotation rules
+3. copyability features based on fuller order book depth and spread history
 4. cross-platform sidecars only after the core engine is validated
