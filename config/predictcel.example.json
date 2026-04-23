@@ -36,12 +36,12 @@
     {
       "topic": "geopolitics",
       "wallets": ["alpha_geo", "macro_geo", "slow_geo"],
-      "quorum_ratio": 0.67
+      "quorum_ratio": 0.66
     },
     {
       "topic": "sports",
       "wallets": ["sports_sharp_1", "sports_sharp_2", "sports_sharp_3"],
-      "quorum_ratio": 0.67
+      "quorum_ratio": 0.66
     }
   ],
   "filters": {
