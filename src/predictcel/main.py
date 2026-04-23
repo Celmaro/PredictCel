@@ -56,7 +56,12 @@ def main() -> None:
     timings["input_load_ms"] = _elapsed_ms(started)
 
     started = time.perf_counter()
-    wallet_qualities = WalletQualityScorer(config.filters, config.consensus.recency_half_life_seconds).score(trades, markets)
+    scorer = WalletQualityScorer(config.filters, config.consensus.recency_half_life_seconds)
+    wallet_qualities = scorer.score(trades, markets)
+    scoring_diagnostics = {
+        "rejection_counts": scorer.last_rejection_counts,
+        "wallet_rejection_counts": scorer.last_wallet_rejection_counts,
+    }
     timings["wallet_scoring_ms"] = _elapsed_ms(started)
 
     started = time.perf_counter()
@@ -119,6 +124,7 @@ def main() -> None:
         "mode": "live" if use_live_data else "file",
         "summary": summary,
         "latency_ms": timings,
+        "scoring_diagnostics": scoring_diagnostics,
         "portfolio_summary": _portfolio_summary(store, config),
         "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
@@ -129,7 +135,7 @@ def main() -> None:
         "close_results": [result.__dict__ for result in close_results],
         "open_positions": [pos.__dict__ for pos in open_positions],
     }
-    _log_event("predictcel_cycle_latency", {"mode": output["mode"], "latency_ms": timings, "summary": summary})
+    _log_event("predictcel_cycle_latency", {"mode": output["mode"], "latency_ms": timings, "summary": summary, "scoring_diagnostics": scoring_diagnostics})
     print(json.dumps(output, indent=2, default=str))
 
 
