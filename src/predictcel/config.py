@@ -122,6 +122,7 @@ class ExecutionConfig:
     min_copyability_score: float
     max_orders_per_run: int
     buy_amount_usd: float
+    min_signal_allocation_usd: float
     worst_price_buffer: float
     order_type: str
     chain_id: int
@@ -260,6 +261,10 @@ def load_config(path: str | Path) -> AppConfig:
             raise ConfigError("max_orders_per_run must be positive.")
         if execution.buy_amount_usd <= 0:
             raise ConfigError("buy_amount_usd must be positive.")
+        if execution.min_signal_allocation_usd <= 0:
+            raise ConfigError("min_signal_allocation_usd must be positive.")
+        if execution.min_signal_allocation_usd > execution.buy_amount_usd:
+            raise ConfigError("min_signal_allocation_usd cannot exceed buy_amount_usd.")
         if not 0 <= execution.worst_price_buffer <= 1:
             raise ConfigError("worst_price_buffer must be between 0 and 1.")
         if execution.order_type.upper() not in {"FOK", "FAK"}:
@@ -315,6 +320,7 @@ def _build_execution_config(payload: dict) -> ExecutionConfig:
         min_copyability_score=float(payload["min_copyability_score"]),
         max_orders_per_run=int(payload["max_orders_per_run"]),
         buy_amount_usd=float(payload["buy_amount_usd"]),
+        min_signal_allocation_usd=float(payload.get("min_signal_allocation_usd", min(float(payload["buy_amount_usd"]), 5.0))),
         worst_price_buffer=float(payload["worst_price_buffer"]),
         order_type=payload["order_type"],
         chain_id=int(payload["chain_id"]),
