@@ -219,12 +219,17 @@ def _load_live_inputs(config):
 
     market_ids_after_supplemental = set(markets)
     matched_trade_market_ids = [market_id for market_id in trade_market_ids if market_id in market_ids_after_supplemental]
+    wallets_with_payloads = sum(1 for items in wallet_payloads.values() if items)
+    wallets_with_parsed_trades = len({trade.wallet for trade in trades})
     diagnostics = {
         "requested_wallets": sum(len(basket.wallets) for basket in config.baskets),
         "valid_wallets": len(raw_topic_by_wallet),
         "skipped_invalid_wallets": len(invalid_wallets),
         "sample_skipped_invalid_wallets": invalid_wallets[:5],
         "wallet_payloads_loaded": sum(len(items) for items in wallet_payloads.values()),
+        "wallets_with_payloads": wallets_with_payloads,
+        "wallets_with_parsed_trades": wallets_with_parsed_trades,
+        "parsed_trade_count": len(trades),
         "active_market_rows_loaded": len(active_market_rows),
         "trade_market_ids_seen": len(trade_market_ids),
         "supplemental_market_ids_requested": len(missing_trade_market_ids),
