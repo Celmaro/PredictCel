@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -99,3 +100,21 @@ class ExecutionResult:
     error: str
     copyability_score: float
     reason: str
+
+
+@dataclass(frozen=True)
+class Position:
+    market_id: str
+    topic: str
+    side: str
+    token_id: str
+    entry_price: float
+    entry_amount_usd: float
+    current_price: float
+    unrealized_pnl: float
+    opened_at: datetime
+    last_updated: datetime
+    take_profit_pct: float
+    stop_loss_pct: float
+    max_hold_minutes: int
+    status: str
