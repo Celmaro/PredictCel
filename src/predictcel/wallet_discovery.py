@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -50,7 +51,12 @@ class WalletDiscoveryPipeline:
         actions = self.manager.plan(assignments)
         return candidates, assignments, actions
 
-    def write_reports(self, output_dir: str | Path) -> dict[str, str]:
+    def write_reports(
+        self,
+        output_dir: str | Path,
+        config_path: str | Path | None = None,
+        config_output_path: str | Path | None = None,
+    ) -> dict[str, str]:
         candidates, assignments, actions = self.run()
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -62,7 +68,56 @@ class WalletDiscoveryPipeline:
         self._write_json(files["wallet_discovery_report"], [asdict(item) for item in candidates])
         self._write_json(files["basket_assignments"], [asdict(item) for item in assignments])
         self._write_json(files["basket_manager_plan"], [asdict(item) for item in actions])
+
+        mutation_path = self._write_mutated_config_if_enabled(output_path, actions, config_path, config_output_path)
+        if mutation_path is not None:
+            key = "updated_config" if self.config.wallet_discovery.mode == "auto_update" else "config_proposal"
+            files[key] = mutation_path
         return {name: str(path) for name, path in files.items()}
+
+    def build_mutated_config(self, payload: dict[str, Any], actions: list[BasketManagerAction]) -> dict[str, Any]:
+        updated = deepcopy(payload)
+        baskets = updated.get("baskets")
+        if not isinstance(baskets, list):
+            return updated
+
+        baskets_by_topic = {str(item.get("topic")): item for item in baskets if isinstance(item, dict)}
+        for action in actions:
+            if action.action != "add":
+                continue
+            basket = baskets_by_topic.get(action.basket)
+            if not basket:
+                continue
+            wallets = basket.setdefault("wallets", [])
+            if not isinstance(wallets, list):
+                continue
+            existing = {str(wallet).lower() for wallet in wallets}
+            if action.wallet_address.lower() not in existing:
+                wallets.append(action.wallet_address)
+        return updated
+
+    def _write_mutated_config_if_enabled(
+        self,
+        output_dir: Path,
+        actions: list[BasketManagerAction],
+        config_path: str | Path | None,
+        config_output_path: str | Path | None,
+    ) -> Path | None:
+        mode = self.config.wallet_discovery.mode
+        if mode == "report_only":
+            return None
+        if config_path is None:
+            return None
+
+        source_path = Path(config_path)
+        payload = json.loads(source_path.read_text(encoding="utf-8"))
+        mutated = self.build_mutated_config(payload, actions)
+        if mode == "auto_update":
+            target_path = Path(config_output_path) if config_output_path else source_path
+        else:
+            target_path = Path(config_output_path) if config_output_path else output_dir / "predictcel.proposed.json"
+        self._write_json(target_path, mutated)
+        return target_path
 
     def _build_candidate(self, address: str, source: str, trades: list[dict[str, Any]]) -> WalletDiscoveryCandidate:
         profile = classify_wallet_topics(trades, self.config.wallet_discovery.topics)
@@ -107,6 +162,7 @@ class WalletDiscoveryPipeline:
         return {wallet.lower() for basket in self.config.baskets for wallet in basket.wallets}
 
     def _write_json(self, path: Path, payload: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
