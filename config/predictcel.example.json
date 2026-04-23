@@ -34,9 +34,9 @@
   },
   "consensus": {
     "recency_half_life_seconds": 1800,
-    "min_weighted_consensus": 0.6,
+    "min_weighted_consensus": 0.2,
     "confidence_prior_strength": 2.0,
-    "min_confidence_score": 0.5,
+    "min_confidence_score": 0.3,
     "conflict_penalty_weight": 0.25,
     "bankroll_usd": 100.0,
     "kelly_fraction": 0.25,
@@ -119,7 +119,7 @@
         "0x21a31Ee1afc59152d32CF38a2a2952d2aECa921a",
         "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8"
       ],
-      "quorum_ratio": 0.66
+      "quorum_ratio": 0.2
     },
     {
       "topic": "sports",
@@ -130,16 +130,16 @@
         "0xa8e089ade142c95538e06196e09c85681112ad50",
         "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0"
       ],
-      "quorum_ratio": 0.66
+      "quorum_ratio": 0.2
     }
   ],
   "filters": {
-    "max_trade_age_seconds": 14400,
-    "max_price_drift": 0.05,
-    "min_liquidity_usd": 10000,
+    "max_trade_age_seconds": 3600,
+    "max_price_drift": 0.2,
+    "min_liquidity_usd": 1000,
     "min_minutes_to_resolution": 5,
     "max_minutes_to_resolution": 1440,
-    "min_position_size_usd": 10
+    "min_position_size_usd": 5
   },
   "arbitrage": {
     "min_gross_edge": 0.02,
