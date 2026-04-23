@@ -26,6 +26,18 @@ class FilterConfig:
 class ArbitrageConfig:
     min_gross_edge: float
     min_liquidity_usd: float
+    variable_cost_rate: float = 0.0
+    gas_cost_per_tx_usd: float = 0.02
+    settlement_tx_count: int = 2
+    slippage_rate: float = 0.001
+    min_profitable_position_usd: float = 5.0
+    max_position_usd: float = 50.0
+    target_annualized_return: float = 0.10
+    max_annualized_return: float = 10.0
+    edge_weight: float = 0.35
+    liquidity_weight: float = 0.25
+    speed_weight: float = 0.20
+    confidence_weight: float = 0.20
 
 
 @dataclass(frozen=True)
@@ -119,6 +131,24 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError("Resolution window is invalid.")
     if arbitrage.min_gross_edge <= 0:
         raise ConfigError("min_gross_edge must be positive.")
+    if arbitrage.min_liquidity_usd < 0:
+        raise ConfigError("min_liquidity_usd must be non-negative.")
+    if not 0 <= arbitrage.variable_cost_rate <= 1:
+        raise ConfigError("arbitrage variable_cost_rate must be between 0 and 1.")
+    if arbitrage.gas_cost_per_tx_usd < 0:
+        raise ConfigError("arbitrage gas_cost_per_tx_usd must be non-negative.")
+    if arbitrage.settlement_tx_count < 0:
+        raise ConfigError("arbitrage settlement_tx_count must be non-negative.")
+    if not 0 <= arbitrage.slippage_rate <= 1:
+        raise ConfigError("arbitrage slippage_rate must be between 0 and 1.")
+    if arbitrage.min_profitable_position_usd < 0:
+        raise ConfigError("arbitrage min_profitable_position_usd must be non-negative.")
+    if arbitrage.max_position_usd <= 0:
+        raise ConfigError("arbitrage max_position_usd must be positive.")
+    if arbitrage.target_annualized_return < 0:
+        raise ConfigError("arbitrage target_annualized_return must be non-negative.")
+    if arbitrage.max_annualized_return <= 0:
+        raise ConfigError("arbitrage max_annualized_return must be positive.")
 
     if live_data is not None:
         if live_data.market_limit <= 0 or live_data.trade_limit <= 0:
