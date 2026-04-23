@@ -10,6 +10,7 @@ from .config import load_config
 from .copy_engine import CopyEngine
 from .execution import ExecutionPlanner, ExitRunner, LiveOrderExecutor, intents_as_dicts
 from .markets import load_market_snapshots
+from .models import Position
 from .polymarket import (
     PolymarketPublicClient,
     build_market_snapshots,
@@ -62,7 +63,6 @@ def main() -> None:
     execution_results: list = []
     close_intents: list = []
     close_results: list = []
-    open_positions: list = []
     updated_positions: list = []
 
     store = SignalStore(args.db)
@@ -71,8 +71,9 @@ def main() -> None:
         if config.execution is None or not config.execution.enabled:
             raise ValueError("--live-trading was requested but execution is not enabled in config.")
 
-        # Load held market IDs to avoid duplicate entries
+        # Load held market IDs and current total exposure
         held_market_ids = store.get_held_market_ids()
+        current_exposure_usd = store.get_total_exposure()
 
         # --- Exit runner: evaluate and close existing positions ---
         exit_runner = ExitRunner(config.execution, config.live_data)
@@ -91,10 +92,17 @@ def main() -> None:
                     unrealized_pnl=pos.unrealized_pnl,
                     status=pos.status,
                 )
+            # Recompute exposure after closes (closed positions drop to 0 exposure)
+            current_exposure_usd = store.get_total_exposure()
 
-        # --- Entry planner: skip markets that are already held ---
+        # --- Entry planner: enforce exposure cap and skip held markets ---
         planner = ExecutionPlanner(config.execution, config.execution.position)
-        execution_intents = planner.plan(copy_candidates, markets, held_market_ids)
+        execution_intents = planner.plan(
+            copy_candidates,
+            markets,
+            held_market_ids,
+            current_exposure_usd,
+        )
         executor = LiveOrderExecutor(config.execution, config.live_data)
         execution_results = executor.execute(execution_intents)
 
