@@ -45,9 +45,21 @@ class ConsensusConfig:
 
 
 @dataclass(frozen=True)
+class MarketRegimeConfig:
+    enabled: bool = True
+    trend_price_skew: float = 0.15
+    range_price_skew: float = 0.08
+    max_stable_spread: float = 0.06
+    min_depth_usd: float = 50.0
+    trend_bonus: float = 0.05
+    range_bonus: float = 0.02
+    unstable_penalty: float = 0.10
+
+
+@dataclass(frozen=True)
 class WalletDiscoveryConfig:
     enabled: bool = False
-    mode: str = "report_only"
+    mode: str = "auto_update"
     candidate_limit: int = 100
     trade_limit_per_wallet: int = 100
     min_trades: int = 20
@@ -130,6 +142,7 @@ class AppConfig:
     live_data: LiveDataConfig | None
     execution: ExecutionConfig | None
     consensus: ConsensusConfig = ConsensusConfig()
+    market_regime: MarketRegimeConfig = MarketRegimeConfig()
     wallet_discovery: WalletDiscoveryConfig = WalletDiscoveryConfig()
 
 
@@ -151,6 +164,7 @@ def load_config(path: str | Path) -> AppConfig:
     filters = FilterConfig(**payload["filters"])
     arbitrage = ArbitrageConfig(**payload["arbitrage"])
     consensus = ConsensusConfig(**payload.get("consensus", {}))
+    market_regime = MarketRegimeConfig(**payload.get("market_regime", {}))
     wallet_discovery = WalletDiscoveryConfig(**payload.get("wallet_discovery", {}))
     live_data_payload = payload.get("live_data")
     live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
@@ -188,6 +202,16 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError("consensus kelly_fraction must be between 0 and 1.")
     if consensus.max_suggested_position_usd <= 0:
         raise ConfigError("consensus max_suggested_position_usd must be positive.")
+    if not 0 <= market_regime.trend_price_skew <= 0.5:
+        raise ConfigError("market_regime trend_price_skew must be between 0 and 0.5.")
+    if not 0 <= market_regime.range_price_skew <= 0.5:
+        raise ConfigError("market_regime range_price_skew must be between 0 and 0.5.")
+    if market_regime.range_price_skew > market_regime.trend_price_skew:
+        raise ConfigError("market_regime range_price_skew cannot exceed trend_price_skew.")
+    if market_regime.max_stable_spread < 0 or market_regime.min_depth_usd < 0:
+        raise ConfigError("market_regime spread and depth thresholds must be non-negative.")
+    if market_regime.unstable_penalty < 0:
+        raise ConfigError("market_regime unstable_penalty must be non-negative.")
     if wallet_discovery.mode not in {"report_only", "propose_config", "auto_update"}:
         raise ConfigError("wallet_discovery mode must be report_only, propose_config, or auto_update.")
     if wallet_discovery.candidate_limit <= 0 or wallet_discovery.trade_limit_per_wallet <= 0:
@@ -268,6 +292,7 @@ def load_config(path: str | Path) -> AppConfig:
         live_data=live_data,
         execution=execution,
         consensus=consensus,
+        market_regime=market_regime,
         wallet_discovery=wallet_discovery,
     )
 
