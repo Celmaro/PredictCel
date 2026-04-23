@@ -179,7 +179,12 @@
         "0x84ad9c5c547a82ec9a08547b94bd922446e5bfb7",
         "0x93b755e98087635368872bb190bc7eaf7d61bfcd",
         "0xc40681969b90c1e54527775fa48273a06bef07d9",
-        "0x12ac61f06b37bca05d491bbf35f83481af2c0ca4"
+        "0x12ac61f06b37bca05d491bbf35f83481af2c0ca4",
+        "0x17db3fcd93ba12d38382a0cade24b200185c5f6d",
+        "0xd25c72ac0928385610611c8148803dc717334d20",
+        "0x000d257d2dc7616feaef4ae0f14600fdf50a758e",
+        "0x7f3c8979d0afa00007bae4747d5347122af05613",
+        "0x1986a3e555dd2a334c33c34b0168170cff54ef06"
       ],
       "quorum_ratio": 0.2,
       "note": "War, Ukraine, Russia, Iran, Israel, NATO, Taiwan"
@@ -206,7 +211,11 @@
         "0x8b4410e877fa826c7e986dfb30a5be73d72163fb",
         "0xe777ae99c36fb16206afdeb96f92c3afa96c2cda",
         "0x14eb1b504c6d28103b7f10a0509b06b50dc2910b",
-        "0x6cb6e442305e583b8fe0aeddd7a95f971c66ec83"
+        "0x6cb6e442305e583b8fe0aeddd7a95f971c66ec83",
+        "0x44c1dfe43260c94ed4f1d00de2e1f80fb113ebc1",
+        "0xee50a31c3f5a7c77824b12a941a54388a2827ed6",
+        "0xa9878e59934ab507f9039bcb917c1bae0451141d",
+        "0x0b9cae2b0dfe7a71c413e0604eaac1c352f87e44"
       ],
       "quorum_ratio": 0.2,
       "note": "Trump approval, impeachment, pardon, admin decisions"
@@ -233,7 +242,8 @@
         "0x7e68a0fb4135b31ace54b56d9979e35ec325f49f",
         "0xf6714cd65f19a944fde191ec4ad9effbc2693d1f",
         "0xe8b7023153d625f8d111d3b1b93a672f2418c4db",
-        "0x1c17f1d806926fbb900c59fb3c385fd75c013653"
+        "0x1c17f1d806926fbb900c59fb3c385fd75c013653",
+        "0x31864feb9d25dee93728c6225ba891530967e9ca"
       ],
       "quorum_ratio": 0.2,
       "note": "US elections, Senate, Congress, Biden, polls"
@@ -260,7 +270,10 @@
         "0x6c6aefbdb3fe1a0a7ee3d07277f9e58b76064fd2",
         "0x60889af507ec3f9da136f38b1c58080bec32f361",
         "0xe1d6b51521bd4365769199f392f9818661bd907c",
-        "0x1f19c48aee80ec95396d91f0d21ac249b8a7f57a"
+        "0x1f19c48aee80ec95396d91f0d21ac249b8a7f57a",
+        "0x6bab41a0dc40d6dd4c1a915b8c01969479fd1292",
+        "0x7177a7f5c216809c577c50c77b12aae81f81ddef",
+        "0xcd71fd5370880f3d92bb941e628c05840fe0d127"
       ],
       "quorum_ratio": 0.2,
       "note": "BTC/ETH/SOL short-term up-or-down"
@@ -278,7 +291,8 @@
         "0x17559efac103ac7f361be37ec0b93888d4c55aac",
         "0x50733d0627e4763d7d7e81a69abc345edf6416a7",
         "0xd634c33f7de4aa342c3136ac8b5b36ef390f77ad",
-        "0x1643038efde95846b92b008e2efedca553296ec8"
+        "0x1643038efde95846b92b008e2efedca553296ec8",
+        "0xee767b98e3c9d59a612135a091ea8c8f00ec8fed"
       ],
       "quorum_ratio": 0.2,
       "note": "BTC above targets, long-term crypto"
@@ -305,7 +319,10 @@
         "0x041dd543dac781c204da5ac440c5a95c87c022f8",
         "0x9bd573e9c9d2815bee1a226e1a0ec8377a1a0cd2",
         "0x15885559b62df5bca5df930ca3bc2a5504842529",
-        "0xfe3e63ff74085583791df5145ccc822abb1c70b4"
+        "0xfe3e63ff74085583791df5145ccc822abb1c70b4",
+        "0x507e52ef684ca2dd91f90a9d26d149dd3288beae",
+        "0xdbade4c82fb72780a0db9a38f821d8671aba9c95",
+        "0xf5fe759cece500f58a431ef8dacea321f6e3e23d"
       ],
       "quorum_ratio": 0.2,
       "note": "NBA, NFL, MLB, UFC, Super Bowl"
@@ -332,7 +349,8 @@
         "0x47138dcab06fa1f3e02cf4bb4f1d0c6bf6bb9b72",
         "0x7e0be268f8b4f39e8a12c57daff3b0ef5dc92f74",
         "0x267336b05a82e14dc5f2b1ae94ac38ad9f93e5d8",
-        "0x1b8cad78a3b8e59f6dc24f57eabef2c5de49f73a"
+        "0x1b8cad78a3b8e59f6dc24f57eabef2c5de49f73a",
+        "0x3b5c629f114098b0dee345fb78b7a3a013c7126e"
       ],
       "quorum_ratio": 0.2,
       "note": "CS2, Valorant, Dota, League of Legends, F1"
@@ -359,7 +377,8 @@
         "0xaae1444fc0a0fab93e4825e85b98143cf0854edf",
         "0x50b1e35022933ae620665ce55dbd9785c5e30793",
         "0xe5b29f5da62141c6e20e6a6a99a16585893b21f4",
-        "0xf4c599f3794a3e70019af975807355c8530d36d1"
+        "0xf4c599f3794a3e70019af975807355c8530d36d1",
+        "0x6dad6e29c1879058181b9e0cfd2797d7939f5c37"
       ],
       "quorum_ratio": 0.2,
       "note": "Temperature, weather events"
