@@ -30,6 +30,18 @@ class FakeGammaClient(PolymarketPublicClient):
         return {"markets": [{"conditionId": "cond_1", "outcomePrices": "[0.61, 0.35]"}]}
 
 
+class FakeTradeClient(PolymarketPublicClient):
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+
+    def _get_json(self, url: str):
+        self.urls.append(url)
+        if "user=0xabc" in url and "/trades?" in url:
+            return {"trades": [{"asset": "token_yes", "side": "BUY_YES", "price": "0.54", "sizeUsd": "25", "createdAt": "2025-12-31T23:50:00Z"}]}
+        return {"trades": []}
+
+
 def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None:
     item = {
         "conditionId": "cond_1",
@@ -61,6 +73,15 @@ def test_fetch_active_markets_includes_active_filters() -> None:
     assert "limit=50" in client.urls[0]
     assert "closed=false" in client.urls[0]
     assert "active=true" in client.urls[0]
+
+
+def test_fetch_wallet_trades_accepts_asset_backed_trade_rows() -> None:
+    client = FakeTradeClient()
+
+    rows = client.fetch_wallet_trades("0xabc", 5)
+
+    assert rows[0]["asset"] == "token_yes"
+    assert any("/trades?user=0xabc" in url for url in client.urls)
 
 
 def test_build_market_snapshots_indexes_common_aliases() -> None:
@@ -135,6 +156,25 @@ def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:
     assert trade.age_seconds == 600
 
 
+def test_wallet_trade_from_data_accepts_asset_ids_and_buy_yes_side() -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    item = {
+        "asset": "token_yes",
+        "side": "BUY_YES",
+        "matchedPrice": "0.54",
+        "sizeUsd": "25",
+        "createdAt": "2025-12-31T23:50:00Z",
+    }
+
+    trade = wallet_trade_from_data("wallet_a", "sports", item, now)
+
+    assert trade is not None
+    assert trade.market_id == "token_yes"
+    assert trade.side == "YES"
+    assert trade.price == 0.54
+    assert trade.size_usd == 25.0
+
+
 def test_build_wallet_trades_fans_out_multi_topic_wallets() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     wallet_payloads = {
@@ -154,10 +194,11 @@ def test_extract_trade_market_ids_deduplicates_common_shapes() -> None:
             {"condition_id": "cond_1"},
             {"marketSlug": "ignored"},
             {"market": "market_2"},
+            {"asset": "token_yes"},
         ]
     }
 
-    assert extract_trade_market_ids(payloads) == ["cond_1", "market_2"]
+    assert extract_trade_market_ids(payloads) == ["cond_1", "market_2", "token_yes"]
 
 
 def test_gamma_market_array_filter_uses_repeated_query_params() -> None:
