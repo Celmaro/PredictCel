@@ -3,6 +3,7 @@ __all__ = [
     "models",
     "markets",
     "wallets",
+    "polymarket",
     "copy_engine",
     "arb_sidecar",
     "storage",
