@@ -217,6 +217,22 @@ def _load_live_inputs(config):
         "supplemental_market_rows_loaded": len(supplemental_rows),
         "market_cache_entries": len(markets),
     }
+    # === CAMEL PATCH: market crossref diagnostics ===
+    trade_mids = set()
+    for wp in wallet_payloads.values():
+        for p in wp:
+            if m := p.get("market_id"):
+                trade_mids.add(m)
+    loaded_mids = set(m.id for m in markets.values())
+    matched = trade_mids & loaded_mids
+    diagnostics["market_crossref"] = {
+        "unique_trade_market_ids": len(trade_mids),
+        "loaded_market_count": len(loaded_mids),
+        "matched_count": len(matched),
+        "match_rate_pct": round(len(matched) / len(trade_mids) * 100, 1) if trade_mids else 0,
+    }
+    # === END CAMEL PATCH ===
+
     return trades, enrich_market_snapshots_with_orderbooks(markets, client), diagnostics
 
 

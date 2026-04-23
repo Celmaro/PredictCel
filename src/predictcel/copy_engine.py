@@ -24,19 +24,36 @@ class CopyEngine:
             grouped.setdefault(trade.market_id, []).append(trade)
 
         candidates: list[CopyCandidate] = []
+        # CAMEL PATCH: diagnostic counters (replace silent continue with counting)
+        mkt_not_found = 0
+        basket_not_found = 0
+        eval_filtered = 0
         for market_id, market_trades in grouped.items():
             market = markets.get(market_id)
             if market is None:
+                mkt_not_found += 1
                 continue
 
             topic = self._resolve_topic(market_trades)
             basket = self.baskets_by_topic.get(topic)
             if basket is None:
+                basket_not_found += 1
                 continue
 
             candidate = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities)
             if candidate is not None:
                 candidates.append(candidate)
+            else:
+                eval_filtered += 1
+
+        # CAMEL PATCH: expose diagnostics
+        self._eval_diagnostics = {
+            "markets_evaluated": len(grouped),
+            "market_not_found": mkt_not_found,
+            "basket_not_found": basket_not_found,
+            "filtered_at_evaluate": eval_filtered,
+            "candidates_returned": len(candidates),
+        }
         return candidates
 
     def _resolve_topic(self, trades: list[WalletTrade]) -> str:

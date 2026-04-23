@@ -7,7 +7,7 @@
     "data_base_url": "https://data-api.polymarket.com",
     "clob_base_url": "https://clob.polymarket.com",
     "market_limit": 250,
-    "trade_limit": 25,
+    "trade_limit": 5,
     "request_timeout_seconds": 15
   },
   "execution": {
@@ -76,7 +76,11 @@
   "baskets": [
     {
       "topic": "geopolitics",
-      "wallets": ["alpha_geo", "macro_geo", "slow_geo"],
+      "wallets": [
+        "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "0x21a31Ee1afC51d94C2efCCaa2092aD1028285549",
+        "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8"
+      ],
       "quorum_ratio": 0.66
     },
     {
@@ -94,14 +98,14 @@
   "filters": {
     "max_trade_age_seconds": 14400,
     "max_price_drift": 0.05,
-    "min_liquidity_usd": 5000,
+    "min_liquidity_usd": 10000,
     "min_minutes_to_resolution": 60,
     "max_minutes_to_resolution": 1440,
     "min_position_size_usd": 10
   },
   "arbitrage": {
     "min_gross_edge": 0.02,
-    "min_liquidity_usd": 5000,
+    "min_liquidity_usd": 10000,
     "variable_cost_rate": 0.0,
     "gas_cost_per_tx_usd": 0.02,
     "settlement_tx_count": 2,
