@@ -21,6 +21,7 @@ def make_config() -> AppConfig:
             enabled=False,
             gamma_base_url="https://gamma-api.polymarket.com",
             data_base_url="https://data-api.polymarket.com",
+            clob_base_url="https://clob.polymarket.com",
             market_limit=100,
             trade_limit=10,
             request_timeout_seconds=15,
@@ -44,6 +45,11 @@ def test_emits_candidate_when_quorum_and_drift_pass() -> None:
             best_bid=0.59,
             liquidity_usd=10000,
             minutes_to_resolution=180,
+            yes_ask_size=250,
+            no_ask_size=220,
+            yes_spread=0.02,
+            no_spread=0.03,
+            orderbook_ready=True,
         )
     }
     wallet_qualities = {
@@ -77,6 +83,11 @@ def test_skips_candidate_when_drift_is_too_large() -> None:
             best_bid=0.59,
             liquidity_usd=10000,
             minutes_to_resolution=180,
+            yes_ask_size=250,
+            no_ask_size=220,
+            yes_spread=0.02,
+            no_spread=0.03,
+            orderbook_ready=True,
         )
     }
 
