@@ -6,7 +6,7 @@
         "gamma_base_url": "https://gamma-api.polymarket.com",
         "data_base_url": "https://data-api.polymarket.com",
         "clob_base_url": "https://clob.polymarket.com",
-        "market_limit": 1000,
+        "market_limit": 2000,
         "trade_limit": 5,
         "request_timeout_seconds": 15
     },
