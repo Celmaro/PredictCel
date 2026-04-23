@@ -64,8 +64,12 @@ def enrich_market_snapshots_with_orderbooks(
 ) -> dict[str, MarketSnapshot]:
     enriched: dict[str, MarketSnapshot] = {}
     for market_id, snapshot in snapshots.items():
-        yes_book = client.fetch_order_book(snapshot.yes_token_id) if snapshot.yes_token_id else {}
-        no_book = client.fetch_order_book(snapshot.no_token_id) if snapshot.no_token_id else {}
+        try:
+            yes_book = client.fetch_order_book(snapshot.yes_token_id) if snapshot.yes_token_id else {}
+            no_book = client.fetch_order_book(snapshot.no_token_id) if snapshot.no_token_id else {}
+        except OSError:
+            enriched[market_id] = snapshot
+            continue
 
         yes_bid = _book_best_price(yes_book, "bids")
         no_bid = _book_best_price(no_book, "bids")
@@ -147,7 +151,7 @@ def wallet_trade_from_data(
     now: datetime,
 ) -> WalletTrade | None:
     market_id = str(item.get("conditionId") or item.get("market_id") or item.get("marketId") or item.get("market") or "").strip()
-    side = str(item.get("outcome") or item.get("position") or "").upper().strip()
+    side = _trade_side(item)
     if not market_id or side not in {"YES", "NO"}:
         return None
 
@@ -177,6 +181,18 @@ def _extract_list(payload: Any) -> list[dict[str, Any]]:
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
     return []
+
+
+def _trade_side(item: dict[str, Any]) -> str:
+    raw_side = str(item.get("outcome") or item.get("position") or "").upper().strip()
+    if raw_side in {"YES", "NO"}:
+        return raw_side
+    outcome_index = item.get("outcomeIndex")
+    if outcome_index == 0:
+        return "YES"
+    if outcome_index == 1:
+        return "NO"
+    return raw_side
 
 
 def _parse_outcome_prices(value: Any) -> list[float]:
