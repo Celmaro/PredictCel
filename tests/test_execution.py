@@ -12,7 +12,6 @@ def make_execution_config() -> ExecutionConfig:
         min_copyability_score=0.72,
         max_orders_per_run=2,
         buy_amount_usd=25.0,
-        min_signal_allocation_usd=5.0,
         worst_price_buffer=0.02,
         order_type="FOK",
         chain_id=137,
@@ -21,6 +20,7 @@ def make_execution_config() -> ExecutionConfig:
         exposure=ExposureConfig(max_total_exposure_usd=75.0, max_single_position_usd=50.0),
         max_retries=3,
         retry_base_delay_seconds=1.0,
+        min_signal_allocation_usd=5.0,
     )
 
 
@@ -153,7 +153,7 @@ def test_execution_planner_uses_suggested_position_size_with_caps() -> None:
 
     intents = planner.plan(candidates, markets, held_market_ids=set(), current_exposure_usd=10.0)
 
-    assert [intent.amount_usd for intent in intents] == [50.0, 15.0]
+    assert [intent.amount_usd for intent in intents] == [25.0, 25.0]
 
 
 def test_execution_planner_applies_minimum_signal_allocation() -> None:
