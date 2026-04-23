@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
-from datetime import datetime
 
 from .models import ArbitrageOpportunity, CopyCandidate, ExecutionResult, Position
 
@@ -164,6 +164,15 @@ class SignalStore:
             "SELECT DISTINCT market_id FROM positions WHERE status = 'open'"
         )
         return {row[0] for row in cursor.fetchall()}
+
+    def get_total_exposure(self) -> float:
+        """Return the sum of entry_amount_usd for all open positions."""
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "SELECT COALESCE(SUM(entry_amount_usd), 0.0) FROM positions WHERE status = 'open'"
+        )
+        row = cursor.fetchone()
+        return float(row[0]) if row else 0.0
 
     def save_position(self, position: Position) -> None:
         cursor = self.connection.cursor()
