@@ -32,7 +32,7 @@ class PolymarketPublicClient:
         self.retry_base_delay_seconds = retry_base_delay_seconds
 
     def fetch_active_markets(self, limit: int) -> list[dict[str, Any]]:
-        query = urlencode({"limit": limit})
+        query = urlencode({"limit": limit, "closed": "false", "active": "true"})
         payload = self._get_json(f"{self.gamma_base_url}/markets?{query}")
         return _extract_list(payload)
 
@@ -171,19 +171,20 @@ def _enrich_one_snapshot(snapshot: MarketSnapshot, client: PolymarketPublicClien
 
 def build_wallet_trades(
     wallet_payloads: dict[str, list[dict[str, Any]]],
-    topic_by_wallet: dict[str, str],
+    topic_by_wallet: dict[str, str | list[str] | tuple[str, ...] | set[str]],
     now: datetime | None = None,
 ) -> list[WalletTrade]:
     now = now or datetime.now(UTC)
     trades: list[WalletTrade] = []
     for wallet, items in wallet_payloads.items():
-        topic = topic_by_wallet.get(wallet)
-        if topic is None:
+        topics = _normalize_topics(topic_by_wallet.get(wallet))
+        if not topics:
             continue
         for item in items:
-            trade = wallet_trade_from_data(wallet, topic, item, now)
-            if trade is not None:
-                trades.append(trade)
+            for topic in topics:
+                trade = wallet_trade_from_data(wallet, topic, item, now)
+                if trade is not None:
+                    trades.append(trade)
     return trades
 
 
@@ -282,6 +283,21 @@ def _market_snapshot_aliases(item: dict[str, Any], snapshot: MarketSnapshot) -> 
             aliases.append(str(value).strip())
     aliases.extend(token_id for token_id in (snapshot.yes_token_id, snapshot.no_token_id) if token_id)
     return list(dict.fromkeys(aliases))
+
+
+def _normalize_topics(value: str | list[str] | tuple[str, ...] | set[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, set):
+        return sorted(str(item) for item in value if str(item).strip())
+    normalized: list[str] = []
+    for item in value:
+        topic = str(item).strip()
+        if topic and topic not in normalized:
+            normalized.append(topic)
+    return normalized
 
 
 def _trade_side(item: dict[str, Any]) -> str:
