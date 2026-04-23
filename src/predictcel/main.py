@@ -7,7 +7,12 @@ from .arb_sidecar import ArbitrageSidecar
 from .config import load_config
 from .copy_engine import CopyEngine
 from .markets import load_market_snapshots
-from .polymarket import PolymarketPublicClient, build_market_snapshots, build_wallet_trades
+from .polymarket import (
+    PolymarketPublicClient,
+    build_market_snapshots,
+    build_wallet_trades,
+    enrich_market_snapshots_with_orderbooks,
+)
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallets import load_wallet_trades
@@ -64,6 +69,7 @@ def _load_live_inputs(config):
     client = PolymarketPublicClient(
         gamma_base_url=config.live_data.gamma_base_url,
         data_base_url=config.live_data.data_base_url,
+        clob_base_url=config.live_data.clob_base_url,
         timeout_seconds=config.live_data.request_timeout_seconds,
     )
     topic_by_wallet = {
@@ -78,6 +84,7 @@ def _load_live_inputs(config):
     trades = build_wallet_trades(wallet_payloads, topic_by_wallet)
     market_payload = client.fetch_active_markets(config.live_data.market_limit)
     markets = build_market_snapshots(market_payload)
+    markets = enrich_market_snapshots_with_orderbooks(markets, client)
     return trades, markets
 
 
