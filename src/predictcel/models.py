@@ -48,6 +48,13 @@ class WalletQuality:
 
 
 @dataclass(frozen=True)
+class MarketRegime:
+    label: str
+    score: float
+    reason: str
+
+
+@dataclass(frozen=True)
 class CopyCandidate:
     topic: str
     market_id: str
@@ -65,6 +72,9 @@ class CopyCandidate:
     conflict_penalty: float = 0.0
     recency_score: float = 0.0
     suggested_position_usd: float = 0.0
+    market_regime: str = "UNKNOWN"
+    regime_score: float = 0.0
+    regime_reason: str = ""
 
 
 @dataclass(frozen=True)
