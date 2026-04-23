@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from .config import FilterConfig
 from .models import MarketSnapshot, WalletQuality, WalletTrade
@@ -11,15 +11,26 @@ class WalletQualityScorer:
     def __init__(self, filters: FilterConfig, recency_half_life_seconds: int | None = None) -> None:
         self.filters = filters
         self.recency_half_life_seconds = recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1)
+        self.last_rejection_counts: dict[str, int] = {}
+        self.last_wallet_rejection_counts: dict[str, dict[str, int]] = {}
 
     def score(self, trades: list[WalletTrade], markets: dict[str, MarketSnapshot]) -> dict[str, WalletQuality]:
         grouped: dict[str, list[WalletTrade]] = defaultdict(list)
+        rejection_counts: Counter[str] = Counter()
+        wallet_rejections: dict[str, Counter[str]] = defaultdict(Counter)
         for trade in trades:
             grouped[trade.wallet].append(trade)
 
         scores: dict[str, WalletQuality] = {}
         for wallet, wallet_trades in grouped.items():
-            eligible = [trade for trade in wallet_trades if self._is_eligible_trade(trade, markets)]
+            eligible = []
+            for trade in wallet_trades:
+                reason = self.rejection_reason(trade, markets)
+                if reason is None:
+                    eligible.append(trade)
+                else:
+                    rejection_counts[reason] += 1
+                    wallet_rejections[wallet][reason] += 1
             if not eligible:
                 continue
 
@@ -42,23 +53,29 @@ class WalletQualityScorer:
                 average_drift=average_drift,
                 reason="exponential freshness, drift discipline, and sample size",
             )
+
+        self.last_rejection_counts = dict(sorted(rejection_counts.items()))
+        self.last_wallet_rejection_counts = {wallet: dict(sorted(counts.items())) for wallet, counts in sorted(wallet_rejections.items())}
         return scores
 
-    def _is_eligible_trade(self, trade: WalletTrade, markets: dict[str, MarketSnapshot]) -> bool:
+    def rejection_reason(self, trade: WalletTrade, markets: dict[str, MarketSnapshot]) -> str | None:
         market = markets.get(trade.market_id)
         if market is None:
-            return False
+            return "missing_market"
         if trade.age_seconds > self.filters.max_trade_age_seconds:
-            return False
+            return "too_old"
         if trade.size_usd < self.filters.min_position_size_usd:
-            return False
+            return "too_small"
         if market.liquidity_usd < self.filters.min_liquidity_usd:
-            return False
+            return "low_liquidity"
         if market.minutes_to_resolution < self.filters.min_minutes_to_resolution:
-            return False
+            return "too_close_to_resolution"
         if market.minutes_to_resolution > self.filters.max_minutes_to_resolution:
-            return False
-        return True
+            return "too_far_from_resolution"
+        return None
+
+    def _is_eligible_trade(self, trade: WalletTrade, markets: dict[str, MarketSnapshot]) -> bool:
+        return self.rejection_reason(trade, markets) is None
 
     def _trade_drift(self, trade: WalletTrade, market: MarketSnapshot) -> float:
         current_price = market.yes_ask if trade.side.upper() == "YES" else market.no_ask
