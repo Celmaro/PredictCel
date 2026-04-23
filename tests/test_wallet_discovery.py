@@ -32,6 +32,12 @@ class FakeSource:
                 {"question": "NFL playoff winner", "size": "30", "createdAt": "2999-01-01T00:00:00Z"},
                 {"question": "NBA MVP", "size": "40", "createdAt": "2999-01-01T00:00:00Z"},
             ]
+        if address == "0xexisting":
+            return [
+                {"question": "NBA regular season wins", "size": "18", "createdAt": "2999-01-01T00:00:00Z"},
+                {"question": "NFL draft pick", "size": "22", "createdAt": "2999-01-01T00:00:00Z"},
+                {"question": "NBA playoff seed", "size": "28", "createdAt": "2999-01-01T00:00:00Z"},
+            ]
         return []
 
 
@@ -75,8 +81,17 @@ def test_pipeline_filters_existing_wallets_and_assigns_new_candidate() -> None:
     assert [candidate.wallet_address for candidate in candidates] == ["0xnew"]
     assert isinstance(candidates[0], WalletDiscoveryCandidate)
     assert candidates[0].rejected_reasons == []
-    assert assignments[0].recommended_baskets == ["sports"]
-    assert actions[0].action == "add"
+    new_assignment = next(assignment for assignment in assignments if assignment.wallet_address == "0xnew")
+    assert new_assignment.recommended_baskets == ["sports"]
+    assert any(action.action == "add" and action.wallet_address == "0xnew" for action in actions)
+
+
+def test_pipeline_still_evaluates_existing_wallets_for_manager_actions() -> None:
+    pipeline = make_pipeline()
+
+    _, assignments, _ = pipeline.run()
+
+    assert any(assignment.wallet_address == "0xexisting" for assignment in assignments)
 
 
 def test_auto_update_mutates_config_path_by_default(tmp_path) -> None:
