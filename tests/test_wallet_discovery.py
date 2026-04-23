@@ -14,7 +14,7 @@ from predictcel.config import (
     PositionConfig,
     WalletDiscoveryConfig,
 )
-from predictcel.models import WalletDiscoveryCandidate
+from predictcel.models import BasketManagerAction, WalletDiscoveryCandidate
 from predictcel.wallet_discovery import WalletDiscoveryPipeline
 
 
@@ -103,3 +103,20 @@ def test_propose_config_writes_separate_proposal(tmp_path) -> None:
     assert reports["config_proposal"] == str(tmp_path / "reports" / "predictcel.proposed.json")
     assert original["baskets"][0]["wallets"] == ["0xexisting"]
     assert proposed["baskets"][0]["wallets"] == ["0xexisting", "0xnew"]
+
+
+def test_build_mutated_config_removes_wallets_for_remove_and_suspend_actions() -> None:
+    pipeline = make_pipeline()
+    payload = {
+        "baskets": [
+            {"topic": "sports", "wallets": ["0xexisting", "0xsuspend", "0xremove"], "quorum_ratio": 0.66}
+        ]
+    }
+    actions = [
+        BasketManagerAction("suspend", "sports", "0xSuspend", 0.3, "LOW", "suspend it"),
+        BasketManagerAction("remove", "sports", "0xREMOVE", 0.2, "LOW", "remove it"),
+    ]
+
+    mutated = pipeline.build_mutated_config(payload, actions)
+
+    assert mutated["baskets"][0]["wallets"] == ["0xexisting"]
