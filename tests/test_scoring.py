@@ -48,6 +48,8 @@ def test_compute_copyability_score_rewards_better_inputs() -> None:
         average_age_seconds=300,
         drift=0.01,
         liquidity_usd=15000,
+        side_spread=0.01,
+        side_depth_usd=250,
         filters=filters,
     )
     weak = compute_copyability_score(
@@ -56,6 +58,8 @@ def test_compute_copyability_score_rewards_better_inputs() -> None:
         average_age_seconds=3200,
         drift=0.04,
         liquidity_usd=5000,
+        side_spread=0.08,
+        side_depth_usd=40,
         filters=filters,
     )
 
