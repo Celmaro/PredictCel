@@ -14,7 +14,7 @@ from predictcel.models import MarketSnapshot, WalletQuality, WalletTrade
 
 def make_config() -> AppConfig:
     return AppConfig(
-        baskets=[BasketRule(topic="geopolitics", wallets=["w1", "w2", "w3"], quorum_ratio=0.67)],
+        baskets=[BasketRule(topic="geopolitics", wallets=["w1", "w2", "w3"], quorum_ratio=0.66)],
         filters=FilterConfig(
             max_trade_age_seconds=3600,
             max_price_drift=0.05,
