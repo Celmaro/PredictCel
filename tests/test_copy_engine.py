@@ -1,4 +1,4 @@
-from predictcel.config import ArbitrageConfig, AppConfig, BasketRule, FilterConfig, LiveDataConfig
+from predictcel.config import ArbitrageConfig, AppConfig, BasketRule, ExecutionConfig, FilterConfig, LiveDataConfig
 from predictcel.copy_engine import CopyEngine
 from predictcel.models import MarketSnapshot, WalletQuality, WalletTrade
 
@@ -25,6 +25,17 @@ def make_config() -> AppConfig:
             market_limit=100,
             trade_limit=10,
             request_timeout_seconds=15,
+        ),
+        execution=ExecutionConfig(
+            enabled=False,
+            dry_run=True,
+            min_copyability_score=0.7,
+            max_orders_per_run=2,
+            buy_amount_usd=25.0,
+            worst_price_buffer=0.02,
+            order_type="FOK",
+            chain_id=137,
+            signature_type=0,
         ),
     )
 
