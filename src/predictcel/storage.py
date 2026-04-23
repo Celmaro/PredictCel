@@ -9,6 +9,8 @@ from typing import Iterable
 
 from .models import ArbitrageOpportunity, CopyCandidate, ExecutionResult, Position
 
+ACTIVE_POSITION_STATUSES = ("open", "closing")
+
 
 class SignalStore:
     def __init__(self, db_path: str) -> None:
@@ -135,7 +137,7 @@ class SignalStore:
             "SELECT market_id, topic, side, token_id, entry_price, entry_amount_usd, "
             "current_price, unrealized_pnl, opened_at, last_updated, "
             "take_profit_pct, stop_loss_pct, max_hold_minutes, status "
-            "FROM positions WHERE status = 'open' ORDER BY opened_at"
+            "FROM positions WHERE status IN ('open', 'closing') ORDER BY opened_at"
         )
         rows = cursor.fetchall()
         return [
@@ -161,15 +163,14 @@ class SignalStore:
     def get_held_market_ids(self) -> set[str]:
         cursor = self.connection.cursor()
         cursor.execute(
-            "SELECT DISTINCT market_id FROM positions WHERE status = 'open'"
+            "SELECT DISTINCT market_id FROM positions WHERE status IN ('open', 'closing')"
         )
         return {row[0] for row in cursor.fetchall()}
 
     def get_total_exposure(self) -> float:
-        """Return the sum of entry_amount_usd for all open positions."""
         cursor = self.connection.cursor()
         cursor.execute(
-            "SELECT COALESCE(SUM(entry_amount_usd), 0.0) FROM positions WHERE status = 'open'"
+            "SELECT COALESCE(SUM(entry_amount_usd), 0.0) FROM positions WHERE status IN ('open', 'closing')"
         )
         row = cursor.fetchone()
         return float(row[0]) if row else 0.0
@@ -210,7 +211,7 @@ class SignalStore:
         cursor = self.connection.cursor()
         cursor.execute(
             "UPDATE positions SET current_price = ?, unrealized_pnl = ?, "
-            "last_updated = ?, status = ? WHERE market_id = ? AND status = 'open'",
+            "last_updated = ?, status = ? WHERE market_id = ? AND status IN ('open', 'closing')",
             (
                 current_price,
                 unrealized_pnl,
