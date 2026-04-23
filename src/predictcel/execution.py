@@ -30,15 +30,15 @@ class ExecutionPlanner:
     ) -> list[ExecutionIntent]:
         ranked = sorted(candidates, key=lambda item: item.copyability_score, reverse=True)
         intents: list[ExecutionIntent] = []
+        planned_exposure_usd = current_exposure_usd
         for candidate in ranked:
             if candidate.copyability_score < self.config.min_copyability_score:
                 continue
             if candidate.market_id in held_market_ids:
                 continue
 
-            # --- Exposure cap ---
             if self.config.exposure is not None:
-                new_exposure = current_exposure_usd + self.config.buy_amount_usd
+                new_exposure = planned_exposure_usd + self.config.buy_amount_usd
                 if self.config.exposure.max_total_exposure_usd > 0:
                     if new_exposure > self.config.exposure.max_total_exposure_usd:
                         continue
@@ -71,6 +71,7 @@ class ExecutionPlanner:
                     reason="copyability threshold, no open position, exposure within limits, token id, and top-of-book depth checks passed",
                 )
             )
+            planned_exposure_usd += self.config.buy_amount_usd
             if len(intents) >= self.config.max_orders_per_run:
                 break
         return intents
@@ -128,19 +129,19 @@ class LiveOrderExecutor:
         return client
 
     def _submit_intent(self, client: Any, intent: ExecutionIntent) -> ExecutionResult:
-        max_retries = getattr(self.config, "max_retries", 3)
+        max_retries = max(getattr(self.config, "max_retries", 3), 1)
         base_delay = getattr(self.config, "retry_base_delay_seconds", 1.0)
 
         for attempt in range(max_retries):
             try:
                 from py_clob_client.clob_types import MarketOrderArgs, OrderType
-                from py_clob_client.order_builder.constants import BUY
+                from py_clob_client.order_builder.constants import BUY, SELL
 
                 order_args = MarketOrderArgs(
                     token_id=intent.token_id,
                     amount=float(intent.amount_usd),
                     price=float(intent.worst_price),
-                    side=BUY,
+                    side=SELL if intent.side == "CLOSE" else BUY,
                 )
                 signed = client.create_market_order(order_args)
                 order_type = getattr(OrderType, intent.order_type)
@@ -149,7 +150,6 @@ class LiveOrderExecutor:
                 status = str(response.get("status") or "submitted") if isinstance(response, dict) else "submitted"
                 error = str(response.get("errorMsg") or "") if isinstance(response, dict) else ""
 
-                # Treat 429 as retryable
                 if isinstance(response, dict) and response.get("status") == 429:
                     raise RuntimeError("Rate limited (429)")
 
@@ -182,7 +182,6 @@ class LiveOrderExecutor:
                     delay = base_delay * (2 ** attempt)
                     time.sleep(delay)
                     continue
-                # Final attempt failed or non-retryable
                 return ExecutionResult(
                     market_id=intent.market_id,
                     topic=intent.topic,
@@ -218,7 +217,6 @@ class ExitRunner:
                 updated_positions.append(pos)
                 continue
 
-            # Determine current price and PnL
             if pos.side == "YES":
                 current_price = market.yes_ask
                 close_price = market.yes_bid
@@ -231,13 +229,9 @@ class ExitRunner:
             if current_price == 0.0:
                 current_price = pos.current_price
 
-            if pos.side == "YES":
-                pnl_pct = (current_price - pos.entry_price) / pos.entry_price
-            else:
-                pnl_pct = (pos.entry_price - current_price) / pos.entry_price
+            pnl_pct = (current_price - pos.entry_price) / pos.entry_price
             unrealized_pnl = round(pos.entry_amount_usd * pnl_pct, 4)
 
-            # Update current state
             updated_pos = replace(
                 pos,
                 current_price=current_price,
@@ -245,50 +239,40 @@ class ExitRunner:
                 last_updated=now,
             )
 
-            # Check close conditions
             should_close = False
             reason = ""
 
-            # Take profit
             if pos.take_profit_pct > 0 and pnl_pct >= pos.take_profit_pct:
                 should_close = True
                 reason = f"take_profit triggered: pnl={pnl_pct:.4f} >= tp={pos.take_profit_pct}"
-
-            # Stop loss
             elif pos.stop_loss_pct > 0 and pnl_pct <= -pos.stop_loss_pct:
                 should_close = True
                 reason = f"stop_loss triggered: pnl={pnl_pct:.4f} <= sl={pos.stop_loss_pct}"
-
-            # Time-based exit
             elif pos.max_hold_minutes > 0:
                 elapsed_minutes = (now - pos.opened_at).total_seconds() / 60.0
                 if elapsed_minutes >= pos.max_hold_minutes:
                     should_close = True
                     reason = f"max_hold exceeded: {elapsed_minutes:.1f} min >= {pos.max_hold_minutes} min"
 
-            # Resolution imminent (safety net)
             if not should_close and market.minutes_to_resolution > 0 and market.minutes_to_resolution <= 10:
                 should_close = True
                 reason = f"market resolving soon: {market.minutes_to_resolution} min to resolution"
 
-            if should_close:
-                if close_price > 0 and close_token:
-                    close_intents.append(
-                        ExecutionIntent(
-                            market_id=pos.market_id,
-                            topic=pos.topic,
-                            side="CLOSE",
-                            token_id=close_token,
-                            amount_usd=pos.entry_amount_usd,
-                            worst_price=close_price,
-                            copyability_score=0.0,
-                            order_type=self.config.order_type.upper(),
-                            reason=reason,
-                        )
+            if should_close and close_price > 0 and close_token:
+                close_intents.append(
+                    ExecutionIntent(
+                        market_id=pos.market_id,
+                        topic=pos.topic,
+                        side="CLOSE",
+                        token_id=close_token,
+                        amount_usd=pos.entry_amount_usd,
+                        worst_price=close_price,
+                        copyability_score=0.0,
+                        order_type=self.config.order_type.upper(),
+                        reason=reason,
                     )
-                updated_positions.append(replace(updated_pos, status="closing"))
-            else:
-                updated_positions.append(updated_pos)
+                )
+            updated_positions.append(updated_pos)
 
         return close_intents, updated_positions
 
