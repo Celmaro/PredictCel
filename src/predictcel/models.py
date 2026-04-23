@@ -71,3 +71,31 @@ class ArbitrageOpportunity:
     gross_edge: float
     liquidity_usd: float
     reason: str
+
+
+@dataclass(frozen=True)
+class ExecutionIntent:
+    market_id: str
+    topic: str
+    side: str
+    token_id: str
+    amount_usd: float
+    worst_price: float
+    copyability_score: float
+    order_type: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class ExecutionResult:
+    market_id: str
+    topic: str
+    side: str
+    token_id: str
+    amount_usd: float
+    worst_price: float
+    status: str
+    order_id: str
+    error: str
+    copyability_score: float
+    reason: str
