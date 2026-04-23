@@ -189,7 +189,7 @@ def _extract_list(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
     if isinstance(payload, dict):
-        for key in ("data", "markets", "trades"):
+        for key in ("data", "markets", "trades", "users", "leaderboard", "results"):
             value = payload.get(key)
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
