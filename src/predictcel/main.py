@@ -32,7 +32,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def build_discovery_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PredictCel wallet discovery reports")
-    parser.add_argument("discover-wallets")
     parser.add_argument("--config", required=True, help="Path to config JSON file")
     parser.add_argument("--output-dir", default="data", help="Directory for discovery JSON reports")
     return parser
@@ -40,7 +39,7 @@ def build_discovery_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "discover-wallets":
-        _run_wallet_discovery()
+        _run_wallet_discovery(sys.argv[2:])
         return
 
     args = build_parser().parse_args()
@@ -109,8 +108,8 @@ def main() -> None:
     }, indent=2, default=str))
 
 
-def _run_wallet_discovery() -> None:
-    args = build_discovery_parser().parse_args()
+def _run_wallet_discovery(argv: list[str]) -> None:
+    args = build_discovery_parser().parse_args(argv)
     config = load_config(args.config)
     files = WalletDiscoveryPipeline(config).write_reports(args.output_dir)
     print(json.dumps({"mode": "wallet_discovery", "reports": files}, indent=2))
