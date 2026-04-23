@@ -35,12 +35,12 @@
   "consensus": {
     "recency_half_life_seconds": 1800,
     "min_weighted_consensus": 0.2,
-    "confidence_prio_strength": 2,
     "min_confidence_score": 0.3,
     "conflict_penalty_weight": 0.25,
     "bankroll_usd": 100,
     "kelly_fraction": 0.25,
-    "max_suggested_position_usd": 10
+    "max_suggested_position_usd": 10,
+    "confidence_prior_strength": 2
   },
   "market_regime": {
     "enabled": true,
