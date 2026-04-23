@@ -5,8 +5,9 @@ import sqlite3
 from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable
+from datetime import datetime
 
-from .models import ArbitrageOpportunity, CopyCandidate, ExecutionResult
+from .models import ArbitrageOpportunity, CopyCandidate, ExecutionResult, Position
 
 
 class SignalStore:
@@ -49,6 +50,27 @@ class SignalStore:
                 side TEXT NOT NULL,
                 status TEXT NOT NULL,
                 payload TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                side TEXT NOT NULL,
+                token_id TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                entry_amount_usd REAL NOT NULL,
+                current_price REAL NOT NULL,
+                unrealized_pnl REAL NOT NULL,
+                opened_at TEXT NOT NULL,
+                last_updated TEXT NOT NULL,
+                take_profit_pct REAL NOT NULL,
+                stop_loss_pct REAL NOT NULL,
+                max_hold_minutes INTEGER NOT NULL,
+                status TEXT NOT NULL
             )
             """
         )
@@ -106,3 +128,90 @@ class SignalStore:
             rows,
         )
         self.connection.commit()
+
+    def get_open_positions(self) -> list[Position]:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "SELECT market_id, topic, side, token_id, entry_price, entry_amount_usd, "
+            "current_price, unrealized_pnl, opened_at, last_updated, "
+            "take_profit_pct, stop_loss_pct, max_hold_minutes, status "
+            "FROM positions WHERE status = 'open' ORDER BY opened_at"
+        )
+        rows = cursor.fetchall()
+        return [
+            Position(
+                market_id=r[0],
+                topic=r[1],
+                side=r[2],
+                token_id=r[3],
+                entry_price=r[4],
+                entry_amount_usd=r[5],
+                current_price=r[6],
+                unrealized_pnl=r[7],
+                opened_at=_parse_dt(r[8]),
+                last_updated=_parse_dt(r[9]),
+                take_profit_pct=r[10],
+                stop_loss_pct=r[11],
+                max_hold_minutes=r[12],
+                status=r[13],
+            )
+            for r in rows
+        ]
+
+    def get_held_market_ids(self) -> set[str]:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "SELECT DISTINCT market_id FROM positions WHERE status = 'open'"
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+    def save_position(self, position: Position) -> None:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "INSERT INTO positions (market_id, topic, side, token_id, entry_price, "
+            "entry_amount_usd, current_price, unrealized_pnl, opened_at, last_updated, "
+            "take_profit_pct, stop_loss_pct, max_hold_minutes, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                position.market_id,
+                position.topic,
+                position.side,
+                position.token_id,
+                position.entry_price,
+                position.entry_amount_usd,
+                position.current_price,
+                position.unrealized_pnl,
+                position.opened_at.isoformat(),
+                position.last_updated.isoformat(),
+                position.take_profit_pct,
+                position.stop_loss_pct,
+                position.max_hold_minutes,
+                position.status,
+            ),
+        )
+        self.connection.commit()
+
+    def update_position(
+        self,
+        market_id: str,
+        current_price: float,
+        unrealized_pnl: float,
+        status: str,
+    ) -> None:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "UPDATE positions SET current_price = ?, unrealized_pnl = ?, "
+            "last_updated = ?, status = ? WHERE market_id = ? AND status = 'open'",
+            (
+                current_price,
+                unrealized_pnl,
+                datetime.now().isoformat(),
+                status,
+                market_id,
+            ),
+        )
+        self.connection.commit()
+
+
+def _parse_dt(value: str) -> datetime:
+    return datetime.fromisoformat(value)
