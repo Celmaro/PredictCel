@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -25,6 +26,7 @@ class ExecutionPlanner:
         candidates: list[CopyCandidate],
         markets: dict[str, MarketSnapshot],
         held_market_ids: set[str],
+        current_exposure_usd: float,
     ) -> list[ExecutionIntent]:
         ranked = sorted(candidates, key=lambda item: item.copyability_score, reverse=True)
         intents: list[ExecutionIntent] = []
@@ -33,6 +35,17 @@ class ExecutionPlanner:
                 continue
             if candidate.market_id in held_market_ids:
                 continue
+
+            # --- Exposure cap ---
+            if self.config.exposure is not None:
+                new_exposure = current_exposure_usd + self.config.buy_amount_usd
+                if self.config.exposure.max_total_exposure_usd > 0:
+                    if new_exposure > self.config.exposure.max_total_exposure_usd:
+                        continue
+                if self.config.exposure.max_single_position_usd > 0:
+                    if self.config.buy_amount_usd > self.config.exposure.max_single_position_usd:
+                        continue
+
             market = markets.get(candidate.market_id)
             if market is None or not market.orderbook_ready:
                 continue
@@ -55,7 +68,7 @@ class ExecutionPlanner:
                     worst_price=worst_price,
                     copyability_score=candidate.copyability_score,
                     order_type=self.config.order_type.upper(),
-                    reason="copyability threshold, no open position, token id, and top-of-book depth checks passed",
+                    reason="copyability threshold, no open position, exposure within limits, token id, and top-of-book depth checks passed",
                 )
             )
             if len(intents) >= self.config.max_orders_per_run:
@@ -115,49 +128,74 @@ class LiveOrderExecutor:
         return client
 
     def _submit_intent(self, client: Any, intent: ExecutionIntent) -> ExecutionResult:
-        try:
-            from py_clob_client.clob_types import MarketOrderArgs, OrderType
-            from py_clob_client.order_builder.constants import BUY
+        max_retries = getattr(self.config, "max_retries", 3)
+        base_delay = getattr(self.config, "retry_base_delay_seconds", 1.0)
 
-            order_args = MarketOrderArgs(
-                token_id=intent.token_id,
-                amount=float(intent.amount_usd),
-                price=float(intent.worst_price),
-                side=BUY,
-            )
-            signed = client.create_market_order(order_args)
-            order_type = getattr(OrderType, intent.order_type)
-            response = client.post_order(signed, order_type)
-            order_id = str(response.get("orderID") or response.get("orderId") or "") if isinstance(response, dict) else ""
-            status = str(response.get("status") or "submitted") if isinstance(response, dict) else "submitted"
-            error = str(response.get("errorMsg") or "") if isinstance(response, dict) else ""
-            return ExecutionResult(
-                market_id=intent.market_id,
-                topic=intent.topic,
-                side=intent.side,
-                token_id=intent.token_id,
-                amount_usd=intent.amount_usd,
-                worst_price=intent.worst_price,
-                status=status,
-                order_id=order_id,
-                error=error,
-                copyability_score=intent.copyability_score,
-                reason=intent.reason,
-            )
-        except Exception as exc:
-            return ExecutionResult(
-                market_id=intent.market_id,
-                topic=intent.topic,
-                side=intent.side,
-                token_id=intent.token_id,
-                amount_usd=intent.amount_usd,
-                worst_price=intent.worst_price,
-                status="error",
-                order_id="",
-                error=str(exc),
-                copyability_score=intent.copyability_score,
-                reason=intent.reason,
-            )
+        for attempt in range(max_retries):
+            try:
+                from py_clob_client.clob_types import MarketOrderArgs, OrderType
+                from py_clob_client.order_builder.constants import BUY
+
+                order_args = MarketOrderArgs(
+                    token_id=intent.token_id,
+                    amount=float(intent.amount_usd),
+                    price=float(intent.worst_price),
+                    side=BUY,
+                )
+                signed = client.create_market_order(order_args)
+                order_type = getattr(OrderType, intent.order_type)
+                response = client.post_order(signed, order_type)
+                order_id = str(response.get("orderID") or response.get("orderId") or "") if isinstance(response, dict) else ""
+                status = str(response.get("status") or "submitted") if isinstance(response, dict) else "submitted"
+                error = str(response.get("errorMsg") or "") if isinstance(response, dict) else ""
+
+                # Treat 429 as retryable
+                if isinstance(response, dict) and response.get("status") == 429:
+                    raise RuntimeError("Rate limited (429)")
+
+                return ExecutionResult(
+                    market_id=intent.market_id,
+                    topic=intent.topic,
+                    side=intent.side,
+                    token_id=intent.token_id,
+                    amount_usd=intent.amount_usd,
+                    worst_price=intent.worst_price,
+                    status=status,
+                    order_id=order_id,
+                    error=error,
+                    copyability_score=intent.copyability_score,
+                    reason=intent.reason,
+                )
+            except Exception as exc:
+                error_msg = str(exc)
+                is_retryable = (
+                    "429" in error_msg
+                    or "timeout" in error_msg.lower()
+                    or "timed out" in error_msg.lower()
+                    or "connection" in error_msg.lower()
+                    or "reset" in error_msg.lower()
+                    or "503" in error_msg
+                    or "502" in error_msg
+                    or "504" in error_msg
+                )
+                if is_retryable and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    time.sleep(delay)
+                    continue
+                # Final attempt failed or non-retryable
+                return ExecutionResult(
+                    market_id=intent.market_id,
+                    topic=intent.topic,
+                    side=intent.side,
+                    token_id=intent.token_id,
+                    amount_usd=intent.amount_usd,
+                    worst_price=intent.worst_price,
+                    status="error",
+                    order_id="",
+                    error=f"attempt {attempt + 1}/{max_retries}: {error_msg}",
+                    copyability_score=intent.copyability_score,
+                    reason=intent.reason,
+                )
 
 
 class ExitRunner:
