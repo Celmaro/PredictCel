@@ -38,8 +38,21 @@ class FakeTradeClient(PolymarketPublicClient):
     def _get_json(self, url: str):
         self.urls.append(url)
         if "user=0xabc" in url and "/trades?" in url:
-            return {"trades": [{"asset": "token_yes", "side": "BUY_YES", "price": "0.54", "sizeUsd": "25", "createdAt": "2025-12-31T23:50:00Z"}]}
+            return {"trades": [{"asset": "token_yes", "side": "BUY_YES", "price": "0.54", "sizeUsd": "25", "createdAt": "2025-12-31T23:50:00Z", "user": "0xAbc"}]}
         return {"trades": []}
+
+
+class FakeFilteredTradeClient(PolymarketPublicClient):
+    def __init__(self):
+        super().__init__()
+
+    def _get_json(self, url: str):
+        return {
+            "trades": [
+                {"asset": "token_wrong", "side": "BUY_YES", "price": "0.54", "sizeUsd": "25", "createdAt": "2025-12-31T23:50:00Z", "user": "0xdef"},
+                {"asset": "token_right", "side": "BUY_NO", "price": "0.44", "sizeUsd": "30", "createdAt": "2025-12-31T23:52:00Z", "user": "0xabc"},
+            ]
+        }
 
 
 def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None:
@@ -82,6 +95,15 @@ def test_fetch_wallet_trades_accepts_asset_backed_trade_rows() -> None:
 
     assert rows[0]["asset"] == "token_yes"
     assert any("/trades?user=0xabc" in url for url in client.urls)
+
+
+def test_fetch_wallet_trades_filters_rows_to_requested_wallet() -> None:
+    client = FakeFilteredTradeClient()
+
+    rows = client.fetch_wallet_trades("0xabc", 5)
+
+    assert len(rows) == 1
+    assert rows[0]["asset"] == "token_right"
 
 
 def test_build_market_snapshots_indexes_common_aliases() -> None:
