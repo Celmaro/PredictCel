@@ -77,6 +77,19 @@ It still does not place trades.
 python -m predictcel.main --config config/predictcel.example.json --db predictcel.db --live-data
 ```
 
+### Wallet discovery reports
+
+Wallet discovery is report-only by default. It reads candidate wallets from public Polymarket data, classifies their trade topics, scores candidate quality, recommends basket assignments, and writes JSON plans without changing your config.
+
+```bash
+python -m predictcel.main discover-wallets --config config/predictcel.example.json --output-dir data
+```
+
+The command writes:
+- `wallet_discovery_report.json` for scored candidates and rejection reasons
+- `basket_assignments.json` for topic affinities and recommended baskets
+- `basket_manager_plan.json` for proposed add/observe actions
+
 ### Guarded live trading mode
 
 This path remains opt-in and should be treated carefully.
@@ -142,6 +155,11 @@ The Railway worker catches per-cycle exceptions, logs JSON events, waits for the
 - `src/predictcel/scoring.py` - wallet quality and copyability scoring
 - `src/predictcel/copy_engine.py` - basket-consensus paper signal engine
 - `src/predictcel/arb_sidecar.py` - simple arbitrage scanner
+- `src/predictcel/wallet_topics.py` - wallet topic classification from trade metadata
+- `src/predictcel/wallet_sources.py` - public wallet source adapters
+- `src/predictcel/wallet_discovery.py` - wallet discovery pipeline and JSON reports
+- `src/predictcel/basket_assignment.py` - wallet-to-basket assignment scoring
+- `src/predictcel/basket_manager.py` - report-only basket action planner
 - `src/predictcel/execution.py` - execution planning and guarded live order submission
 - `src/predictcel/storage.py` - SQLite logging, positions, and duplicate-signal fingerprints
 - `src/predictcel/main.py` - CLI entrypoint
