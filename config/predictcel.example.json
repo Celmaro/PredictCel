@@ -35,7 +35,7 @@
   "consensus": {
     "recency_half_life_seconds": 1800,
     "min_weighted_consensus": 0.2,
-    "confidence_prior_strength": 2.0,
+    "confidence_prio_strength": 2.0,
     "min_confidence_score": 0.3,
     "conflict_penalty_weight": 0.25,
     "bankroll_usd": 100.0,
@@ -151,6 +151,62 @@
         "0xc454873a20721f5ebe1c3e42694a0ac28fda8c23",
         "0x26e76ef9ba06a0095fd03a06321306a9ec4b21dc",
         "0x941e9756c3588cdc806d9e1005528a5cdcfa1fbf"
+      ],
+      "quorum_ratio": 0.2
+    },
+    {
+      "topic": "esports",
+      "wallets": [
+        "0x913c76e1edf609b3d6dd7d597d1f9afc6c6039b3",
+        "0xc987780e16fbc8228ca408a5558a854013aa123a",
+        "0x629da223adfc9957329e02de95ae3d263f92756c",
+        "0xd24ac673d85e284be7b7fc6c5a9e7e33ce010b7f",
+        "0xf21d8c8523f3734d9dea7b4ac1c4b685b8ca922b"
+      ],
+      "quorum_ratio": 0.2
+    },
+    {
+      "topic": "politics",
+      "wallets": [
+        "0x3bee4397037c3e2f024c93e0a3b083493a92a715",
+        "0xae7c98235d5dc797edfa3d3af2e0334238a4487e",
+        "0x2f8a5981614ae809ff2a75832fc10a72793ef086",
+        "0x793ed200a1e8344d608a17763d9cb8773b3643bf",
+        "0xe4b40d75a8aec9c5198564df662dbaf51dba874d",
+        "0x0f4f3fc28737deae56dcbeddaa25933708c91bd9",
+        "0xb22e406c0123f16d9bd2f4a4e305bff812376d88",
+        "0xa40fa2ce4ea68b1e6fc249ffb9e572ce6b1970dc"
+      ],
+      "quorum_ratio": 0.2
+    },
+    {
+      "topic": "tennis_golf_mma",
+      "wallets": [
+        "0x7a5d94f83ff0195387eaf9f4463433d03eda54db",
+        "0x0dd0193fdc5fc75e1518a77c3e0b43f548e44a59",
+        "0xfc33008a25811adb3015d0f4d8c1f278a6d5729c",
+        "0x53757615de1c42b83f893b79d4241a009dc2aeea"
+      ],
+      "quorum_ratio": 0.2
+    },
+    {
+      "topic": "longterm_crypto",
+      "wallets": [
+        "0x6d8745c21229356d19fb76d5f5d2f93d3b8c4f67",
+        "0xbb0823629729373f0391e92725e3fa6d18e97765",
+        "0x65ed172ae0a9b54bea78ab4e7afc05b514e4151d"
+      ],
+      "quorum_ratio": 0.2
+    },
+    {
+      "topic": "weather",
+      "wallets": [
+        "0x293ed5233e9cab8af3ce9b1c3aa0ec4688099962",
+        "0xd484bbc677cdb474949583ae0253eb41c0eb046f",
+        "0x04dcf8d1328b2bf5fa6e7aa8a200df95751cd572",
+        "0x23d18416645924e097c453e8ceadd4bfeb6a353f",
+        "0xcb32934773126ed9267babaee1e68f0c375779aa",
+        "0x34eccd57d85a42273ea46d8699a2666ac600b7cf"
       ],
       "quorum_ratio": 0.2
     }
