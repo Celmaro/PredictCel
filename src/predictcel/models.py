@@ -72,6 +72,18 @@ class ArbitrageOpportunity:
     gross_edge: float
     liquidity_usd: float
     reason: str
+    net_edge: float = 0.0
+    annualized_return: float = 0.0
+    min_profitable_position: float = 0.0
+    safe_position_size: float = 0.0
+    quality_score: float = 0.0
+    liquidity_score: float = 0.0
+    speed_score: float = 0.0
+    confidence_score: float = 0.0
+    gas_cost_percentage: float = 0.0
+    resolution_risk: str = "UNKNOWN"
+    estimated_slippage: float = 0.0
+    best_execution_path: str = "direct"
 
 
 @dataclass(frozen=True)
