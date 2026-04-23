@@ -29,12 +29,23 @@ class ArbitrageConfig:
 
 
 @dataclass(frozen=True)
+class LiveDataConfig:
+    enabled: bool
+    gamma_base_url: str
+    data_base_url: str
+    market_limit: int
+    trade_limit: int
+    request_timeout_seconds: int
+
+
+@dataclass(frozen=True)
 class AppConfig:
     baskets: list[BasketRule]
     filters: FilterConfig
     arbitrage: ArbitrageConfig
     wallet_trades_path: str
     market_snapshots_path: str
+    live_data: LiveDataConfig | None
 
 
 class ConfigError(ValueError):
@@ -54,6 +65,8 @@ def load_config(path: str | Path) -> AppConfig:
     ]
     filters = FilterConfig(**payload["filters"])
     arbitrage = ArbitrageConfig(**payload["arbitrage"])
+    live_data_payload = payload.get("live_data")
+    live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
 
     if not baskets:
         raise ConfigError("At least one basket is required.")
@@ -73,10 +86,17 @@ def load_config(path: str | Path) -> AppConfig:
     if arbitrage.min_gross_edge <= 0:
         raise ConfigError("min_gross_edge must be positive.")
 
+    if live_data is not None:
+        if live_data.market_limit <= 0 or live_data.trade_limit <= 0:
+            raise ConfigError("Live market and trade limits must be positive.")
+        if live_data.request_timeout_seconds <= 0:
+            raise ConfigError("request_timeout_seconds must be positive.")
+
     return AppConfig(
         baskets=baskets,
         filters=filters,
         arbitrage=arbitrage,
         wallet_trades_path=payload["wallet_trades_path"],
         market_snapshots_path=payload["market_snapshots_path"],
+        live_data=live_data,
     )
