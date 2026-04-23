@@ -6,6 +6,8 @@ __all__ = [
     "polymarket",
     "scoring",
     "copy_engine",
+    "discovery",
+    "discover_wallets",
     "arb_sidecar",
     "execution",
     "railway",
