@@ -26,7 +26,7 @@ class WalletQualityScorer:
         scores: dict[str, WalletQuality] = {}
         for wallet, wallet_trades in grouped.items():
             eligible = []
-            for trade in wallet_trades:
+            for trade in _dedupe_wallet_trades(wallet_trades):
                 reason = self.rejection_reason(trade, markets)
                 if reason is None:
                     eligible.append(trade)
@@ -38,7 +38,7 @@ class WalletQualityScorer:
             if not eligible:
                 continue
 
-            topic = eligible[0].topic
+            topic = Counter(trade.topic for trade in eligible).most_common(1)[0][0]
             average_age = sum(trade.age_seconds for trade in eligible) / len(eligible)
             drifts = [self._trade_drift(trade, markets[trade.market_id]) for trade in eligible if trade.market_id in markets]
             average_drift = sum(drifts) / len(drifts) if drifts else self.filters.max_price_drift
@@ -120,3 +120,11 @@ def compute_copyability_score(
         + depth_score * 0.05
     )
     return round(score, 4)
+
+
+def _dedupe_wallet_trades(trades: list[WalletTrade]) -> list[WalletTrade]:
+    deduped: dict[tuple[str, str, float, float, int], WalletTrade] = {}
+    for trade in trades:
+        key = (trade.market_id, trade.side.upper(), trade.price, trade.size_usd, trade.age_seconds)
+        deduped.setdefault(key, trade)
+    return list(deduped.values())
