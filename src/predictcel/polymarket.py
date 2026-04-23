@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -17,11 +19,15 @@ class PolymarketPublicClient:
         data_base_url: str = "https://data-api.polymarket.com",
         clob_base_url: str = "https://clob.polymarket.com",
         timeout_seconds: int = 15,
+        max_retries: int = 3,
+        retry_base_delay_seconds: float = 0.5,
     ) -> None:
         self.gamma_base_url = gamma_base_url.rstrip("/")
         self.data_base_url = data_base_url.rstrip("/")
         self.clob_base_url = clob_base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.max_retries = max(max_retries, 1)
+        self.retry_base_delay_seconds = retry_base_delay_seconds
 
     def fetch_active_markets(self, limit: int) -> list[dict[str, Any]]:
         query = urlencode({"limit": limit, "closed": "false", "active": "true"})
@@ -45,8 +51,15 @@ class PolymarketPublicClient:
 
     def _get_json(self, url: str) -> Any:
         request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
-        with urlopen(request, timeout=self.timeout_seconds) as response:
-            return json.loads(response.read().decode("utf-8"))
+        for attempt in range(self.max_retries):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
+                if attempt >= self.max_retries - 1:
+                    raise
+                time.sleep(self.retry_base_delay_seconds * (2 ** attempt))
+        return None
 
 
 def build_market_snapshots(items: list[dict[str, Any]]) -> dict[str, MarketSnapshot]:
@@ -67,7 +80,7 @@ def enrich_market_snapshots_with_orderbooks(
         try:
             yes_book = client.fetch_order_book(snapshot.yes_token_id) if snapshot.yes_token_id else {}
             no_book = client.fetch_order_book(snapshot.no_token_id) if snapshot.no_token_id else {}
-        except OSError:
+        except Exception:
             enriched[market_id] = snapshot
             continue
 
