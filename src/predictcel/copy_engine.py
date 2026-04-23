@@ -121,6 +121,7 @@ class CopyEngine:
             side_spread=side_spread,
             side_depth_usd=side_depth_usd,
             filters=self.config.filters,
+            recency_half_life_seconds=self.config.consensus.recency_half_life_seconds,
         )
         copyability_score = round(max(0.0, min(1.0, (base_score * 0.70) + (confidence_score * 0.15) + (recency_score * 0.10) + (regime.score * 0.05) - conflict_penalty)), 4)
         suggested_position_usd = self._suggested_position_size(current_price, confidence_score, copyability_score)
