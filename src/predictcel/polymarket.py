@@ -37,15 +37,24 @@ class PolymarketPublicClient:
         return _extract_list(payload)
 
     def fetch_markets_by_condition_ids(self, condition_ids: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
+        return self._fetch_markets_by_array_filter("condition_ids", condition_ids, chunk_size)
+
+    def fetch_markets_by_clob_token_ids(self, token_ids: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
+        return self._fetch_markets_by_array_filter("clob_token_ids", token_ids, chunk_size)
+
+    def fetch_markets_by_identifiers(self, identifiers: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
-        unique_ids = sorted({market_id.strip() for market_id in condition_ids if market_id and market_id.strip()})
-        for chunk in _chunks(unique_ids, max(chunk_size, 1)):
-            query = urlencode({"condition_ids": ",".join(chunk), "limit": len(chunk)})
-            try:
-                payload = self._get_json(f"{self.gamma_base_url}/markets?{query}")
-            except Exception:
-                continue
-            results.extend(_extract_list(payload))
+        seen_market_keys: set[str] = set()
+        for rows in (
+            self.fetch_markets_by_condition_ids(identifiers, chunk_size),
+            self.fetch_markets_by_clob_token_ids(identifiers, chunk_size),
+        ):
+            for row in rows:
+                key = str(row.get("conditionId") or row.get("condition_id") or row.get("id") or row).strip()
+                if key in seen_market_keys:
+                    continue
+                seen_market_keys.add(key)
+                results.append(row)
         return results
 
     def fetch_leaderboard(self, limit: int) -> list[dict[str, Any]]:
@@ -62,6 +71,18 @@ class PolymarketPublicClient:
         query = urlencode({"token_id": token_id})
         payload = self._get_json(f"{self.clob_base_url}/book?{query}")
         return payload if isinstance(payload, dict) else {}
+
+    def _fetch_markets_by_array_filter(self, filter_name: str, values: list[str], chunk_size: int) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        unique_values = sorted({value.strip() for value in values if value and value.strip()})
+        for chunk in _chunks(unique_values, max(chunk_size, 1)):
+            query = urlencode({filter_name: chunk, "limit": len(chunk)}, doseq=True)
+            try:
+                payload = self._get_json(f"{self.gamma_base_url}/markets?{query}")
+            except Exception:
+                continue
+            results.extend(_extract_list(payload))
+        return results
 
     def _get_json(self, url: str) -> Any:
         request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
