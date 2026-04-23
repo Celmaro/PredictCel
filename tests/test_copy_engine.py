@@ -102,6 +102,8 @@ def test_emits_candidate_when_quorum_and_drift_pass() -> None:
     assert candidates[0].recency_score > 0
     assert candidates[0].suggested_position_usd >= 0
     assert candidates[0].copyability_score > 0
+    assert candidates[0].market_regime in {"RANGE", "TRANSITION", "TREND", "UNSTABLE"}
+    assert candidates[0].regime_score > 0
 
 
 def test_skips_candidate_when_drift_is_too_large() -> None:
@@ -160,3 +162,20 @@ def test_suggested_position_size_is_capped() -> None:
     candidate = engine.evaluate(trades, {"m1": market}, make_qualities())[0]
 
     assert candidate.suggested_position_usd <= 12.0
+
+
+def test_market_regime_detects_trend_and_unstable_books() -> None:
+    engine = CopyEngine(make_config(ConsensusConfig(min_confidence_score=0.20)))
+    trades = [
+        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.69, size_usd=300, age_seconds=60),
+        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.70, size_usd=300, age_seconds=60),
+    ]
+    trend_market = replace(make_market(), yes_ask=0.70, yes_spread=0.02, yes_ask_size=200)
+    unstable_market = replace(make_market(), yes_ask=0.70, yes_spread=0.20, yes_ask_size=1)
+
+    trend = engine.evaluate(trades, {"m1": trend_market}, make_qualities())[0]
+    unstable = engine.evaluate(trades, {"m1": unstable_market}, make_qualities())[0]
+
+    assert trend.market_regime == "TREND"
+    assert unstable.market_regime == "UNSTABLE"
+    assert trend.regime_score > unstable.regime_score
