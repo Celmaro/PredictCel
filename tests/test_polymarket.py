@@ -2,8 +2,10 @@ from datetime import UTC, datetime
 
 from predictcel.polymarket import (
     _extract_list,
+    build_market_snapshots,
     build_wallet_trades,
     enrich_market_snapshots_with_orderbooks,
+    extract_trade_market_ids,
     market_snapshot_from_gamma,
     wallet_trade_from_data,
 )
@@ -40,6 +42,23 @@ def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None
     assert snapshot.no_token_id == "no_token"
 
 
+def test_build_market_snapshots_indexes_common_aliases() -> None:
+    snapshots = build_market_snapshots(
+        [
+            {
+                "conditionId": "cond_1",
+                "slug": "will-event-x-happen",
+                "outcomePrices": "[0.61, 0.35]",
+                "clobTokenIds": "[\"yes_token\", \"no_token\"]",
+            }
+        ]
+    )
+
+    assert snapshots["cond_1"].market_id == "cond_1"
+    assert snapshots["will-event-x-happen"].market_id == "cond_1"
+    assert snapshots["yes_token"].market_id == "cond_1"
+
+
 def test_enrich_market_snapshots_with_orderbooks_adds_spread_and_depth() -> None:
     item = {
         "conditionId": "cond_1",
@@ -61,7 +80,7 @@ def test_enrich_market_snapshots_with_orderbooks_adds_spread_and_depth() -> None
         }
     )
 
-    enriched = enrich_market_snapshots_with_orderbooks({"cond_1": snapshot}, client)
+    enriched = enrich_market_snapshots_with_orderbooks({"cond_1": snapshot, "yes_token": snapshot}, client)
 
     assert enriched["cond_1"].yes_bid == 0.59
     assert enriched["cond_1"].no_bid == 0.33
@@ -72,12 +91,13 @@ def test_enrich_market_snapshots_with_orderbooks_adds_spread_and_depth() -> None
     assert enriched["cond_1"].yes_spread == 0.03
     assert enriched["cond_1"].no_spread == 0.03
     assert enriched["cond_1"].orderbook_ready is True
+    assert enriched["yes_token"].orderbook_ready is True
 
 
 def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     item = {
-        "conditionId": "cond_1",
+        "condition_id": "cond_1",
         "outcome": "YES",
         "price": "0.54",
         "size": "250",
@@ -92,6 +112,19 @@ def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:
     assert trade.side == "YES"
     assert trade.market_id == "cond_1"
     assert trade.age_seconds == 600
+
+
+def test_extract_trade_market_ids_deduplicates_common_shapes() -> None:
+    payloads = {
+        "wallet_a": [
+            {"conditionId": "cond_1"},
+            {"condition_id": "cond_1"},
+            {"marketSlug": "ignored"},
+            {"market": "market_2"},
+        ]
+    }
+
+    assert extract_trade_market_ids(payloads) == ["cond_1", "market_2"]
 
 
 def test_build_wallet_trades_skips_wallets_without_topic_mapping() -> None:
