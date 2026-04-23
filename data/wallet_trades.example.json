@@ -1,0 +1,38 @@
+[
+  {
+    "wallet": "alpha_geo",
+    "topic": "geopolitics",
+    "market_id": "geo_001",
+    "side": "YES",
+    "price": 0.58,
+    "size_usd": 400,
+    "age_seconds": 900
+  },
+  {
+    "wallet": "macro_geo",
+    "topic": "geopolitics",
+    "market_id": "geo_001",
+    "side": "YES",
+    "price": 0.6,
+    "size_usd": 250,
+    "age_seconds": 1200
+  },
+  {
+    "wallet": "sports_sharp_1",
+    "topic": "sports",
+    "market_id": "sports_101",
+    "side": "NO",
+    "price": 0.44,
+    "size_usd": 300,
+    "age_seconds": 1800
+  },
+  {
+    "wallet": "sports_sharp_2",
+    "topic": "sports",
+    "market_id": "sports_101",
+    "side": "NO",
+    "price": 0.45,
+    "size_usd": 180,
+    "age_seconds": 1100
+  }
+]
