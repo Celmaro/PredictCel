@@ -64,7 +64,7 @@ class ExecutionPlanner:
                     worst_price=worst_price,
                     copyability_score=candidate.copyability_score,
                     order_type=self.config.order_type.upper(),
-                    reason="copyability threshold, suggested sizing, no open position, exposure within limits, token id, and top-of-book depth checks passed",
+                    reason="copyability threshold, 5-10 USD sizing policy, no open position, exposure within limits, token id, and top-of-book depth checks passed",
                 )
             )
             planned_exposure_usd += amount_usd
@@ -73,13 +73,15 @@ class ExecutionPlanner:
         return intents
 
     def _planned_amount_usd(self, candidate: CopyCandidate, planned_exposure_usd: float) -> float:
-        amount_usd = candidate.suggested_position_usd if candidate.suggested_position_usd > 0 else self.config.buy_amount_usd
+        suggested_amount = candidate.suggested_position_usd if candidate.suggested_position_usd > 0 else self.config.buy_amount_usd
+        amount_usd = max(suggested_amount, self.config.min_signal_allocation_usd)
+        amount_usd = min(amount_usd, self.config.buy_amount_usd)
         if self.config.exposure is not None:
             if self.config.exposure.max_single_position_usd > 0:
                 amount_usd = min(amount_usd, self.config.exposure.max_single_position_usd)
             if self.config.exposure.max_total_exposure_usd > 0:
                 remaining_capacity = self.config.exposure.max_total_exposure_usd - planned_exposure_usd
-                if remaining_capacity <= 0:
+                if remaining_capacity < self.config.min_signal_allocation_usd:
                     return 0.0
                 amount_usd = min(amount_usd, remaining_capacity)
         return max(amount_usd, 0.0)
