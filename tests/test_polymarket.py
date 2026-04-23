@@ -19,6 +19,15 @@ class FakeClient:
         return self.books.get(token_id, {})
 
 
+class FakeGammaClient:
+    def __init__(self):
+        self.urls = []
+
+    def _get_json(self, url: str):
+        self.urls.append(url)
+        return {"markets": [{"conditionId": "cond_1", "outcomePrices": "[0.61, 0.35]"}]}
+
+
 def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None:
     item = {
         "conditionId": "cond_1",
@@ -125,6 +134,16 @@ def test_extract_trade_market_ids_deduplicates_common_shapes() -> None:
     }
 
     assert extract_trade_market_ids(payloads) == ["cond_1", "market_2"]
+
+
+def test_gamma_market_array_filter_uses_repeated_query_params() -> None:
+    client = FakeGammaClient()
+
+    rows = client._fetch_markets_by_array_filter("clob_token_ids", ["token_a", "token_b"], 25)
+
+    assert rows == [{"conditionId": "cond_1", "outcomePrices": "[0.61, 0.35]"}]
+    assert "clob_token_ids=token_a" in client.urls[0]
+    assert "clob_token_ids=token_b" in client.urls[0]
 
 
 def test_build_wallet_trades_skips_wallets_without_topic_mapping() -> None:
