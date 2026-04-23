@@ -114,7 +114,7 @@ def test_skips_candidate_when_drift_is_too_large() -> None:
         WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.41, size_usd=220, age_seconds=800),
     ]
 
-    candidates = engine.evaluate(trades, {"m1": make_market()}, {})
+    candidates = engine.evaluate(trades, {"m1": make_market()}, make_qualities())
 
     assert candidates == []
     assert engine.last_diagnostics["too_much_drift"] == 1
