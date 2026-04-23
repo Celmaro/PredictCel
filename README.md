@@ -17,6 +17,7 @@ Instead, V1 focuses on the alpha layer we actually want to test:
 - topic baskets of source wallets
 - quorum-based consensus signals
 - copyability filters like drift, liquidity, and category match
+- wallet quality ranking from recent behavior
 - deterministic arbitrage detection from market snapshots
 
 ## What V1 does
@@ -25,8 +26,9 @@ Instead, V1 focuses on the alpha layer we actually want to test:
 - supports two input modes:
   - local file-backed example mode
   - live public Polymarket read mode
+- evaluates wallet quality from recent eligible trades
 - evaluates basket consensus per market
-- emits paper-mode copy candidates
+- emits paper-mode copy candidates with copyability scores
 - scans for simple YES/NO underpricing opportunities
 - stores all emitted signals into SQLite
 
@@ -80,11 +82,28 @@ To use this meaningfully, replace the example basket wallets in `config/predictc
 - `src/predictcel/markets.py` - file-backed market snapshot loading
 - `src/predictcel/wallets.py` - file-backed wallet trade loading
 - `src/predictcel/polymarket.py` - public Polymarket live ingestion and normalization
+- `src/predictcel/scoring.py` - wallet quality and copyability scoring
 - `src/predictcel/copy_engine.py` - basket-consensus paper signal engine
 - `src/predictcel/arb_sidecar.py` - simple arbitrage scanner
 - `src/predictcel/storage.py` - SQLite logging
 - `src/predictcel/main.py` - CLI entrypoint
-- `tests/` - focused unit tests for consensus, arbitrage, and live normalization
+- `tests/` - focused unit tests for consensus, arbitrage, and scoring
+
+## Notes on scoring
+
+Wallet quality is currently based on:
+- freshness of recent trades
+- drift discipline versus current market pricing proxy
+- sample size of eligible recent trades
+
+Copyability score is currently based on:
+- basket consensus ratio
+- average source wallet quality
+- freshness of aligned trades
+- drift from reference entry
+- available market liquidity
+
+These are intentionally simple V1 heuristics. They are meant to rank and filter, not to pretend we already have production alpha.
 
 ## Notes on live mode
 
@@ -99,6 +118,6 @@ This is enough for signal generation and paper-mode evaluation, not enough for r
 
 Once the paper engine looks sane, the next layers should be:
 1. real Polymarket adapters for richer market snapshots and order book data
-2. richer copyability scoring
-3. optional live execution behind an explicit flag
+2. execution-safe live order posting behind an explicit flag
+3. richer basket maintenance and wallet rotation rules
 4. cross-platform sidecars only after the core engine is validated
