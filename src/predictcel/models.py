@@ -48,6 +48,13 @@ class WalletQuality:
 
 
 @dataclass(frozen=True)
+class MarketRegime:
+    label: str
+    score: float
+    reason: str
+
+
+@dataclass(frozen=True)
 class CopyCandidate:
     topic: str
     market_id: str
@@ -65,6 +72,50 @@ class CopyCandidate:
     conflict_penalty: float = 0.0
     recency_score: float = 0.0
     suggested_position_usd: float = 0.0
+    market_regime: str = "UNKNOWN"
+    regime_score: float = 0.0
+    regime_reason: str = ""
+
+
+@dataclass(frozen=True)
+class WalletTopicProfile:
+    topic_affinities: dict[str, float]
+    primary_topic: str
+    specialization_score: float
+
+
+@dataclass(frozen=True)
+class WalletDiscoveryCandidate:
+    wallet_address: str
+    source: str
+    total_trades: int
+    recent_trades: int
+    avg_trade_size_usd: float
+    topic_profile: WalletTopicProfile
+    score: float
+    confidence: str
+    rejected_reasons: list[str]
+
+
+@dataclass(frozen=True)
+class BasketAssignment:
+    wallet_address: str
+    primary_topic: str
+    recommended_baskets: list[str]
+    topic_affinities: dict[str, float]
+    overall_score: float
+    confidence: str
+    reasons: list[str]
+
+
+@dataclass(frozen=True)
+class BasketManagerAction:
+    action: str
+    basket: str
+    wallet_address: str
+    score: float
+    confidence: str
+    reason: str
 
 
 @dataclass(frozen=True)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 
 from .config import AppConfig, BasketRule
-from .models import CopyCandidate, MarketSnapshot, WalletQuality, WalletTrade
+from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
 
 
@@ -111,6 +111,7 @@ class CopyEngine:
         side_depth_usd = side_ask_size * current_price
         conflict_penalty = self._conflict_penalty(aligned_weight, total_weight)
         recency_score = self._recency_score(aligned)
+        regime = self._classify_market_regime(market, side, current_price, side_spread, side_depth_usd)
         base_score = compute_copyability_score(
             consensus_ratio=weighted_consensus,
             wallet_quality_score=wallet_quality_score,
@@ -121,7 +122,7 @@ class CopyEngine:
             side_depth_usd=side_depth_usd,
             filters=self.config.filters,
         )
-        copyability_score = round(max(0.0, min(1.0, (base_score * 0.75) + (confidence_score * 0.15) + (recency_score * 0.10) - conflict_penalty)), 4)
+        copyability_score = round(max(0.0, min(1.0, (base_score * 0.70) + (confidence_score * 0.15) + (recency_score * 0.10) + (regime.score * 0.05) - conflict_penalty)), 4)
         suggested_position_usd = self._suggested_position_size(current_price, confidence_score, copyability_score)
 
         return CopyCandidate(
@@ -135,12 +136,15 @@ class CopyEngine:
             source_wallets=aligned_wallets,
             wallet_quality_score=wallet_quality_score,
             copyability_score=copyability_score,
-            reason="weighted basket consensus, confidence, recency, liquidity, drift, and orderbook filters passed",
+            reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and orderbook filters passed",
             weighted_consensus=weighted_consensus,
             confidence_score=confidence_score,
             conflict_penalty=conflict_penalty,
             recency_score=recency_score,
             suggested_position_usd=suggested_position_usd,
+            market_regime=regime.label,
+            regime_score=regime.score,
+            regime_reason=regime.reason,
         )
 
     def _latest_wallet_votes(self, trades: list[WalletTrade]) -> dict[str, WalletTrade]:
@@ -184,6 +188,26 @@ class CopyEngine:
             return 0.0
         weights = [0.5 ** (trade.age_seconds / self.config.consensus.recency_half_life_seconds) for trade in trades]
         return round(sum(weights) / len(weights), 4)
+
+    def _classify_market_regime(self, market: MarketSnapshot, side: str, current_price: float, side_spread: float, side_depth_usd: float) -> MarketRegime:
+        config = self.config.market_regime
+        if not config.enabled:
+            return MarketRegime("DISABLED", 0.5, "market regime scoring disabled")
+
+        if side_spread > config.max_stable_spread or side_depth_usd < config.min_depth_usd:
+            score = max(0.0, 0.5 - config.unstable_penalty)
+            return MarketRegime("UNSTABLE", round(score, 4), "spread or top-of-book depth failed stable regime thresholds")
+
+        skew = abs(current_price - 0.5)
+        if skew >= config.trend_price_skew:
+            directional_match = (side == "YES" and current_price > 0.5) or (side == "NO" and current_price > 0.5)
+            score = 0.75 + config.trend_bonus if directional_match else 0.60
+            return MarketRegime("TREND", round(min(score, 1.0), 4), "price is directionally skewed with stable orderbook conditions")
+
+        if skew <= config.range_price_skew:
+            return MarketRegime("RANGE", round(min(0.65 + config.range_bonus, 1.0), 4), "price is near the midpoint with stable two-sided conditions")
+
+        return MarketRegime("TRANSITION", 0.55, "price is between range and trend thresholds")
 
     def _suggested_position_size(self, price: float, confidence_score: float, copyability_score: float) -> float:
         if price <= 0 or price >= 1:

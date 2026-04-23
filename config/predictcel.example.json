@@ -42,6 +42,37 @@
     "kelly_fraction": 0.25,
     "max_suggested_position_usd": 10.0
   },
+  "market_regime": {
+    "enabled": true,
+    "trend_price_skew": 0.15,
+    "range_price_skew": 0.08,
+    "max_stable_spread": 0.06,
+    "min_depth_usd": 50.0,
+    "trend_bonus": 0.05,
+    "range_bonus": 0.02,
+    "unstable_penalty": 0.10
+  },
+  "wallet_discovery": {
+    "enabled": true,
+    "mode": "auto_update",
+    "candidate_limit": 100,
+    "trade_limit_per_wallet": 100,
+    "min_trades": 20,
+    "min_recent_trades": 5,
+    "recent_window_seconds": 2592000,
+    "min_avg_trade_size_usd": 10.0,
+    "min_assignment_score": 0.50,
+    "exclude_existing_wallets": true,
+    "max_wallets_per_basket": 20,
+    "max_new_wallets_per_run": 3,
+    "topics": {
+      "geopolitics": ["election", "trump", "biden", "war", "federal", "senate", "president"],
+      "sports": ["nba", "nfl", "mlb", "nhl", "ufc", "soccer", "football", "tennis"],
+      "crypto": ["btc", "eth", "sol", "bitcoin", "ethereum", "crypto"],
+      "macro": ["economy", "gdp", "inflation", "rates", "stock", "fed", "recession"],
+      "weather": ["weather", "rain", "snow", "hurricane", "temperature", "storm"]
+    }
+  },
   "baskets": [
     {
       "topic": "geopolitics",

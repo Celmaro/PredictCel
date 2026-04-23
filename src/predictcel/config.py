@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _default_topic_keywords() -> dict[str, list[str]]:
+    return {
+        "geopolitics": ["election", "trump", "biden", "war", "federal", "senate", "president"],
+        "sports": ["nba", "nfl", "mlb", "nhl", "ufc", "soccer", "football", "tennis"],
+        "crypto": ["btc", "eth", "sol", "bitcoin", "ethereum", "crypto"],
+        "macro": ["economy", "gdp", "inflation", "rates", "stock", "fed", "recession"],
+        "weather": ["weather", "rain", "snow", "hurricane", "temperature", "storm"],
+    }
 
 
 @dataclass(frozen=True)
@@ -32,6 +42,35 @@ class ConsensusConfig:
     bankroll_usd: float = 100.0
     kelly_fraction: float = 0.25
     max_suggested_position_usd: float = 10.0
+
+
+@dataclass(frozen=True)
+class MarketRegimeConfig:
+    enabled: bool = True
+    trend_price_skew: float = 0.15
+    range_price_skew: float = 0.08
+    max_stable_spread: float = 0.06
+    min_depth_usd: float = 50.0
+    trend_bonus: float = 0.05
+    range_bonus: float = 0.02
+    unstable_penalty: float = 0.10
+
+
+@dataclass(frozen=True)
+class WalletDiscoveryConfig:
+    enabled: bool = False
+    mode: str = "auto_update"
+    candidate_limit: int = 100
+    trade_limit_per_wallet: int = 100
+    min_trades: int = 20
+    min_recent_trades: int = 5
+    recent_window_seconds: int = 2_592_000
+    min_avg_trade_size_usd: float = 10.0
+    min_assignment_score: float = 0.50
+    exclude_existing_wallets: bool = True
+    max_wallets_per_basket: int = 20
+    max_new_wallets_per_run: int = 3
+    topics: dict[str, list[str]] = field(default_factory=_default_topic_keywords)
 
 
 @dataclass(frozen=True)
@@ -103,6 +142,8 @@ class AppConfig:
     live_data: LiveDataConfig | None
     execution: ExecutionConfig | None
     consensus: ConsensusConfig = ConsensusConfig()
+    market_regime: MarketRegimeConfig = MarketRegimeConfig()
+    wallet_discovery: WalletDiscoveryConfig = WalletDiscoveryConfig()
 
 
 class ConfigError(ValueError):
@@ -123,6 +164,8 @@ def load_config(path: str | Path) -> AppConfig:
     filters = FilterConfig(**payload["filters"])
     arbitrage = ArbitrageConfig(**payload["arbitrage"])
     consensus = ConsensusConfig(**payload.get("consensus", {}))
+    market_regime = MarketRegimeConfig(**payload.get("market_regime", {}))
+    wallet_discovery = WalletDiscoveryConfig(**payload.get("wallet_discovery", {}))
     live_data_payload = payload.get("live_data")
     live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
     execution_payload = payload.get("execution")
@@ -159,6 +202,30 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError("consensus kelly_fraction must be between 0 and 1.")
     if consensus.max_suggested_position_usd <= 0:
         raise ConfigError("consensus max_suggested_position_usd must be positive.")
+    if not 0 <= market_regime.trend_price_skew <= 0.5:
+        raise ConfigError("market_regime trend_price_skew must be between 0 and 0.5.")
+    if not 0 <= market_regime.range_price_skew <= 0.5:
+        raise ConfigError("market_regime range_price_skew must be between 0 and 0.5.")
+    if market_regime.range_price_skew > market_regime.trend_price_skew:
+        raise ConfigError("market_regime range_price_skew cannot exceed trend_price_skew.")
+    if market_regime.max_stable_spread < 0 or market_regime.min_depth_usd < 0:
+        raise ConfigError("market_regime spread and depth thresholds must be non-negative.")
+    if market_regime.unstable_penalty < 0:
+        raise ConfigError("market_regime unstable_penalty must be non-negative.")
+    if wallet_discovery.mode not in {"report_only", "propose_config", "auto_update"}:
+        raise ConfigError("wallet_discovery mode must be report_only, propose_config, or auto_update.")
+    if wallet_discovery.candidate_limit <= 0 or wallet_discovery.trade_limit_per_wallet <= 0:
+        raise ConfigError("wallet_discovery candidate and trade limits must be positive.")
+    if wallet_discovery.min_trades < 0 or wallet_discovery.min_recent_trades < 0:
+        raise ConfigError("wallet_discovery trade filters must be non-negative.")
+    if wallet_discovery.recent_window_seconds <= 0:
+        raise ConfigError("wallet_discovery recent_window_seconds must be positive.")
+    if wallet_discovery.min_avg_trade_size_usd < 0:
+        raise ConfigError("wallet_discovery min_avg_trade_size_usd must be non-negative.")
+    if not 0 <= wallet_discovery.min_assignment_score <= 1:
+        raise ConfigError("wallet_discovery min_assignment_score must be between 0 and 1.")
+    if wallet_discovery.max_wallets_per_basket <= 0 or wallet_discovery.max_new_wallets_per_run <= 0:
+        raise ConfigError("wallet_discovery basket limits must be positive.")
     if arbitrage.min_gross_edge <= 0:
         raise ConfigError("min_gross_edge must be positive.")
     if arbitrage.min_liquidity_usd < 0:
@@ -225,6 +292,8 @@ def load_config(path: str | Path) -> AppConfig:
         live_data=live_data,
         execution=execution,
         consensus=consensus,
+        market_regime=market_regime,
+        wallet_discovery=wallet_discovery,
     )
 
 
