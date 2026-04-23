@@ -26,17 +26,22 @@ class CopyEngine:
             if market is None:
                 continue
 
-            basket = self.baskets_by_topic.get(market.topic)
+            topic = self._resolve_topic(market_trades)
+            basket = self.baskets_by_topic.get(topic)
             if basket is None:
                 continue
 
-            candidate = self._evaluate_market(basket, market, market_trades)
+            candidate = self._evaluate_market(topic, basket, market, market_trades)
             if candidate is not None:
                 candidates.append(candidate)
         return candidates
 
+    def _resolve_topic(self, trades: list[WalletTrade]) -> str:
+        return Counter(trade.topic for trade in trades).most_common(1)[0][0]
+
     def _evaluate_market(
         self,
+        topic: str,
         basket: BasketRule,
         market: MarketSnapshot,
         trades: list[WalletTrade],
@@ -44,7 +49,8 @@ class CopyEngine:
         valid_trades = [
             trade
             for trade in trades
-            if trade.wallet in basket.wallets
+            if trade.topic == topic
+            and trade.wallet in basket.wallets
             and trade.age_seconds <= self.config.filters.max_trade_age_seconds
             and trade.size_usd >= self.config.filters.min_position_size_usd
         ]
@@ -76,7 +82,7 @@ class CopyEngine:
             return None
 
         return CopyCandidate(
-            topic=market.topic,
+            topic=topic,
             market_id=market.market_id,
             side=side,
             consensus_ratio=consensus_ratio,
