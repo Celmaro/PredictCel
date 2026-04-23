@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import Counter
 
 from .config import AppConfig, BasketRule
-from .models import CopyCandidate, MarketSnapshot, WalletTrade
+from .models import CopyCandidate, MarketSnapshot, WalletQuality, WalletTrade
+from .scoring import compute_copyability_score
 
 
 class CopyEngine:
@@ -15,7 +16,9 @@ class CopyEngine:
         self,
         trades: list[WalletTrade],
         markets: dict[str, MarketSnapshot],
+        wallet_qualities: dict[str, WalletQuality] | None = None,
     ) -> list[CopyCandidate]:
+        wallet_qualities = wallet_qualities or {}
         grouped: dict[str, list[WalletTrade]] = {}
         for trade in trades:
             grouped.setdefault(trade.market_id, []).append(trade)
@@ -31,7 +34,7 @@ class CopyEngine:
             if basket is None:
                 continue
 
-            candidate = self._evaluate_market(topic, basket, market, market_trades)
+            candidate = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities)
             if candidate is not None:
                 candidates.append(candidate)
         return candidates
@@ -45,6 +48,7 @@ class CopyEngine:
         basket: BasketRule,
         market: MarketSnapshot,
         trades: list[WalletTrade],
+        wallet_qualities: dict[str, WalletQuality],
     ) -> CopyCandidate | None:
         valid_trades = [
             trade
@@ -81,6 +85,18 @@ class CopyEngine:
         if drift > self.config.filters.max_price_drift:
             return None
 
+        average_age = sum(trade.age_seconds for trade in aligned) / len(aligned)
+        quality_values = [wallet_qualities[wallet].score for wallet in unique_wallets if wallet in wallet_qualities]
+        wallet_quality_score = round(sum(quality_values) / len(quality_values), 4) if quality_values else 0.5
+        copyability_score = compute_copyability_score(
+            consensus_ratio=consensus_ratio,
+            wallet_quality_score=wallet_quality_score,
+            average_age_seconds=average_age,
+            drift=drift,
+            liquidity_usd=market.liquidity_usd,
+            filters=self.config.filters,
+        )
+
         return CopyCandidate(
             topic=topic,
             market_id=market.market_id,
@@ -90,5 +106,7 @@ class CopyEngine:
             current_price=current_price,
             liquidity_usd=market.liquidity_usd,
             source_wallets=unique_wallets,
-            reason="basket consensus, age, liquidity, and drift filters passed",
+            wallet_quality_score=wallet_quality_score,
+            copyability_score=copyability_score,
+            reason="basket consensus, quality scoring, age, liquidity, and drift filters passed",
         )
