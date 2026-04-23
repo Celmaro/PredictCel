@@ -13,11 +13,13 @@ class WalletQualityScorer:
         self.recency_half_life_seconds = recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1)
         self.last_rejection_counts: dict[str, int] = {}
         self.last_wallet_rejection_counts: dict[str, dict[str, int]] = {}
+        self.last_missing_market_samples: list[str] = []
 
     def score(self, trades: list[WalletTrade], markets: dict[str, MarketSnapshot]) -> dict[str, WalletQuality]:
         grouped: dict[str, list[WalletTrade]] = defaultdict(list)
         rejection_counts: Counter[str] = Counter()
         wallet_rejections: dict[str, Counter[str]] = defaultdict(Counter)
+        missing_market_samples: list[str] = []
         for trade in trades:
             grouped[trade.wallet].append(trade)
 
@@ -31,6 +33,8 @@ class WalletQualityScorer:
                 else:
                     rejection_counts[reason] += 1
                     wallet_rejections[wallet][reason] += 1
+                    if reason == "missing_market" and trade.market_id not in missing_market_samples and len(missing_market_samples) < 10:
+                        missing_market_samples.append(trade.market_id)
             if not eligible:
                 continue
 
@@ -56,6 +60,7 @@ class WalletQualityScorer:
 
         self.last_rejection_counts = dict(sorted(rejection_counts.items()))
         self.last_wallet_rejection_counts = {wallet: dict(sorted(counts.items())) for wallet, counts in sorted(wallet_rejections.items())}
+        self.last_missing_market_samples = missing_market_samples
         return scores
 
     def rejection_reason(self, trade: WalletTrade, markets: dict[str, MarketSnapshot]) -> str | None:
