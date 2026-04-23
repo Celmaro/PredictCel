@@ -11,6 +11,7 @@ class CopyEngine:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.baskets_by_topic = {basket.topic: basket for basket in config.baskets}
+        self.last_diagnostics: dict[str, int] = {}
 
     def evaluate(
         self,
@@ -24,14 +25,13 @@ class CopyEngine:
             grouped.setdefault(trade.market_id, []).append(trade)
 
         candidates: list[CopyCandidate] = []
-        # CAMEL PATCH: diagnostic counters (replace silent continue with counting)
-        mkt_not_found = 0
+        market_not_found = 0
         basket_not_found = 0
-        eval_filtered = 0
+        filtered_at_evaluate = 0
         for market_id, market_trades in grouped.items():
             market = markets.get(market_id)
             if market is None:
-                mkt_not_found += 1
+                market_not_found += 1
                 continue
 
             topic = self._resolve_topic(market_trades)
@@ -44,14 +44,13 @@ class CopyEngine:
             if candidate is not None:
                 candidates.append(candidate)
             else:
-                eval_filtered += 1
+                filtered_at_evaluate += 1
 
-        # CAMEL PATCH: expose diagnostics
-        self._eval_diagnostics = {
+        self.last_diagnostics = {
             "markets_evaluated": len(grouped),
-            "market_not_found": mkt_not_found,
+            "market_not_found": market_not_found,
             "basket_not_found": basket_not_found,
-            "filtered_at_evaluate": eval_filtered,
+            "filtered_at_evaluate": filtered_at_evaluate,
             "candidates_returned": len(candidates),
         }
         return candidates
