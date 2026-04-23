@@ -12,7 +12,7 @@ from predictcel.config import (
     PositionConfig,
     WalletDiscoveryConfig,
 )
-from predictcel.models import WalletDiscoveryCandidate, WalletTopicProfile
+from predictcel.models import BasketAssignment, WalletDiscoveryCandidate, WalletTopicProfile
 
 
 def make_config() -> AppConfig:
@@ -75,3 +75,39 @@ def test_manager_observes_low_score_assignment() -> None:
     actions = BasketManagerPlanner(config).plan([assignment])
 
     assert actions[0].action == "observe"
+
+
+def test_manager_suspends_existing_wallet_when_score_degrades() -> None:
+    config = make_config()
+    assignment = BasketAssignment(
+        wallet_address="0xexisting",
+        primary_topic="sports",
+        recommended_baskets=["sports"],
+        topic_affinities={"sports": 1.0},
+        overall_score=0.45,
+        confidence="LOW",
+        reasons=[],
+    )
+
+    actions = BasketManagerPlanner(config).plan([assignment])
+
+    assert actions[0].action == "suspend"
+    assert actions[0].basket == "sports"
+
+
+def test_manager_removes_existing_wallet_when_topic_drift_is_severe() -> None:
+    config = make_config()
+    assignment = BasketAssignment(
+        wallet_address="0xexisting",
+        primary_topic="crypto",
+        recommended_baskets=["crypto"],
+        topic_affinities={"crypto": 1.0},
+        overall_score=0.3,
+        confidence="LOW",
+        reasons=[],
+    )
+
+    actions = BasketManagerPlanner(config).plan([assignment])
+
+    assert actions[0].action == "remove"
+    assert actions[0].basket == "sports"
