@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from predictcel.polymarket import (
+    _extract_list,
     build_wallet_trades,
     enrich_market_snapshots_with_orderbooks,
     market_snapshot_from_gamma,
@@ -104,3 +105,10 @@ def test_build_wallet_trades_skips_wallets_without_topic_mapping() -> None:
 
     assert len(trades) == 1
     assert trades[0].wallet == "wallet_a"
+
+
+def test_extract_list_handles_leaderboard_shapes() -> None:
+    payload = {"leaderboard": [{"address": "0x1"}], "total": 1}
+
+    assert _extract_list(payload) == [{"address": "0x1"}]
+    assert _extract_list({"users": [{"address": "0x2"}]}) == [{"address": "0x2"}]
