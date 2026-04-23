@@ -33,6 +33,7 @@ class LiveDataConfig:
     enabled: bool
     gamma_base_url: str
     data_base_url: str
+    clob_base_url: str
     market_limit: int
     trade_limit: int
     request_timeout_seconds: int
