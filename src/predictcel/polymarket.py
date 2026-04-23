@@ -71,7 +71,9 @@ class PolymarketPublicClient:
             (f"{self.data_base_url}/v1/trades", {"user": wallet, "limit": limit}),
             (f"{self.data_base_url}/v1/trades", {"address": wallet, "limit": limit}),
         ]
+        wallet_key = wallet.lower()
         best_rows: list[dict[str, Any]] = []
+        best_scored_rows: list[dict[str, Any]] = []
         for base_url, params in request_variants:
             query = urlencode(params)
             try:
@@ -82,11 +84,14 @@ class PolymarketPublicClient:
             if not rows:
                 continue
             normalized = [_flatten_trade_payload(item) for item in rows]
-            if _count_trade_items_with_ids(normalized) > _count_trade_items_with_ids(best_rows):
-                best_rows = normalized
-            elif len(normalized) > len(best_rows):
-                best_rows = normalized
-            if _count_trade_items_with_ids(best_rows) >= min(limit, len(best_rows)):
+            matching_rows = [item for item in normalized if _trade_matches_wallet(item, wallet_key)]
+            candidate_rows = matching_rows or normalized
+            if _score_trade_rows(candidate_rows) > _score_trade_rows(best_scored_rows):
+                best_scored_rows = candidate_rows
+                best_rows = candidate_rows
+            elif len(candidate_rows) > len(best_rows):
+                best_rows = candidate_rows
+            if matching_rows and _count_trade_items_with_ids(matching_rows) >= min(limit, len(matching_rows)):
                 break
         return best_rows[:limit]
 
@@ -431,6 +436,31 @@ def _flatten_trade_payload(item: dict[str, Any]) -> dict[str, Any]:
 
 def _count_trade_items_with_ids(items: list[dict[str, Any]]) -> int:
     return sum(1 for item in items if _trade_market_id(item))
+
+
+def _score_trade_rows(items: list[dict[str, Any]]) -> tuple[int, int]:
+    return (_count_trade_items_with_ids(items), len(items))
+
+
+def _trade_matches_wallet(item: dict[str, Any], wallet: str) -> bool:
+    owner = _trade_wallet_address(item)
+    if not owner:
+        return False
+    return owner == wallet
+
+
+def _trade_wallet_address(item: dict[str, Any]) -> str:
+    for key in ("user", "userAddress", "wallet", "walletAddress", "address", "proxyWallet", "proxy_wallet", "maker", "taker"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip().lower()
+    profile = item.get("profile")
+    if isinstance(profile, dict):
+        for key in ("address", "wallet", "walletAddress", "proxyWallet"):
+            value = profile.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip().lower()
+    return ""
 
 
 def _book_best_price(book: dict[str, Any], side: str) -> float:
