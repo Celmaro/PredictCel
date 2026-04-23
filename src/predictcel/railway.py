@@ -6,6 +6,7 @@ import sys
 import time
 import traceback
 from datetime import UTC, datetime
+from pathlib import Path
 
 from .main import main as run_cli
 
@@ -39,7 +40,7 @@ def main() -> None:
 
 def _run_once_from_env() -> None:
     config_path = os.getenv("PREDICTCEL_CONFIG", "config/predictcel.example.json")
-    db_path = os.getenv("PREDICTCEL_DB", "/data/predictcel.db")
+    db_path = _default_db_path()
     mode = os.getenv("PREDICTCEL_MODE", "").strip().lower()
 
     argv = ["predictcel", "--config", config_path, "--db", db_path]
@@ -56,7 +57,15 @@ def _run_once_from_env() -> None:
         if _env_enabled("PREDICTCEL_LIVE_TRADING", default=False):
             argv.append("--live-trading")
 
-    _log_event("predictcel_run_start", {"mode": mode or "legacy-env", "db_path": db_path})
+    _log_event(
+        "predictcel_run_start",
+        {
+            "mode": mode or "legacy-env",
+            "config_path": config_path,
+            "db_path": db_path,
+            "argv": argv[1:],
+        },
+    )
     previous_argv = sys.argv
     try:
         sys.argv = argv
@@ -69,6 +78,16 @@ def _default_interval_seconds() -> int:
     mode = os.getenv("PREDICTCEL_MODE", "").strip().lower()
     legacy_live = _env_enabled("PREDICTCEL_LIVE_DATA", default=False) or _env_enabled("PREDICTCEL_LIVE_TRADING", default=False)
     return 60 if mode in LIVE_MODES or legacy_live else 300
+
+
+def _default_db_path() -> str:
+    explicit = os.getenv("PREDICTCEL_DB")
+    if explicit:
+        return explicit
+    volume_mount = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+    if volume_mount:
+        return str(Path(volume_mount) / "predictcel.db")
+    return "/tmp/predictcel.db"
 
 
 def _env_enabled(name: str, default: bool) -> bool:
