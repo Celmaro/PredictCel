@@ -133,8 +133,26 @@ def test_execution_planner_selects_top_copyable_markets() -> None:
     assert intents[0].market_id == "m1"
     assert intents[0].token_id == "yes_1"
     assert intents[0].worst_price == 0.62
+    assert intents[0].amount_usd == 25.0
     assert intents[1].market_id == "m2"
     assert intents[1].token_id == "no_2"
+
+
+def test_execution_planner_uses_suggested_position_size_with_caps() -> None:
+    config = make_execution_config()
+    planner = ExecutionPlanner(config, config.position)
+    candidates = [
+        CopyCandidate("topic", "m1", "YES", 1.0, 0.5, 0.51, 10000, ["w1"], 1.0, 0.9, "ok", suggested_position_usd=60.0),
+        CopyCandidate("topic", "m2", "YES", 1.0, 0.5, 0.51, 10000, ["w2"], 1.0, 0.89, "ok", suggested_position_usd=40.0),
+    ]
+    markets = {
+        "m1": MarketSnapshot("m1", "topic", "One", 0.51, 0.48, 0.5, 10000, 180, yes_token_id="yes_1", yes_ask_size=200, orderbook_ready=True),
+        "m2": MarketSnapshot("m2", "topic", "Two", 0.51, 0.48, 0.5, 10000, 180, yes_token_id="yes_2", yes_ask_size=200, orderbook_ready=True),
+    }
+
+    intents = planner.plan(candidates, markets, held_market_ids=set(), current_exposure_usd=10.0)
+
+    assert [intent.amount_usd for intent in intents] == [50.0, 15.0]
 
 
 def test_execution_planner_respects_exposure_across_planned_orders() -> None:
