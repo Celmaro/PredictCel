@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 import time
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
@@ -179,8 +180,7 @@ class LiveOrderExecutor:
                     or "504" in error_msg
                 )
                 if is_retryable and attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    time.sleep(delay)
+                    time.sleep(retry_delay(base_delay, attempt))
                     continue
                 return ExecutionResult(
                     market_id=intent.market_id,
@@ -275,6 +275,10 @@ class ExitRunner:
             updated_positions.append(updated_pos)
 
         return close_intents, updated_positions
+
+
+def retry_delay(base_delay: float, attempt: int) -> float:
+    return base_delay * (2 ** attempt) * random.uniform(0.5, 1.5)
 
 
 def intents_as_dicts(intents: list[ExecutionIntent]) -> list[dict[str, Any]]:
