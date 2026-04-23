@@ -43,6 +43,21 @@ def test_wallet_quality_scores_eligible_wallet() -> None:
     assert scorer.last_missing_market_samples == []
 
 
+def test_scoring_deduplicates_cross_topic_live_trade_copies() -> None:
+    scorer = WalletQualityScorer(make_filters())
+    trades = [
+        WalletTrade(wallet="w1", topic="sports", market_id="m1", side="YES", price=0.55, size_usd=200, age_seconds=300),
+        WalletTrade(wallet="w1", topic="macro", market_id="m1", side="YES", price=0.55, size_usd=200, age_seconds=300),
+    ]
+    markets = {
+        "m1": MarketSnapshot("m1", "sports", "Example", 0.57, 0.4, 0.55, 9000, 180)
+    }
+
+    scores = scorer.score(trades, markets)
+
+    assert scores["w1"].eligible_trade_count == 1
+
+
 def test_scoring_diagnostics_count_rejection_reasons() -> None:
     scorer = WalletQualityScorer(make_filters())
     trades = [
