@@ -22,8 +22,9 @@ Instead, V1 focuses on the alpha layer we actually want to test:
 ## What V1 does
 
 - loads baskets, filters, and risk settings from `config/predictcel.example.json`
-- reads source-wallet trade snapshots from `data/wallet_trades.example.json`
-- reads market snapshots from `data/market_snapshots.example.json`
+- supports two input modes:
+  - local file-backed example mode
+  - live public Polymarket read mode
 - evaluates basket consensus per market
 - emits paper-mode copy candidates
 - scans for simple YES/NO underpricing opportunities
@@ -38,6 +39,8 @@ Instead, V1 focuses on the alpha layer we actually want to test:
 - run on 5 minute crypto latency games
 
 ## Quick start
+
+### File-backed mode
 
 ```bash
 python -m venv .venv
@@ -55,22 +58,47 @@ pip install -e .
 python -m predictcel.main --config config/predictcel.example.json --db predictcel.db
 ```
 
+### Live public data mode
+
+This mode uses public Polymarket endpoints only.
+It reads:
+- active markets from Gamma
+- recent wallet trades from the Data API
+
+It still does not place trades.
+
+```bash
+python -m predictcel.main --config config/predictcel.example.json --db predictcel.db --live-data
+```
+
+To use this meaningfully, replace the example basket wallets in `config/predictcel.example.json` with real wallet addresses.
+
 ## Project layout
 
 - `src/predictcel/config.py` - config loading and validation
 - `src/predictcel/models.py` - small dataclasses used by the engines
-- `src/predictcel/markets.py` - market snapshot loading
-- `src/predictcel/wallets.py` - wallet trade loading and basket bucketing
+- `src/predictcel/markets.py` - file-backed market snapshot loading
+- `src/predictcel/wallets.py` - file-backed wallet trade loading
+- `src/predictcel/polymarket.py` - public Polymarket live ingestion and normalization
 - `src/predictcel/copy_engine.py` - basket-consensus paper signal engine
 - `src/predictcel/arb_sidecar.py` - simple arbitrage scanner
 - `src/predictcel/storage.py` - SQLite logging
 - `src/predictcel/main.py` - CLI entrypoint
-- `tests/` - focused unit tests for consensus and arbitrage
+- `tests/` - focused unit tests for consensus, arbitrage, and live normalization
+
+## Notes on live mode
+
+The live mode is intentionally approximate and conservative:
+- it uses public market pricing fields as a lightweight proxy for current tradable levels
+- it uses wallet trade history for basket detection only
+- it skips markets whose metadata cannot be normalized safely
+
+This is enough for signal generation and paper-mode evaluation, not enough for real execution.
 
 ## Next steps
 
 Once the paper engine looks sane, the next layers should be:
-1. live Polymarket adapters for wallet and market data
+1. real Polymarket adapters for richer market snapshots and order book data
 2. richer copyability scoring
 3. optional live execution behind an explicit flag
 4. cross-platform sidecars only after the core engine is validated
