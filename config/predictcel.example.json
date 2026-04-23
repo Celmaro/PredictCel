@@ -63,7 +63,7 @@
     "min_avg_trade_size_usd": 10.0,
     "min_assignment_score": 0.5,
     "exclude_existing_wallets": true,
-    "max_wallets_per_baseline": 50,
+    "max_wallets_per_basket": 50,
     "max_new_wallets_per_run": 10,
     "topics": {
       "geopolitics": [
