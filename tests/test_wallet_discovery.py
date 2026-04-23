@@ -1,3 +1,5 @@
+import json
+
 from predictcel.basket_assignment import BasketAssignmentEngine
 from predictcel.basket_manager import BasketManagerPlanner
 from predictcel.config import (
@@ -33,8 +35,9 @@ class FakeSource:
         return []
 
 
-def make_config() -> AppConfig:
+def make_config(mode: str = "auto_update") -> AppConfig:
     discovery = WalletDiscoveryConfig(
+        mode=mode,
         candidate_limit=10,
         trade_limit_per_wallet=10,
         min_trades=3,
@@ -56,11 +59,16 @@ def make_config() -> AppConfig:
     )
 
 
-def test_pipeline_filters_existing_wallets_and_assigns_new_candidate() -> None:
-    pipeline = WalletDiscoveryPipeline(make_config())
+def make_pipeline(mode: str = "auto_update") -> WalletDiscoveryPipeline:
+    pipeline = WalletDiscoveryPipeline(make_config(mode))
     pipeline.source = FakeSource()
     pipeline.assignment_engine = BasketAssignmentEngine(pipeline.config.wallet_discovery)
     pipeline.manager = BasketManagerPlanner(pipeline.config)
+    return pipeline
+
+
+def test_pipeline_filters_existing_wallets_and_assigns_new_candidate() -> None:
+    pipeline = make_pipeline()
 
     candidates, assignments, actions = pipeline.run()
 
@@ -69,3 +77,29 @@ def test_pipeline_filters_existing_wallets_and_assigns_new_candidate() -> None:
     assert candidates[0].rejected_reasons == []
     assert assignments[0].recommended_baskets == ["sports"]
     assert actions[0].action == "add"
+
+
+def test_auto_update_mutates_config_path_by_default(tmp_path) -> None:
+    config_path = tmp_path / "predictcel.json"
+    config_path.write_text(json.dumps({"baskets": [{"topic": "sports", "wallets": ["0xexisting"], "quorum_ratio": 0.66}]}), encoding="utf-8")
+    pipeline = make_pipeline("auto_update")
+
+    reports = pipeline.write_reports(tmp_path / "reports", config_path)
+    updated = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert reports["updated_config"] == str(config_path)
+    assert updated["baskets"][0]["wallets"] == ["0xexisting", "0xnew"]
+
+
+def test_propose_config_writes_separate_proposal(tmp_path) -> None:
+    config_path = tmp_path / "predictcel.json"
+    config_path.write_text(json.dumps({"baskets": [{"topic": "sports", "wallets": ["0xexisting"], "quorum_ratio": 0.66}]}), encoding="utf-8")
+    pipeline = make_pipeline("propose_config")
+
+    reports = pipeline.write_reports(tmp_path / "reports", config_path)
+    original = json.loads(config_path.read_text(encoding="utf-8"))
+    proposed = json.loads((tmp_path / "reports" / "predictcel.proposed.json").read_text(encoding="utf-8"))
+
+    assert reports["config_proposal"] == str(tmp_path / "reports" / "predictcel.proposed.json")
+    assert original["baskets"][0]["wallets"] == ["0xexisting"]
+    assert proposed["baskets"][0]["wallets"] == ["0xexisting", "0xnew"]
