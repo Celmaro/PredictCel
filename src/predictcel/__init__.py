@@ -4,6 +4,7 @@ __all__ = [
     "markets",
     "wallets",
     "polymarket",
+    "scoring",
     "copy_engine",
     "arb_sidecar",
     "storage",
