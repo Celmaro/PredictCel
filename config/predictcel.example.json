@@ -35,12 +35,12 @@
   "consensus": {
     "recency_half_life_seconds": 1800,
     "min_weighted_consensus": 0.2,
+    "confidence_prior_strength": 2,
     "min_confidence_score": 0.3,
     "conflict_penalty_weight": 0.25,
     "bankroll_usd": 100,
     "kelly_fraction": 0.25,
-    "max_suggested_position_usd": 10,
-    "confidence_prior_strength": 2
+    "max_suggested_position_usd": 10
   },
   "market_regime": {
     "enabled": true,
@@ -68,67 +68,86 @@
     "topics": {
       "geopolitics": [
         "war",
-        "israel",
-        "iran",
         "ukraine",
         "russia",
-        "china",
-        "military",
+        "iran",
+        "israel",
         "nato",
-        "ceasefire"
+        "ceasefire",
+        "military",
+        "nuclear"
+      ],
+      "trump": [
+        "trump",
+        "impeach",
+        "pardon",
+        "donald trump"
+      ],
+      "us_election": [
+        "election",
+        "senate",
+        "congress",
+        "biden",
+        "kamala",
+        "governor",
+        "ballot"
+      ],
+      "crypto": [
+        "bitcoin",
+        "btc",
+        "ethereum",
+        "eth",
+        "solana",
+        "crypto"
+      ],
+      "longterm_crypto": [
+        "bitcoin above",
+        "btc above",
+        "bitcoin reach",
+        "surpass 100"
       ],
       "sports": [
         "nba",
         "nfl",
         "mlb",
         "nhl",
+        "super bowl",
         "ufc",
-        "soccer",
-        "football",
-        "tennis",
+        "mma",
+        "boxing"
+      ],
+      "esports": [
         "esport",
-        "gaming",
+        "cs2",
+        "valorant",
         "dota",
         "counter-strike",
-        "cs2"
-      ],
-      "crypto": [
-        "btc",
-        "eth",
-        "sol",
-        "bitcoin",
-        "ethereum",
-        "crypto",
-        "up or down"
-      ],
-      "trump": [
-        "trump",
-        "biden",
-        "election",
-        "senate",
-        "congress",
-        "governor",
-        "presidential",
-        "approval rating"
-      ],
-      "longterm_crypto": [
-        "higher than",
-        "above $",
-        "reach $",
-        "bitcoin above",
-        "end of year",
-        "target price"
+        "league of legends",
+        "f1"
       ],
       "weather": [
-        "weather",
         "temperature",
+        "weather",
         "hurricane",
-        "storm",
-        "rain",
-        "snow",
-        "tornado",
-        "typhoon",
-        "heat wave"
+        "moscow",
+        "toronto"
+      ],
+      "economy": [
+        "inflation",
+        "recession",
+        "fed rate",
+        "interest rate",
+        "gdp",
+        "cpi"
+      ],
+      "tech": [
+        "openai",
+        "nvidia",
+        "meta",
+        "apple",
+        "google",
+        "ai",
+        "tesla stock"
       ]
     }
   },
@@ -136,74 +155,120 @@
     {
       "topic": "geopolitics",
       "wallets": [
+        "0xa91edabae0eae478c830a6d5dfd3acc0571709e0",
+        "0xead152b855effa6b5b5837f53b24c0756830c76a",
+        "0x5ccf62ac8155e49bc7d021a1a66e9ef18f5579d7",
+        "0x69b3b4d53b702d75c6827a1d7a33663b5eb214f8",
+        "0x166a49699aba5d7a9ce3142450062deedf83d7ed",
+        "0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b",
+        "0x24c8cf69a0e0a17eee21f69d29752bfa32e823e1",
+        "0x4e25605fd905e9972efc0f4d8814530c655cd7a7",
+        "0xe542afd3881c4c330ba0ebbb603bb470b2ba0a37",
+        "0x47ab026767cc320ac6e62f6ec747d59cf4d795df",
+        "0xd5ccdf772f795547e299de57f47966e24de8dea4",
         "0x8d8A6BF269646a9F72E8d9E03C53415D153b715d",
         "0x21a31Ee1afc59152d32CF38a2a2952d2aECa921a",
         "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8",
         "0x81e0d0c6817669629a58ea8b08d2eb1b93492c3b",
-        "0xfba277382e9f1c8dc2f93ba4eafacfd5d37297c1"
-      ],
-      "quorum_ratio": 0.2
-    },
-    {
-      "topic": "sports",
-      "wallets": [
-        "0x861ae65ad67b06b5cdabe24ba6de052269221f15",
-        "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
-        "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
-        "0xa8e089ade142c95538e06196e09c85681112ad50",
-        "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0",
-        "0xead152b855effa6b5b5837f53b24c0756830c76a",
+        "0xfba277382e9f1c8dc2f93ba4eafacfd5d37297c1",
+        "0x19a1277f9eda4e5078b8aec978ad81c85ec0472c",
+        "0xcb9d7b65381f3f601b47ffbaf213d69d892c6e15",
+        "0x72b2a84fa6831988effa5338b1fde3cf534a0104",
+        "0xa7a1c3b19b7d7e4c8089f7dac76c2423a3b8a85e",
+        "0xf37ffd153d173406b367dcc8c5f5ebbc5328d631",
         "0x84ad9c5c547a82ec9a08547b94bd922446e5bfb7",
-        "0x5eeb2911bf927d7ded5fccf150293105ef7e01b2",
-        "0x204f72f35326db932158cba6adff0b9a1da95e14",
-        "0x47138dc1eef25f1ea91f3b2fda0e0f455c634d21",
-        "0x7e0be260bf431c091d7218e2d7960fc940944dd5",
-        "0x267336b7b2b6e6ad4a06d1ac4fdd2ce14e0e5ac9",
-        "0x1b8cad7a4209cb3d4b21f168d5ec6899dc189de1",
-        "0xc866c27965a4e2f28b17c6e973ac8952f2dd8c6d",
-        "0xfd54eaff68aa030cb3a2206ee7f928ae810488a5"
+        "0x93b755e98087635368872bb190bc7eaf7d61bfcd",
+        "0xc40681969b90c1e54527775fa48273a06bef07d9",
+        "0x12ac61f06b37bca05d491bbf35f83481af2c0ca4"
       ],
-      "quorum_ratio": 0.2
-    },
-    {
-      "topic": "crypto",
-      "wallets": [
-        "0xdf1228f2aef0a7dd4102c74e54e2125a4ca1a1c3",
-        "0x218f36c313d6c012636b21cc6b5a043d9fef17bc",
-        "0xeebde7a0e019a63e6b476eb425505b7b3e6eba30",
-        "0xe1d6b51521bd4365769199f392f9818661bd907c",
-        "0x1f19c48aee80ec95396d91f0d21ac249b8a7f57a",
-        "0x0f3fc537631103d303110741e5d4f4399e11278a",
-        "0x5e2b9261b0c4f697b55bf921ff2bc227183d9101",
-        "0xc454873a20721f5ebe1c3e42694a0ac28fda8c23",
-        "0x26e76ef9ba06a0095fd03a06321306a9ec4b21dc",
-        "0x941e9756c3588cdc806d9e1005528a5cdcfa1fbf",
-        "0x2a2c53bd278c04da9962fcf96490e17f3dfb9bc1",
-        "0x2005d16a84ceefa912d4e380cd32e7ff827875ea",
-        "0x53423aa6c48cd41304c94f61cf411ee6e29dd243",
-        "0x74bb665c6af437f384bd1c830b74136aeb324f26",
-        "0x8888a4f8c8d3834482d77405530d7f5428a40b39"
-      ],
-      "quorum_ratio": 0.2
+      "quorum_ratio": 0.2,
+      "note": "War, Ukraine, Russia, Iran, Israel, NATO, Taiwan"
     },
     {
       "topic": "trump",
       "wallets": [
-        "0x27abdfc9393c72a6330a3be987da4b46c726e521",
-        "0xd1a63a243042d864520512fbdbd2fd20e0ab1507",
+        "0x12d6cccfc7470a3f4bafc53599a4779cbf2cf2a8",
+        "0xf1f9a438f2697381b4ac8eb283d6f4dd772d1245",
+        "0x21064fd320bfd5a86f8c92a94d3209edf4154dea",
+        "0x27abdfc3e9d1a8f4b6c2e0d9a7f3b5c8e1d0f2a4",
+        "0xd1a63a5c8e2f0b4a6d9c1e3f5a7b9d2f4e6a8b0",
         "0x84c386331355f47057afca0c06c7211f4dbe35d4",
         "0x5c898593e6745d475faa40ccbb9dd1b913dbc8ff",
         "0xe3726a1b9c6ba2f06585d1c9e01d00afaedaeb38",
         "0xb69a4501852c60a12c48643057bece21cdd17c05",
         "0x1a3d83418c5fa02a0478e4f769649fda5e12fea1",
         "0x2d5241f89b392ccf3c440c78af049f50d0b1df50",
-        "0x6e507746a76b863a749e9b2d7c60fb3a08176a26"
+        "0x6e507746a76b863a749e9b2d7c60fb3a08176a26",
+        "0x122d9ce327d1d40ded62b8782aea3d1c32af95fe",
+        "0xc935a3b3742358a323c6777c51e7cc56f38b74cf",
+        "0xd8b2f329027edff5db191b4f010fd8db0b86fe5b",
+        "0x5782a0de3dcd8e1928c789e00025ef41e63274e4",
+        "0x8b4410e877fa826c7e986dfb30a5be73d72163fb",
+        "0xe777ae99c36fb16206afdeb96f92c3afa96c2cda",
+        "0x14eb1b504c6d28103b7f10a0509b06b50dc2910b",
+        "0x6cb6e442305e583b8fe0aeddd7a95f971c66ec83"
       ],
-      "quorum_ratio": 0.2
+      "quorum_ratio": 0.2,
+      "note": "Trump approval, impeachment, pardon, admin decisions"
+    },
+    {
+      "topic": "us_election",
+      "wallets": [
+        "0x30a0c0554c1f86675123d2a09be36e999585a458",
+        "0x6bc9eeeee5ccfdee503899376858ff0adbf87356",
+        "0xcdbfdac42aeac5837d105e255c1131e7bf751926",
+        "0x7139e528784be79aad23386835dd2e3d705a3750",
+        "0xe165b8a84c8095933f7f850ef1164b378f3a8076",
+        "0x0ad3532973e23c37ce9d5c6a580df1daa2d121fc",
+        "0x26323dc834e645f9f9d46f88027d3a3c2d5a6475",
+        "0xac13e6c65f547bc47fca2679fc30364ef6104182",
+        "0x9c5fa8b5e0f111c5b3fc9bc322ad7d95074d7ea6",
+        "0xd5243dc06a3dbdfcb8a3b5acf455d4382e050f5a",
+        "0xfa2ffce46639aa89adf97f61a995094e73e90e59",
+        "0x07c37a244ecd4e33e688a1708fcfad27a9058a5d",
+        "0xc8ceccaf0177ddd8092f62dd56336cf9662aebc8",
+        "0xd634812db459fe38441c14f228086422c34368fd",
+        "0x4f4412913d3ac69991517864e6aa132bac586d1e",
+        "0x7c7b045a871dc224a74bc11c38a1c330ddffe357",
+        "0x7e68a0fb4135b31ace54b56d9979e35ec325f49f",
+        "0xf6714cd65f19a944fde191ec4ad9effbc2693d1f",
+        "0xe8b7023153d625f8d111d3b1b93a672f2418c4db",
+        "0x1c17f1d806926fbb900c59fb3c385fd75c013653"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "US elections, Senate, Congress, Biden, polls"
+    },
+    {
+      "topic": "crypto",
+      "wallets": [
+        "0xeebde7a0e019a63e6b476eb425505b7b3e6eba30",
+        "0x674887d1ac838099a48b629dff53f25b7b87ee08",
+        "0x665b25ede9866b456432b3fcccdc7ce6b42de773",
+        "0x20d2309cd92b797ae7ca175ed828ed8a27fbe29d",
+        "0x0e16ae2082d82bf1c727038952b61db5a3bd1207",
+        "0xd7c626093f28383612363889ad811fc736d3706f",
+        "0x4d40c3f3627f64591eac428cd4248c651a9c398d",
+        "0x75cc3b63a2f2423085e10706c78b494017b93ce1",
+        "0x32e4abe3e97aaf3c95c315ba3ffbe7b2a313beed",
+        "0x968553298d1cc1c343d11398cb42db76d533aed0",
+        "0x218f36c313d6c012636b21cc6b5a043d9fef17bc",
+        "0x3a847382ad6fff9be1db4e073fd9b869f6884d44",
+        "0xf3531b23b504cf0aed4ff21325232b2a2d496685",
+        "0x7347d3291b321d2ee8d43d24aff244e7fb8c3d35",
+        "0x43f1949de1964deb6f7ec5865964d476cc5d06e5",
+        "0x5d3cc45e538130b02c8f3c821638ec9cd350c298",
+        "0x6c6aefbdb3fe1a0a7ee3d07277f9e58b76064fd2",
+        "0x60889af507ec3f9da136f38b1c58080bec32f361",
+        "0xe1d6b51521bd4365769199f392f9818661bd907c",
+        "0x1f19c48aee80ec95396d91f0d21ac249b8a7f57a"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "BTC/ETH/SOL short-term up-or-down"
     },
     {
       "topic": "longterm_crypto",
       "wallets": [
+        "0xd768776321066958f7a032652acb5344a26a8e1f",
         "0xf705fa045201391d9632b7f3cde06a5e24453ca7",
         "0xe5f85d076f0b1edd4ec89bfb95e123a9036a8d75",
         "0x991f81e6344646ed7f419d79ddf9e6a9dea6d3c2",
@@ -212,24 +277,124 @@
         "0x434f15599b49b65cd63e2aa3f140dc605e934d09",
         "0x17559efac103ac7f361be37ec0b93888d4c55aac",
         "0x50733d0627e4763d7d7e81a69abc345edf6416a7",
-        "0xd634c33f7de4aa342c3136ac8b5b36ef390f77ad"
+        "0xd634c33f7de4aa342c3136ac8b5b36ef390f77ad",
+        "0x1643038efde95846b92b008e2efedca553296ec8"
       ],
-      "quorum_ratio": 0.2
+      "quorum_ratio": 0.2,
+      "note": "BTC above targets, long-term crypto"
+    },
+    {
+      "topic": "sports",
+      "wallets": [
+        "0x232db46657c1f711aa275d324bd42eddf609de8e",
+        "0xc7b84afab9e144a258b98a1cb45e05df7aab0d21",
+        "0x1fa1bbcc1cd75b0d04eb5590ad4a812eb2b0e73a",
+        "0xdae37ea4238f43fc3f25c1ef6c83be1aa5270863",
+        "0x5921cd907f42e39a419bf9b8b8daa6e897bcced6",
+        "0xb677f9146fb98985a8f60c2e7d8d44330b10e745",
+        "0xdd2afdf73cd2a32439875c65433a688b327c315e",
+        "0x861ae65ad67b06b5cdabe24ba6de052269221f15",
+        "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
+        "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
+        "0xa8e089ade142c95538e06196e09c85681112ad50",
+        "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0",
+        "0x5eeb2911bf927d7ded5fccf150293105ef7e01b2",
+        "0x204f72f35326db932158cba6adff0b9a1da95e14",
+        "0xb52ab5ae6718ee723e912371dbf391f447ed48a7",
+        "0x09e55a590666492a5d09197928e6350cda122b07",
+        "0x041dd543dac781c204da5ac440c5a95c87c022f8",
+        "0x9bd573e9c9d2815bee1a226e1a0ec8377a1a0cd2",
+        "0x15885559b62df5bca5df930ca3bc2a5504842529",
+        "0xfe3e63ff74085583791df5145ccc822abb1c70b4"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "NBA, NFL, MLB, UFC, Super Bowl"
+    },
+    {
+      "topic": "esports",
+      "wallets": [
+        "0xdc5aa14975f4cbb19169554723ffa5e89570bf71",
+        "0x7e0be260bf431c091d7218e2d7960fc940944dd5",
+        "0x5471604e05accad637155999bbf90d9fad76a236",
+        "0x58879b12fb0ff9e7e048db7cfe901142134d994e",
+        "0x775d9de0c72c76a459fadfbb4cd79d5715236beb",
+        "0x629da223adfc9957329e02de95ae3d263f92756c",
+        "0x14ed2f5669e37b1ae7313456116b78ad935e6584",
+        "0x29245f582c2cba3c230124729901ea1761440f31",
+        "0x83a0c368715beb4897ea19c9810ac03274ca4f9b",
+        "0x5835f5a34218c9e879f574c1d25199bd2d1b8745",
+        "0x0740c8b8a88b5a040d4592c41617c6a085121ad4",
+        "0x0b868bee6405dbd480f3dc1cf5381d85e3c080ba",
+        "0xe91171f655be1568e4c63f29663c0028649e3d4e",
+        "0xf3ef6ac0510c9eabc42fbb146b5c3c64edc1ca6b",
+        "0xe8e1b119302ae410e77b2af7d7456809007549dd",
+        "0x29a5082998f18e7f90dd1a7fe6ad4dd9a665a3c4",
+        "0x47138dcab06fa1f3e02cf4bb4f1d0c6bf6bb9b72",
+        "0x7e0be268f8b4f39e8a12c57daff3b0ef5dc92f74",
+        "0x267336b05a82e14dc5f2b1ae94ac38ad9f93e5d8",
+        "0x1b8cad78a3b8e59f6dc24f57eabef2c5de49f73a"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "CS2, Valorant, Dota, League of Legends, F1"
     },
     {
       "topic": "weather",
       "wallets": [
-        "0x2a25f7cbf3fc823e315c31602d2eccab85788055",
+        "0x7595191ed7c6e8ec98df3fc14328015ad73b872e",
+        "0xeb1d1cd1b31070fb34b1d1de20d700f59c9959b0",
         "0x66a17b44f6187745c4f273622a702e2f1b423de8",
-        "0x97be1eca98026e9f9ee693a1829c5fcdc3e27404",
-        "0x2dbae7438b292f52f79091cdf5fc83169de45b01",
-        "0xef7e483edcda9f0259de0ce2ef75fb9148faaee8",
-        "0x16d9d184f45cfed6d216465149b0b48381ddf0b0",
-        "0x0f18937034a2a20178c3b7641305440157145b28",
-        "0xb9dfd0b5db8991353b57820f8d576a1e366f1e41",
-        "0xf7c8ebd09e715ce1e95c89f5a4b60782fc7dbd6b"
+        "0x2a25f7cbf3fc823e315c31602d2eccab85788055",
+        "0xf84dc12754f16b5c3d72df540ceb2d1f2907c613",
+        "0xe6c85f9d531bc274dc4aaf9f8baf8ad175acb8c0",
+        "0xd89fa4879f2ad7c53763eaec8e0434763f9c535e",
+        "0x0bf7e9407469e51e598368fea8dc4edd02f1d384",
+        "0xef2e2fd7a18f409f703f036df91e23e9dfab10c3",
+        "0xb40e89677d59665d5188541ad860450a6e2a7cc9",
+        "0x42545c3f429161c35198ef40719f635268011d02",
+        "0xf7c8ebd09e715ce1e95c89f5a4b60782fc7dbd6b",
+        "0xf1ec1d6c33c74335a5698b2f4d22915d77fb5d14",
+        "0x83f7aacb9d9abbf4f43a669b0f320a55d8c91907",
+        "0x6e35ed31aa3d64164ef7c7f46f5f6041fc28ddce",
+        "0xa426a46a1fe75d34700433d79dac9fbac60dcf3d",
+        "0xaae1444fc0a0fab93e4825e85b98143cf0854edf",
+        "0x50b1e35022933ae620665ce55dbd9785c5e30793",
+        "0xe5b29f5da62141c6e20e6a6a99a16585893b21f4",
+        "0xf4c599f3794a3e70019af975807355c8530d36d1"
       ],
-      "quorum_ratio": 0.2
+      "quorum_ratio": 0.2,
+      "note": "Temperature, weather events"
+    },
+    {
+      "topic": "economy",
+      "wallets": [
+        "0xb026df322e1445da8fe74d4029c966dfd9d3bbfd",
+        "0x4789be68ec6615a660b162ff5bfe99cd2b705ef7",
+        "0x5aa4ab516dbdc8657362466132cb620be3562cfb"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "Inflation, Fed rates, GDP, unemployment"
+    },
+    {
+      "topic": "tech",
+      "wallets": [
+        "0xb89f5425341719d298dc2f5b9a92374f5fde1c44",
+        "0x65df5f2f2c0ab949def496ad49f41615cf348555",
+        "0x5aec01932a51836bc151b5aa515ccea15a7d904b",
+        "0x42c99f38d2b951b0dc8e8bd5371fa80c9dd19623",
+        "0x6c0a40489cfd646e1b4b225c7a15b70db620f6bd",
+        "0xa3282d3e882501229c75d0caf134e62e3afb4977",
+        "0x162e2778f4cd82a11d6fcc2db4a61c61d8ef6bbb",
+        "0x3468375cbce77260779805706a06a5d326163965",
+        "0x45f03fdb9aa6d4503501c94b138eee3e6ef65e0d",
+        "0x1c0227bc2f91f70f0982db198d00ad3345e5e658",
+        "0x09a5d3b75f908d780f2070ac270eabd6cf83caaa",
+        "0xad5353afe30c2da57709e2704ef3ccdcf67eef24",
+        "0x707ae3c159dca22b4e375cbdd10023b76d49a170",
+        "0x0979bad57d7a1403db89cbcd9c52bf43f2138d9b",
+        "0x7ac83882979ccb5665cea83cb269e558b55077cd"
+      ],
+      "quorum_ratio": 0.2,
+      "note": "OpenAI, Nvidia, Meta, Apple, AI stocks"
     }
   ],
   "filters": {
