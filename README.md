@@ -109,6 +109,8 @@ To use this meaningfully, replace the example basket wallets in `config/predictc
 
 Create a Railway volume mounted at `/data` before relying on persisted state. The default worker database path is `/data/predictcel.db`; without a volume, SQLite state can be lost on redeploy or restart.
 
+Railway installs the paper/test dependency profile by default with `pip install -e .[dev]`. The optional `py-clob-client` trading dependency is intentionally not installed during normal Railway builds; install `.[trade]` only for a separately validated live-trading deployment.
+
 Recommended worker variables:
 - `PREDICTCEL_MODE=paper` for file-backed example mode
 - `PREDICTCEL_MODE=live-data` for public Polymarket reads without trading
