@@ -1,3 +1,5 @@
-# Default installs are paper/test safe. Install live trading support explicitly with:
-# pip install -e .[trade]
--e .
+# Intentionally empty for Railway/Railpack auto-detection.
+# Railpack runs this file before copying the full app, so do not put `-e .` here.
+# The real build install is defined in railway.toml:
+# pip install -e .[dev]
+# Live trading support remains explicit: pip install -e .[trade]
