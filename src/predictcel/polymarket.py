@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
@@ -14,10 +15,12 @@ class PolymarketPublicClient:
         self,
         gamma_base_url: str = "https://gamma-api.polymarket.com",
         data_base_url: str = "https://data-api.polymarket.com",
+        clob_base_url: str = "https://clob.polymarket.com",
         timeout_seconds: int = 15,
     ) -> None:
         self.gamma_base_url = gamma_base_url.rstrip("/")
         self.data_base_url = data_base_url.rstrip("/")
+        self.clob_base_url = clob_base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
     def fetch_active_markets(self, limit: int) -> list[dict[str, Any]]:
@@ -29,6 +32,11 @@ class PolymarketPublicClient:
         query = urlencode({"user": wallet, "limit": limit})
         payload = self._get_json(f"{self.data_base_url}/trades?{query}")
         return _extract_list(payload)
+
+    def fetch_order_book(self, token_id: str) -> dict[str, Any]:
+        query = urlencode({"token_id": token_id})
+        payload = self._get_json(f"{self.clob_base_url}/book?{query}")
+        return payload if isinstance(payload, dict) else {}
 
     def _get_json(self, url: str) -> Any:
         with urlopen(url, timeout=self.timeout_seconds) as response:
@@ -42,6 +50,40 @@ def build_market_snapshots(items: list[dict[str, Any]]) -> dict[str, MarketSnaps
         if snapshot is not None:
             snapshots[snapshot.market_id] = snapshot
     return snapshots
+
+
+def enrich_market_snapshots_with_orderbooks(
+    snapshots: dict[str, MarketSnapshot],
+    client: PolymarketPublicClient,
+) -> dict[str, MarketSnapshot]:
+    enriched: dict[str, MarketSnapshot] = {}
+    for market_id, snapshot in snapshots.items():
+        yes_book = client.fetch_order_book(snapshot.yes_token_id) if snapshot.yes_token_id else {}
+        no_book = client.fetch_order_book(snapshot.no_token_id) if snapshot.no_token_id else {}
+
+        yes_bid = _book_best_price(yes_book, "bids")
+        no_bid = _book_best_price(no_book, "bids")
+        yes_ask = _book_best_price(yes_book, "asks") or snapshot.yes_ask
+        no_ask = _book_best_price(no_book, "asks") or snapshot.no_ask
+        yes_ask_size = _book_best_size(yes_book, "asks")
+        no_ask_size = _book_best_size(no_book, "asks")
+        yes_spread = max(yes_ask - yes_bid, 0.0) if yes_ask and yes_bid else 0.0
+        no_spread = max(no_ask - no_bid, 0.0) if no_ask and no_bid else 0.0
+
+        enriched[market_id] = replace(
+            snapshot,
+            yes_ask=yes_ask,
+            no_ask=no_ask,
+            best_bid=max(yes_bid, no_bid, snapshot.best_bid),
+            yes_bid=yes_bid,
+            no_bid=no_bid,
+            yes_ask_size=yes_ask_size,
+            no_ask_size=no_ask_size,
+            yes_spread=yes_spread,
+            no_spread=no_spread,
+            orderbook_ready=bool(yes_book or no_book),
+        )
+    return enriched
 
 
 def build_wallet_trades(
@@ -73,6 +115,7 @@ def market_snapshot_from_gamma(item: dict[str, Any]) -> MarketSnapshot | None:
     yes_ask = float(prices[0]) if len(prices) > 0 else 0.0
     no_ask = float(prices[1]) if len(prices) > 1 else 0.0
 
+    token_ids = _parse_token_ids(item)
     minutes_to_resolution = _minutes_to_resolution(item.get("endDate") or item.get("end_date"))
     title = str(item.get("question") or item.get("title") or market_id)
     topic = str(item.get("category") or item.get("tag") or item.get("seriesSlug") or "unknown")
@@ -86,6 +129,8 @@ def market_snapshot_from_gamma(item: dict[str, Any]) -> MarketSnapshot | None:
         best_bid=float(item.get("bestBid") or item.get("best_bid") or 0.0),
         liquidity_usd=float(item.get("liquidity") or item.get("liquidityNum") or 0.0),
         minutes_to_resolution=minutes_to_resolution,
+        yes_token_id=token_ids[0] if len(token_ids) > 0 else "",
+        no_token_id=token_ids[1] if len(token_ids) > 1 else "",
     )
 
 
@@ -139,6 +184,49 @@ def _parse_outcome_prices(value: Any) -> list[float]:
         if isinstance(parsed, list):
             return [float(item) for item in parsed]
     return []
+
+
+def _parse_token_ids(item: dict[str, Any]) -> list[str]:
+    raw = item.get("clobTokenIds") or item.get("tokenIds")
+    if isinstance(raw, list):
+        return [str(token) for token in raw[:2]]
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(token) for token in parsed[:2]]
+    tokens = item.get("tokens")
+    if isinstance(tokens, list):
+        result = []
+        for token in tokens[:2]:
+            if isinstance(token, dict):
+                token_id = token.get("token_id") or token.get("id") or token.get("tokenId")
+                if token_id:
+                    result.append(str(token_id))
+        return result
+    return []
+
+
+def _book_best_price(book: dict[str, Any], side: str) -> float:
+    levels = book.get(side)
+    if not isinstance(levels, list) or not levels:
+        return 0.0
+    best = levels[0]
+    if not isinstance(best, dict):
+        return 0.0
+    return float(best.get("price") or 0.0)
+
+
+def _book_best_size(book: dict[str, Any], side: str) -> float:
+    levels = book.get(side)
+    if not isinstance(levels, list) or not levels:
+        return 0.0
+    best = levels[0]
+    if not isinstance(best, dict):
+        return 0.0
+    return float(best.get("size") or 0.0)
 
 
 def _minutes_to_resolution(value: Any) -> int:
