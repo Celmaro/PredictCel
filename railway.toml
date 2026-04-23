@@ -1,0 +1,8 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "pip install -e .[dev,trade] && pytest"
+
+[deploy]
+startCommand = "python -m predictcel.railway"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
