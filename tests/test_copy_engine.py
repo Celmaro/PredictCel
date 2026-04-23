@@ -104,6 +104,7 @@ def test_emits_candidate_when_quorum_and_drift_pass() -> None:
     assert candidates[0].copyability_score > 0
     assert candidates[0].market_regime in {"RANGE", "TRANSITION", "TREND", "UNSTABLE"}
     assert candidates[0].regime_score > 0
+    assert engine.last_diagnostics["candidates_returned"] == 1
 
 
 def test_skips_candidate_when_drift_is_too_large() -> None:
@@ -116,6 +117,7 @@ def test_skips_candidate_when_drift_is_too_large() -> None:
     candidates = engine.evaluate(trades, {"m1": make_market()}, {})
 
     assert candidates == []
+    assert engine.last_diagnostics["too_much_drift"] == 1
 
 
 def test_weighted_consensus_can_reject_raw_quorum_with_stale_low_quality_votes() -> None:
@@ -130,6 +132,7 @@ def test_weighted_consensus_can_reject_raw_quorum_with_stale_low_quality_votes()
     candidates = engine.evaluate(trades, {"m1": make_market()}, make_qualities())
 
     assert candidates == []
+    assert engine.last_diagnostics["below_quorum"] == 1 or engine.last_diagnostics["below_weighted_consensus"] == 1
 
 
 def test_conflicting_vote_reduces_copyability_score() -> None:
@@ -179,3 +182,43 @@ def test_market_regime_detects_trend_and_unstable_books() -> None:
     assert trend.market_regime == "TREND"
     assert unstable.market_regime == "UNSTABLE"
     assert trend.regime_score > unstable.regime_score
+
+
+def test_records_market_and_basket_rejections() -> None:
+    config = AppConfig(
+        baskets=[BasketRule(topic="sports", wallets=["w9"], quorum_ratio=1.0)],
+        filters=FilterConfig(
+            max_trade_age_seconds=3600,
+            max_price_drift=0.05,
+            min_liquidity_usd=5000,
+            min_minutes_to_resolution=60,
+            max_minutes_to_resolution=1440,
+            min_position_size_usd=100,
+        ),
+        arbitrage=ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000),
+        wallet_trades_path="",
+        market_snapshots_path="",
+        live_data=None,
+        execution=None,
+        consensus=ConsensusConfig(),
+    )
+    engine = CopyEngine(config)
+    trades = [WalletTrade(wallet="w1", topic="geopolitics", market_id="missing", side="YES", price=0.5, size_usd=200, age_seconds=100)]
+
+    engine.evaluate(trades, {"m1": make_market()}, {})
+
+    assert engine.last_diagnostics["market_not_found"] == 1
+
+
+def test_records_low_liquidity_rejection() -> None:
+    engine = CopyEngine(make_config())
+    low_liq_market = replace(make_market(), liquidity_usd=100)
+    trades = [
+        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
+        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+    ]
+
+    candidates = engine.evaluate(trades, {"m1": low_liq_market}, make_qualities())
+
+    assert candidates == []
+    assert engine.last_diagnostics["low_liquidity"] == 1
