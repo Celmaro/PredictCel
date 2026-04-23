@@ -53,6 +53,16 @@ def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None
     assert snapshot.no_token_id == "no_token"
 
 
+def test_fetch_active_markets_includes_active_filters() -> None:
+    client = FakeGammaClient()
+
+    client.fetch_active_markets(50)
+
+    assert "limit=50" in client.urls[0]
+    assert "closed=false" in client.urls[0]
+    assert "active=true" in client.urls[0]
+
+
 def test_build_market_snapshots_indexes_common_aliases() -> None:
     snapshots = build_market_snapshots(
         [
@@ -123,6 +133,18 @@ def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:
     assert trade.side == "YES"
     assert trade.market_id == "cond_1"
     assert trade.age_seconds == 600
+
+
+def test_build_wallet_trades_fans_out_multi_topic_wallets() -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    wallet_payloads = {
+        "wallet_a": [{"conditionId": "cond_1", "outcome": "YES", "price": "0.54", "size": "250", "createdAt": "2025-12-31T23:50:00Z"}]
+    }
+
+    trades = build_wallet_trades(wallet_payloads, {"wallet_a": ["sports", "macro"]}, now)
+
+    assert len(trades) == 2
+    assert {trade.topic for trade in trades} == {"sports", "macro"}
 
 
 def test_extract_trade_market_ids_deduplicates_common_shapes() -> None:
