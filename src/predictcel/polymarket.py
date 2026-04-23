@@ -32,7 +32,7 @@ class PolymarketPublicClient:
         self.retry_base_delay_seconds = retry_base_delay_seconds
 
     def fetch_active_markets(self, limit: int) -> list[dict[str, Any]]:
-        query = urlencode({"limit": limit, "closed": "false", "active": "true"})
+        query = urlencode({"limit": limit})
         payload = self._get_json(f"{self.gamma_base_url}/markets?{query}")
         return _extract_list(payload)
 
