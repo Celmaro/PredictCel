@@ -83,17 +83,21 @@ class WalletDiscoveryPipeline:
 
         baskets_by_topic = {str(item.get("topic")): item for item in baskets if isinstance(item, dict)}
         for action in actions:
-            if action.action != "add":
-                continue
             basket = baskets_by_topic.get(action.basket)
             if not basket:
                 continue
             wallets = basket.setdefault("wallets", [])
             if not isinstance(wallets, list):
                 continue
-            existing = {str(wallet).lower() for wallet in wallets}
-            if action.wallet_address.lower() not in existing:
-                wallets.append(action.wallet_address)
+
+            lowered_wallets = {str(wallet).lower(): wallet for wallet in wallets}
+            wallet_key = action.wallet_address.lower()
+            if action.action == "add":
+                if wallet_key not in lowered_wallets:
+                    wallets.append(action.wallet_address)
+                continue
+            if action.action in {"remove", "suspend"}:
+                basket["wallets"] = [wallet for wallet in wallets if str(wallet).lower() != wallet_key]
         return updated
 
     def _write_mutated_config_if_enabled(
