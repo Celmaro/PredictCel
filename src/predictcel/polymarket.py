@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from .models import MarketSnapshot, WalletTrade
 
@@ -28,6 +28,11 @@ class PolymarketPublicClient:
         payload = self._get_json(f"{self.gamma_base_url}/markets?{query}")
         return _extract_list(payload)
 
+    def fetch_leaderboard(self, limit: int) -> list[dict[str, Any]]:
+        query = urlencode({"limit": limit})
+        payload = self._get_json(f"{self.data_base_url}/v1/leaderboard?{query}")
+        return _extract_list(payload)[:limit]
+
     def fetch_wallet_trades(self, wallet: str, limit: int) -> list[dict[str, Any]]:
         query = urlencode({"user": wallet, "limit": limit})
         payload = self._get_json(f"{self.data_base_url}/trades?{query}")
@@ -39,7 +44,8 @@ class PolymarketPublicClient:
         return payload if isinstance(payload, dict) else {}
 
     def _get_json(self, url: str) -> Any:
-        with urlopen(url, timeout=self.timeout_seconds) as response:
+        request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
+        with urlopen(request, timeout=self.timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
 
 
