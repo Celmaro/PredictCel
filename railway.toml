@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "pip install -e .[dev,trade] && pytest"
+buildCommand = "pip install -e .[dev,trade] && python -m pytest"
 
 [deploy]
 startCommand = "python -m predictcel.railway"
