@@ -84,7 +84,7 @@ def main() -> None:
             closed_market_ids = {
                 result.market_id
                 for result in close_results
-                if result.status not in {"dry_run", "error"}
+                if result.status != "error"
             }
             for pos in updated_positions:
                 store.update_position(
@@ -108,7 +108,7 @@ def main() -> None:
         now = datetime.now(UTC)
         position_config = config.execution.position
         for result in execution_results:
-            if result.status not in ("dry_run", "error"):
+            if result.status != "error":
                 store.save_position(
                     Position(
                         market_id=result.market_id,
@@ -131,9 +131,11 @@ def main() -> None:
     store.save_copy_candidates(copy_candidates)
     store.save_arbitrage_opportunities(arbitrage_opportunities)
     store.save_execution_results(execution_results + close_results)
+    portfolio_summary = _portfolio_summary(store, config)
 
     print(json.dumps({
         "mode": "live" if use_live_data else "file",
+        "portfolio_summary": portfolio_summary,
         "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
         "arbitrage_opportunities": [opportunity.__dict__ for opportunity in arbitrage_opportunities],
@@ -143,6 +145,14 @@ def main() -> None:
         "close_results": [result.__dict__ for result in close_results],
         "open_positions": [pos.__dict__ for pos in updated_positions],
     }, indent=2))
+
+
+def _portfolio_summary(store: SignalStore, config) -> dict:
+    if config.execution is None or config.execution.exposure is None:
+        return store.get_portfolio_summary(starting_bankroll_usd=0.0)
+    return store.get_portfolio_summary(
+        starting_bankroll_usd=config.execution.exposure.max_total_exposure_usd
+    )
 
 
 def _load_live_inputs(config):
