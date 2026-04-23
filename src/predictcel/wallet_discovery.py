@@ -34,6 +34,7 @@ class WalletDiscoveryPipeline:
         raw_candidates = self.source.fetch_candidates(self.config.wallet_discovery.candidate_limit)
         existing = self._existing_wallets()
         candidates: list[WalletDiscoveryCandidate] = []
+        manager_candidates: list[WalletDiscoveryCandidate] = []
 
         seen: set[str] = set()
         for raw in raw_candidates:
@@ -41,12 +42,19 @@ class WalletDiscoveryPipeline:
             if address in seen:
                 continue
             seen.add(address)
+            candidate = self._build_candidate(address, raw.get("source", "unknown"), self._safe_fetch_trades(address))
+            manager_candidates.append(candidate)
             if self.config.wallet_discovery.exclude_existing_wallets and address in existing:
                 continue
-            trades = self._safe_fetch_trades(address)
-            candidates.append(self._build_candidate(address, raw.get("source", "unknown"), trades))
+            candidates.append(candidate)
 
-        accepted = [candidate for candidate in candidates if not candidate.rejected_reasons]
+        for address in sorted(existing):
+            if address in seen:
+                continue
+            seen.add(address)
+            manager_candidates.append(self._build_candidate(address, "current_basket", self._safe_fetch_trades(address)))
+
+        accepted = [candidate for candidate in manager_candidates if not candidate.rejected_reasons]
         assignments = [self.assignment_engine.assign(candidate) for candidate in accepted]
         actions = self.manager.plan(assignments)
         return candidates, assignments, actions
