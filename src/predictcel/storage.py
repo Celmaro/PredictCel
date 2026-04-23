@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable
 
-from .models import ArbitrageOpportunity, CopyCandidate
+from .models import ArbitrageOpportunity, CopyCandidate, ExecutionResult
 
 
 class SignalStore:
@@ -36,6 +36,18 @@ class SignalStore:
                 market_id TEXT NOT NULL,
                 topic TEXT NOT NULL,
                 gross_edge REAL NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS execution_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                side TEXT NOT NULL,
+                status TEXT NOT NULL,
                 payload TEXT NOT NULL
             )
             """
@@ -73,6 +85,24 @@ class SignalStore:
         ]
         cursor.executemany(
             "INSERT INTO arbitrage_opportunities (market_id, topic, gross_edge, payload) VALUES (?, ?, ?, ?)",
+            rows,
+        )
+        self.connection.commit()
+
+    def save_execution_results(self, results: Iterable[ExecutionResult]) -> None:
+        cursor = self.connection.cursor()
+        rows = [
+            (
+                result.market_id,
+                result.topic,
+                result.side,
+                result.status,
+                json.dumps(asdict(result), sort_keys=True),
+            )
+            for result in results
+        ]
+        cursor.executemany(
+            "INSERT INTO execution_results (market_id, topic, side, status, payload) VALUES (?, ?, ?, ?, ?)",
             rows,
         )
         self.connection.commit()
