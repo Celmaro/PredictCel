@@ -7,5 +7,6 @@ __all__ = [
     "scoring",
     "copy_engine",
     "arb_sidecar",
+    "execution",
     "storage",
 ]
