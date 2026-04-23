@@ -117,7 +117,9 @@
       "wallets": [
         "0x8d8A6BF269646a9F72E8d9E03C53415D153b715d",
         "0x21a31Ee1afc59152d32CF38a2a2952d2aECa921a",
-        "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8"
+        "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8",
+        "0x81e0d0c6817669629a58ea8b08d2eb1b93492c3b",
+        "0xfba277382e9f1c8dc2f93ba4eafacfd5d37297c1"
       ],
       "quorum_ratio": 0.2
     },
@@ -128,7 +130,27 @@
         "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
         "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
         "0xa8e089ade142c95538e06196e09c85681112ad50",
-        "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0"
+        "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0",
+        "0xead152b855effa6b5b5837f53b24c0756830c76a",
+        "0x84ad9c5c547a82ec9a08547b94bd922446e5bfb7",
+        "0x5eeb2911bf927d7ded5fccf150293105ef7e01b2",
+        "0x204f72f35326db932158cba6adff0b9a1da95e14"
+      ],
+      "quorum_ratio": 0.2
+    },
+    {
+      "topic": "crypto",
+      "wallets": [
+        "0xdf1228f2aef0a7dd4102c74e54e2125a4ca1a1c3",
+        "0x218f36c313d6c012636b21cc6b5a043d9fef17bc",
+        "0xeebde7a0e019a63e6b476eb425505b7b3e6eba30",
+        "0xe1d6b51521bd4365769199f392f9818661bd907c",
+        "0x1f19c48aee80ec95396d91f0d21ac249b8a7f57a",
+        "0x0f3fc537631103d303110741e5d4f4399e11278a",
+        "0x5e2b9261b0c4f697b55bf921ff2bc227183d9101",
+        "0xc454873a20721f5ebe1c3e42694a0ac28fda8c23",
+        "0x26e76ef9ba06a0095fd03a06321306a9ec4b21dc",
+        "0x941e9756c3588cdc806d9e1005528a5cdcfa1fbf"
       ],
       "quorum_ratio": 0.2
     }
