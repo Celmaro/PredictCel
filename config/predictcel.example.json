@@ -60,6 +60,18 @@
   },
   "arbitrage": {
     "min_gross_edge": 0.02,
-    "min_liquidity_usd": 5000
+    "min_liquidity_usd": 5000,
+    "variable_cost_rate": 0.0,
+    "gas_cost_per_tx_usd": 0.02,
+    "settlement_tx_count": 2,
+    "slippage_rate": 0.001,
+    "min_profitable_position_usd": 5.0,
+    "max_position_usd": 50.0,
+    "target_annualized_return": 0.10,
+    "max_annualized_return": 10.0,
+    "edge_weight": 0.35,
+    "liquidity_weight": 0.25,
+    "speed_weight": 0.20,
+    "confidence_weight": 0.20
   }
 }
