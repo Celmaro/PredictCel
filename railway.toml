@@ -1,6 +1,6 @@
 [build]
 builder = "RAILPACK"
-buildCommand = "pip install -e .[dev,trade] && python -m pytest"
+buildCommand = "pip install -e .[dev] && python -m pytest"
 
 [deploy]
 startCommand = "python -m predictcel.railway"

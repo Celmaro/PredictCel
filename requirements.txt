@@ -1,1 +1,3 @@
-py-clob-client>=0.34.6
+# Default installs are paper/test safe. Install live trading support explicitly with:
+# pip install -e .[trade]
+-e .
