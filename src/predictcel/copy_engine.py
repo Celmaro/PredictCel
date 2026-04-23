@@ -27,31 +27,39 @@ class CopyEngine:
         candidates: list[CopyCandidate] = []
         market_not_found = 0
         basket_not_found = 0
-        filtered_at_evaluate = 0
+        rejection_counts: Counter[str] = Counter()
         for market_id, market_trades in grouped.items():
             market = markets.get(market_id)
             if market is None:
                 market_not_found += 1
+                rejection_counts["market_not_found"] += 1
                 continue
 
             topic = self._resolve_topic(market_trades)
             basket = self.baskets_by_topic.get(topic)
             if basket is None:
                 basket_not_found += 1
+                rejection_counts["basket_not_found"] += 1
                 continue
 
-            candidate = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities)
+            candidate, rejection_reason = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities)
             if candidate is not None:
                 candidates.append(candidate)
-            else:
-                filtered_at_evaluate += 1
+            elif rejection_reason is not None:
+                rejection_counts[rejection_reason] += 1
 
+        filtered_at_evaluate = sum(
+            count
+            for reason, count in rejection_counts.items()
+            if reason not in {"market_not_found", "basket_not_found"}
+        )
         self.last_diagnostics = {
             "markets_evaluated": len(grouped),
             "market_not_found": market_not_found,
             "basket_not_found": basket_not_found,
             "filtered_at_evaluate": filtered_at_evaluate,
             "candidates_returned": len(candidates),
+            **dict(sorted(rejection_counts.items())),
         }
         return candidates
 
@@ -65,7 +73,7 @@ class CopyEngine:
         market: MarketSnapshot,
         trades: list[WalletTrade],
         wallet_qualities: dict[str, WalletQuality],
-    ) -> CopyCandidate | None:
+    ) -> tuple[CopyCandidate | None, str | None]:
         valid_trades = [
             trade
             for trade in trades
@@ -75,14 +83,14 @@ class CopyEngine:
             and trade.size_usd >= self.config.filters.min_position_size_usd
         ]
         if not valid_trades:
-            return None
+            return None, "no_valid_trades"
 
         if market.liquidity_usd < self.config.filters.min_liquidity_usd:
-            return None
+            return None, "low_liquidity"
         if market.minutes_to_resolution < self.config.filters.min_minutes_to_resolution:
-            return None
+            return None, "too_close_to_resolution"
         if market.minutes_to_resolution > self.config.filters.max_minutes_to_resolution:
-            return None
+            return None, "too_far_from_resolution"
 
         wallet_votes = self._latest_wallet_votes(valid_trades)
         weighted_by_side: dict[str, float] = defaultdict(float)
@@ -93,11 +101,11 @@ class CopyEngine:
             raw_by_side[side] += 1
 
         if not weighted_by_side:
-            return None
+            return None, "no_weighted_votes"
         side = max(weighted_by_side, key=weighted_by_side.get)
         aligned = [trade for trade in wallet_votes.values() if trade.side.upper() == side]
         if not aligned:
-            return None
+            return None, "no_aligned_trades"
 
         aligned_wallets = sorted({trade.wallet for trade in aligned})
         consensus_ratio = len(aligned_wallets) / len(basket.wallets)
@@ -105,19 +113,19 @@ class CopyEngine:
         aligned_weight = weighted_by_side[side]
         weighted_consensus = round(aligned_weight / total_weight, 4) if total_weight else 0.0
         if consensus_ratio < basket.quorum_ratio:
-            return None
+            return None, "below_quorum"
         if weighted_consensus < self.config.consensus.min_weighted_consensus:
-            return None
+            return None, "below_weighted_consensus"
 
         confidence_score = self._confidence_score(aligned_weight, total_weight)
         if confidence_score < self.config.consensus.min_confidence_score:
-            return None
+            return None, "below_confidence"
 
         reference_price = self._weighted_reference_price(aligned, wallet_qualities)
         current_price = market.yes_ask if side == "YES" else market.no_ask
         drift = abs(current_price - reference_price)
         if drift > self.config.filters.max_price_drift:
-            return None
+            return None, "too_much_drift"
 
         average_age = sum(trade.age_seconds for trade in aligned) / len(aligned)
         quality_values = [wallet_qualities[wallet].score for wallet in aligned_wallets if wallet in wallet_qualities]
@@ -162,7 +170,7 @@ class CopyEngine:
             market_regime=regime.label,
             regime_score=regime.score,
             regime_reason=regime.reason,
-        )
+        ), None
 
     def _latest_wallet_votes(self, trades: list[WalletTrade]) -> dict[str, WalletTrade]:
         latest: dict[str, WalletTrade] = {}
