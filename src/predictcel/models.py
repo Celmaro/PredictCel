@@ -27,6 +27,17 @@ class MarketSnapshot:
 
 
 @dataclass(frozen=True)
+class WalletQuality:
+    wallet: str
+    topic: str
+    score: float
+    eligible_trade_count: int
+    average_age_seconds: float
+    average_drift: float
+    reason: str
+
+
+@dataclass(frozen=True)
 class CopyCandidate:
     topic: str
     market_id: str
@@ -36,6 +47,8 @@ class CopyCandidate:
     current_price: float
     liquidity_usd: float
     source_wallets: list[str]
+    wallet_quality_score: float
+    copyability_score: float
     reason: str
 
 
