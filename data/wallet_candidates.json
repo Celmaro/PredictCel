@@ -1,0 +1,67 @@
+[
+  {
+    "wallet": "0x861ae65ad67b06b5cdabe24ba6de052269221f15",
+    "username": "KawhiLeon",
+    "dominant_topic": "sports",
+    "score": 1.0,
+    "pnl": 140594.67591139083,
+    "volume": 107687.56368400002,
+    "trade_count": 25,
+    "unique_markets": 15,
+    "focus_ratio": 1.0,
+    "average_trade_size": 35933.07,
+    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+  },
+  {
+    "wallet": "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
+    "username": "ohuhusos",
+    "dominant_topic": "sports",
+    "score": 0.9883,
+    "pnl": 683368.4929144742,
+    "volume": 891025.8030549998,
+    "trade_count": 25,
+    "unique_markets": 5,
+    "focus_ratio": 1.0,
+    "average_trade_size": 21230.31,
+    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+  },
+  {
+    "wallet": "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
+    "username": "Tiger200",
+    "dominant_topic": "sports",
+    "score": 0.9839,
+    "pnl": 410551.9872993899,
+    "volume": 605653.705848,
+    "trade_count": 25,
+    "unique_markets": 9,
+    "focus_ratio": 1.0,
+    "average_trade_size": 86999.37,
+    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+  },
+  {
+    "wallet": "0xa8e089ade142c95538e06196e09c85681112ad50",
+    "username": "Wannac",
+    "dominant_topic": "sports",
+    "score": 0.982,
+    "pnl": 143158.04505044007,
+    "volume": 24000.0,
+    "trade_count": 25,
+    "unique_markets": 19,
+    "focus_ratio": 0.96,
+    "average_trade_size": 19824.66,
+    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+  },
+  {
+    "wallet": "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0",
+    "username": "TheOnlyHuman",
+    "dominant_topic": "sports",
+    "score": 0.9698,
+    "pnl": 131615.07956932357,
+    "volume": 331769.631545,
+    "trade_count": 25,
+    "unique_markets": 15,
+    "focus_ratio": 1.0,
+    "average_trade_size": 11282.0,
+    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+  }
+]
