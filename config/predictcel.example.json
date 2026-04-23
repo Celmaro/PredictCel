@@ -1,0 +1,28 @@
+{
+  "wallet_trades_path": "data/wallet_trades.example.json",
+  "market_snapshots_path": "data/market_snapshots.example.json",
+  "baskets": [
+    {
+      "topic": "geopolitics",
+      "wallets": ["alpha_geo", "macro_geo", "slow_geo"],
+      "quorum_ratio": 0.67
+    },
+    {
+      "topic": "sports",
+      "wallets": ["sports_sharp_1", "sports_sharp_2", "sports_sharp_3"],
+      "quorum_ratio": 0.67
+    }
+  ],
+  "filters": {
+    "max_trade_age_seconds": 14400,
+    "max_price_drift": 0.05,
+    "min_liquidity_usd": 5000,
+    "min_minutes_to_resolution": 60,
+    "max_minutes_to_resolution": 1440,
+    "min_position_size_usd": 100
+  },
+  "arbitrage": {
+    "min_gross_edge": 0.02,
+    "min_liquidity_usd": 5000
+  }
+}
