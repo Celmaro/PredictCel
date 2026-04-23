@@ -32,7 +32,7 @@ Instead, V1 focuses on the alpha layer we actually want to test:
 - emits paper-mode copy candidates with copyability scores
 - scans for simple YES/NO underpricing opportunities
 - can plan live copy orders from top-ranked signals
-- stores signals and execution results into SQLite
+- stores signals, duplicate-signal fingerprints, positions, and execution results into SQLite
 
 ## What V1 does not do
 
@@ -41,7 +41,7 @@ Instead, V1 focuses on the alpha layer we actually want to test:
 - do market making
 - do dispute or resolution trading
 - run on 5 minute crypto latency games
-- manage open orders, exits, or portfolio hedging yet
+- manage full portfolio hedging yet
 
 ## Quick start
 
@@ -99,9 +99,36 @@ pip install -e .[trade]
 python -m predictcel.main --config config/predictcel.example.json --db predictcel.db --live-data --live-trading
 ```
 
-When `execution.dry_run` is true, the bot only emits execution results with `dry_run` status and does not post orders.
+When `execution.dry_run` is true, the bot only emits execution results with `dry_run` status and does not post orders. Dry-run results are logged and de-duplicated, but they are not stored as open positions.
 
 To use this meaningfully, replace the example basket wallets in `config/predictcel.example.json` with real wallet addresses.
+
+## Railway deployment
+
+`railway.toml` runs PredictCel as a Railway worker, not a web service. Do not attach a public domain unless you add an HTTP status endpoint.
+
+Create a Railway volume mounted at `/data` before relying on persisted state. The default worker database path is `/data/predictcel.db`; without a volume, SQLite state can be lost on redeploy or restart.
+
+Recommended worker variables:
+- `PREDICTCEL_MODE=paper` for file-backed example mode
+- `PREDICTCEL_MODE=live-data` for public Polymarket reads without trading
+- `PREDICTCEL_MODE=dry-run-trading` for live data plus execution planning while `execution.dry_run` remains true
+- `PREDICTCEL_MODE=live-trading` only after credentials, config, and jurisdictional eligibility are verified
+- `PREDICTCEL_RUN_INTERVAL_SECONDS=300`
+- `PREDICTCEL_RUN_ONCE=false`
+- `PREDICTCEL_CONFIG=config/predictcel.example.json`
+- `PREDICTCEL_DB=/data/predictcel.db`
+
+Legacy variables still work when `PREDICTCEL_MODE` is not set:
+- `PREDICTCEL_LIVE_DATA=true`
+- `PREDICTCEL_LIVE_TRADING=true`
+
+Live trading variables:
+- `PREDICTCEL_POLY_PRIVATE_KEY`
+- `PREDICTCEL_POLY_FUNDER`
+- optional: `PREDICTCEL_POLY_HOST`
+
+The Railway worker catches per-cycle exceptions, logs JSON events, waits for the next interval, and continues. Each normal run prints a compact `summary` object with counts for markets, wallet trades, copy candidates, duplicate skips, execution intents, and open positions.
 
 ## Project layout
 
@@ -109,14 +136,14 @@ To use this meaningfully, replace the example basket wallets in `config/predictc
 - `src/predictcel/models.py` - small dataclasses used by the engines
 - `src/predictcel/markets.py` - file-backed market snapshot loading
 - `src/predictcel/wallets.py` - file-backed wallet trade loading
-- `src/predictcel/polymarket.py` - public Polymarket live ingestion, token normalization, and orderbook enrichment
+- `src/predictcel/polymarket.py` - public Polymarket live ingestion, token normalization, retries, and orderbook enrichment
 - `src/predictcel/scoring.py` - wallet quality and copyability scoring
 - `src/predictcel/copy_engine.py` - basket-consensus paper signal engine
 - `src/predictcel/arb_sidecar.py` - simple arbitrage scanner
 - `src/predictcel/execution.py` - execution planning and guarded live order submission
-- `src/predictcel/storage.py` - SQLite logging
+- `src/predictcel/storage.py` - SQLite logging, positions, and duplicate-signal fingerprints
 - `src/predictcel/main.py` - CLI entrypoint
-- `tests/` - focused unit tests for consensus, execution, arbitrage, and scoring
+- `tests/` - focused unit tests for consensus, execution, arbitrage, storage, and scoring
 
 ## Notes on scoring
 
@@ -142,6 +169,7 @@ The live mode is intentionally approximate and conservative:
 - it normalizes `clobTokenIds` from Gamma into YES and NO token identifiers when possible
 - it enriches market snapshots with public CLOB top-of-book data
 - it uses wallet trade history for basket detection only
+- it skips failed wallet fetches and keeps the rest of the cycle alive
 - it skips markets whose metadata cannot be normalized safely
 
 This is enough for signal generation and cautious execution planning, not enough for full production trading.
@@ -149,7 +177,7 @@ This is enough for signal generation and cautious execution planning, not enough
 ## Next steps
 
 Once this guarded path looks sane, the next layers should be:
-1. position and open-order awareness before repeat submissions
+1. fuller exchange fill-state reconciliation before repeat submissions
 2. explicit exit logic and portfolio caps
 3. richer basket maintenance and wallet rotation rules
 4. copyability features based on fuller order book depth and spread history

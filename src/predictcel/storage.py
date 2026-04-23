@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -73,6 +73,17 @@ class SignalStore:
                 stop_loss_pct REAL NOT NULL,
                 max_hold_minutes INTEGER NOT NULL,
                 status TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS signal_fingerprints (
+                fingerprint TEXT PRIMARY KEY,
+                market_id TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                side TEXT NOT NULL,
+                created_at TEXT NOT NULL
             )
             """
         )
@@ -239,10 +250,38 @@ class SignalStore:
         cursor.execute(
             "UPDATE positions SET current_price = ?, unrealized_pnl = ?, "
             "last_updated = ?, status = ? WHERE market_id = ? AND status IN ('open', 'closing')",
-            (current_price, unrealized_pnl, datetime.now().isoformat(), status, market_id),
+            (current_price, unrealized_pnl, datetime.now(UTC).isoformat(), status, market_id),
+        )
+        self.connection.commit()
+
+    def make_signal_fingerprint(self, market_id: str, topic: str, side: str) -> str:
+        return f"{topic.strip().lower()}:{market_id.strip()}:{side.strip().upper()}"
+
+    def has_recent_signal(self, market_id: str, topic: str, side: str, ttl_minutes: int = 1440) -> bool:
+        cutoff = datetime.now(UTC) - timedelta(minutes=ttl_minutes)
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "SELECT created_at FROM signal_fingerprints WHERE fingerprint = ?",
+            (self.make_signal_fingerprint(market_id, topic, side),),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+        return _parse_dt(row[0]) >= cutoff
+
+    def mark_signal_seen(self, market_id: str, topic: str, side: str) -> None:
+        cursor = self.connection.cursor()
+        fingerprint = self.make_signal_fingerprint(market_id, topic, side)
+        cursor.execute(
+            "INSERT OR REPLACE INTO signal_fingerprints (fingerprint, market_id, topic, side, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (fingerprint, market_id, topic, side, datetime.now(UTC).isoformat()),
         )
         self.connection.commit()
 
 
 def _parse_dt(value: str) -> datetime:
-    return datetime.fromisoformat(value)
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed

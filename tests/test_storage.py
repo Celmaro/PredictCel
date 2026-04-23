@@ -85,3 +85,17 @@ def test_portfolio_summary_tracks_closed_winrate_and_pnl() -> None:
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)
+
+
+def test_signal_fingerprints_prevent_recent_duplicates() -> None:
+    store, db_path = make_store()
+    try:
+        assert store.has_recent_signal("m1", "GeoPolitics", "yes") is False
+
+        store.mark_signal_seen("m1", "GeoPolitics", "yes")
+
+        assert store.has_recent_signal("m1", "geopolitics", "YES") is True
+        assert store.has_recent_signal("m1", "geopolitics", "NO") is False
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
