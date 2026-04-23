@@ -201,7 +201,7 @@ def _load_live_inputs(config):
     active_market_rows = client.fetch_active_markets(config.live_data.market_limit)
     markets = build_market_snapshots(active_market_rows)
     missing_trade_market_ids = [market_id for market_id in trade_market_ids if market_id not in markets]
-    supplemental_rows = client.fetch_markets_by_condition_ids(missing_trade_market_ids)
+    supplemental_rows = client.fetch_markets_by_identifiers(missing_trade_market_ids)
     if supplemental_rows:
         markets.update(build_market_snapshots(supplemental_rows))
 
