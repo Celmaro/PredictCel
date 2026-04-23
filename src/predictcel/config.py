@@ -122,7 +122,6 @@ class ExecutionConfig:
     min_copyability_score: float
     max_orders_per_run: int
     buy_amount_usd: float
-    min_signal_allocation_usd: float
     worst_price_buffer: float
     order_type: str
     chain_id: int
@@ -131,6 +130,7 @@ class ExecutionConfig:
     exposure: ExposureConfig | None
     max_retries: int
     retry_base_delay_seconds: float
+    min_signal_allocation_usd: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -320,7 +320,6 @@ def _build_execution_config(payload: dict) -> ExecutionConfig:
         min_copyability_score=float(payload["min_copyability_score"]),
         max_orders_per_run=int(payload["max_orders_per_run"]),
         buy_amount_usd=float(payload["buy_amount_usd"]),
-        min_signal_allocation_usd=float(payload.get("min_signal_allocation_usd", min(float(payload["buy_amount_usd"]), 5.0))),
         worst_price_buffer=float(payload["worst_price_buffer"]),
         order_type=payload["order_type"],
         chain_id=int(payload["chain_id"]),
@@ -329,4 +328,5 @@ def _build_execution_config(payload: dict) -> ExecutionConfig:
         exposure=exposure_config,
         max_retries=int(payload.get("max_retries", 3)),
         retry_base_delay_seconds=float(payload.get("retry_base_delay_seconds", 1.0)),
+        min_signal_allocation_usd=float(payload.get("min_signal_allocation_usd", min(float(payload["buy_amount_usd"]), 5.0))),
     )
