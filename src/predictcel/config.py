@@ -23,6 +23,18 @@ class FilterConfig:
 
 
 @dataclass(frozen=True)
+class ConsensusConfig:
+    recency_half_life_seconds: int = 1800
+    min_weighted_consensus: float = 0.60
+    confidence_prior_strength: float = 2.0
+    min_confidence_score: float = 0.50
+    conflict_penalty_weight: float = 0.25
+    bankroll_usd: float = 100.0
+    kelly_fraction: float = 0.25
+    max_suggested_position_usd: float = 10.0
+
+
+@dataclass(frozen=True)
 class ArbitrageConfig:
     min_gross_edge: float
     min_liquidity_usd: float
@@ -90,6 +102,7 @@ class AppConfig:
     market_snapshots_path: str
     live_data: LiveDataConfig | None
     execution: ExecutionConfig | None
+    consensus: ConsensusConfig = ConsensusConfig()
 
 
 class ConfigError(ValueError):
@@ -109,6 +122,7 @@ def load_config(path: str | Path) -> AppConfig:
     ]
     filters = FilterConfig(**payload["filters"])
     arbitrage = ArbitrageConfig(**payload["arbitrage"])
+    consensus = ConsensusConfig(**payload.get("consensus", {}))
     live_data_payload = payload.get("live_data")
     live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
     execution_payload = payload.get("execution")
@@ -129,6 +143,22 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError("max_price_drift must be between 0 and 1.")
     if filters.min_minutes_to_resolution >= filters.max_minutes_to_resolution:
         raise ConfigError("Resolution window is invalid.")
+    if consensus.recency_half_life_seconds <= 0:
+        raise ConfigError("consensus recency_half_life_seconds must be positive.")
+    if not 0 <= consensus.min_weighted_consensus <= 1:
+        raise ConfigError("consensus min_weighted_consensus must be between 0 and 1.")
+    if consensus.confidence_prior_strength < 0:
+        raise ConfigError("consensus confidence_prior_strength must be non-negative.")
+    if not 0 <= consensus.min_confidence_score <= 1:
+        raise ConfigError("consensus min_confidence_score must be between 0 and 1.")
+    if not 0 <= consensus.conflict_penalty_weight <= 1:
+        raise ConfigError("consensus conflict_penalty_weight must be between 0 and 1.")
+    if consensus.bankroll_usd <= 0:
+        raise ConfigError("consensus bankroll_usd must be positive.")
+    if not 0 <= consensus.kelly_fraction <= 1:
+        raise ConfigError("consensus kelly_fraction must be between 0 and 1.")
+    if consensus.max_suggested_position_usd <= 0:
+        raise ConfigError("consensus max_suggested_position_usd must be positive.")
     if arbitrage.min_gross_edge <= 0:
         raise ConfigError("min_gross_edge must be positive.")
     if arbitrage.min_liquidity_usd < 0:
@@ -194,6 +224,7 @@ def load_config(path: str | Path) -> AppConfig:
         market_snapshots_path=payload["market_snapshots_path"],
         live_data=live_data,
         execution=execution,
+        consensus=consensus,
     )
 
 

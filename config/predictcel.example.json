@@ -32,6 +32,16 @@
     "max_retries": 3,
     "retry_base_delay_seconds": 1.0
   },
+  "consensus": {
+    "recency_half_life_seconds": 1800,
+    "min_weighted_consensus": 0.60,
+    "confidence_prior_strength": 2.0,
+    "min_confidence_score": 0.50,
+    "conflict_penalty_weight": 0.25,
+    "bankroll_usd": 100.0,
+    "kelly_fraction": 0.25,
+    "max_suggested_position_usd": 10.0
+  },
   "baskets": [
     {
       "topic": "geopolitics",
