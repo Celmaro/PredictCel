@@ -88,12 +88,17 @@ class CopyEngine:
         average_age = sum(trade.age_seconds for trade in aligned) / len(aligned)
         quality_values = [wallet_qualities[wallet].score for wallet in unique_wallets if wallet in wallet_qualities]
         wallet_quality_score = round(sum(quality_values) / len(quality_values), 4) if quality_values else 0.5
+        side_spread = market.yes_spread if side == "YES" else market.no_spread
+        side_ask_size = market.yes_ask_size if side == "YES" else market.no_ask_size
+        side_depth_usd = side_ask_size * current_price
         copyability_score = compute_copyability_score(
             consensus_ratio=consensus_ratio,
             wallet_quality_score=wallet_quality_score,
             average_age_seconds=average_age,
             drift=drift,
             liquidity_usd=market.liquidity_usd,
+            side_spread=side_spread,
+            side_depth_usd=side_depth_usd,
             filters=self.config.filters,
         )
 
@@ -108,5 +113,5 @@ class CopyEngine:
             source_wallets=unique_wallets,
             wallet_quality_score=wallet_quality_score,
             copyability_score=copyability_score,
-            reason="basket consensus, quality scoring, age, liquidity, and drift filters passed",
+            reason="basket consensus, quality scoring, age, liquidity, drift, and orderbook filters passed",
         )
