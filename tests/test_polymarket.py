@@ -1,9 +1,22 @@
 from datetime import UTC, datetime
 
-from predictcel.polymarket import build_wallet_trades, market_snapshot_from_gamma, wallet_trade_from_data
+from predictcel.polymarket import (
+    build_wallet_trades,
+    enrich_market_snapshots_with_orderbooks,
+    market_snapshot_from_gamma,
+    wallet_trade_from_data,
+)
 
 
-def test_market_snapshot_from_gamma_parses_string_prices() -> None:
+class FakeClient:
+    def __init__(self, books):
+        self.books = books
+
+    def fetch_order_book(self, token_id: str):
+        return self.books.get(token_id, {})
+
+
+def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None:
     item = {
         "conditionId": "cond_1",
         "question": "Will event X happen?",
@@ -12,6 +25,7 @@ def test_market_snapshot_from_gamma_parses_string_prices() -> None:
         "liquidityNum": "12000",
         "endDate": "2030-01-01T00:00:00Z",
         "category": "geopolitics",
+        "clobTokenIds": "[\"yes_token\", \"no_token\"]",
     }
 
     snapshot = market_snapshot_from_gamma(item)
@@ -21,6 +35,42 @@ def test_market_snapshot_from_gamma_parses_string_prices() -> None:
     assert snapshot.yes_ask == 0.61
     assert snapshot.no_ask == 0.35
     assert snapshot.topic == "geopolitics"
+    assert snapshot.yes_token_id == "yes_token"
+    assert snapshot.no_token_id == "no_token"
+
+
+def test_enrich_market_snapshots_with_orderbooks_adds_spread_and_depth() -> None:
+    item = {
+        "conditionId": "cond_1",
+        "question": "Will event X happen?",
+        "outcomePrices": "[0.61, 0.35]",
+        "bestBid": "0.58",
+        "liquidityNum": "12000",
+        "endDate": "2030-01-01T00:00:00Z",
+        "category": "geopolitics",
+        "clobTokenIds": "[\"yes_token\", \"no_token\"]",
+    }
+    snapshot = market_snapshot_from_gamma(item)
+    assert snapshot is not None
+
+    client = FakeClient(
+        {
+            "yes_token": {"bids": [{"price": "0.59", "size": "200"}], "asks": [{"price": "0.62", "size": "150"}]},
+            "no_token": {"bids": [{"price": "0.33", "size": "180"}], "asks": [{"price": "0.36", "size": "140"}]},
+        }
+    )
+
+    enriched = enrich_market_snapshots_with_orderbooks({"cond_1": snapshot}, client)
+
+    assert enriched["cond_1"].yes_bid == 0.59
+    assert enriched["cond_1"].no_bid == 0.33
+    assert enriched["cond_1"].yes_ask == 0.62
+    assert enriched["cond_1"].no_ask == 0.36
+    assert enriched["cond_1"].yes_ask_size == 150
+    assert enriched["cond_1"].no_ask_size == 140
+    assert enriched["cond_1"].yes_spread == 0.03
+    assert enriched["cond_1"].no_spread == 0.03
+    assert enriched["cond_1"].orderbook_ready is True
 
 
 def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:
