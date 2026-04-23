@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import replace
 from datetime import UTC, datetime
 
 from .arb_sidecar import ArbitrageSidecar
@@ -71,11 +70,9 @@ def main() -> None:
         if config.execution is None or not config.execution.enabled:
             raise ValueError("--live-trading was requested but execution is not enabled in config.")
 
-        # Load held market IDs and current total exposure
         held_market_ids = store.get_held_market_ids()
         current_exposure_usd = store.get_total_exposure()
 
-        # --- Exit runner: evaluate and close existing positions ---
         exit_runner = ExitRunner(config.execution, config.live_data)
         open_positions = store.get_open_positions()
 
@@ -84,18 +81,20 @@ def main() -> None:
             if close_intents:
                 executor = LiveOrderExecutor(config.execution, config.live_data)
                 close_results = executor.execute(close_intents)
-            # Persist updated position states
+            closed_market_ids = {
+                result.market_id
+                for result in close_results
+                if result.status not in {"dry_run", "error"}
+            }
             for pos in updated_positions:
                 store.update_position(
                     market_id=pos.market_id,
                     current_price=pos.current_price,
                     unrealized_pnl=pos.unrealized_pnl,
-                    status=pos.status,
+                    status="closed" if pos.market_id in closed_market_ids else pos.status,
                 )
-            # Recompute exposure after closes (closed positions drop to 0 exposure)
             current_exposure_usd = store.get_total_exposure()
 
-        # --- Entry planner: enforce exposure cap and skip held markets ---
         planner = ExecutionPlanner(config.execution, config.execution.position)
         execution_intents = planner.plan(
             copy_candidates,
@@ -106,7 +105,6 @@ def main() -> None:
         executor = LiveOrderExecutor(config.execution, config.live_data)
         execution_results = executor.execute(execution_intents)
 
-        # Persist new positions after fills
         now = datetime.now(UTC)
         position_config = config.execution.position
         for result in execution_results:
