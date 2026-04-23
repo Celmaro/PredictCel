@@ -60,6 +60,11 @@ class CopyCandidate:
     wallet_quality_score: float
     copyability_score: float
     reason: str
+    weighted_consensus: float = 0.0
+    confidence_score: float = 0.0
+    conflict_penalty: float = 0.0
+    recency_score: float = 0.0
+    suggested_position_usd: float = 0.0
 
 
 @dataclass(frozen=True)
