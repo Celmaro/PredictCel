@@ -38,24 +38,19 @@ class ExecutionPlanner:
             if candidate.market_id in held_market_ids:
                 continue
 
-            if self.config.exposure is not None:
-                new_exposure = planned_exposure_usd + self.config.buy_amount_usd
-                if self.config.exposure.max_total_exposure_usd > 0:
-                    if new_exposure > self.config.exposure.max_total_exposure_usd:
-                        continue
-                if self.config.exposure.max_single_position_usd > 0:
-                    if self.config.buy_amount_usd > self.config.exposure.max_single_position_usd:
-                        continue
-
             market = markets.get(candidate.market_id)
             if market is None or not market.orderbook_ready:
+                continue
+
+            amount_usd = self._planned_amount_usd(candidate, planned_exposure_usd)
+            if amount_usd <= 0:
                 continue
 
             token_id = market.yes_token_id if candidate.side == "YES" else market.no_token_id
             current_price = market.yes_ask if candidate.side == "YES" else market.no_ask
             side_depth_shares = market.yes_ask_size if candidate.side == "YES" else market.no_ask_size
             side_depth_usd = side_depth_shares * current_price
-            if not token_id or side_depth_usd < self.config.buy_amount_usd:
+            if not token_id or side_depth_usd < amount_usd:
                 continue
 
             worst_price = min(round(current_price + self.config.worst_price_buffer, 4), 0.99)
@@ -65,17 +60,29 @@ class ExecutionPlanner:
                     topic=candidate.topic,
                     side=candidate.side,
                     token_id=token_id,
-                    amount_usd=self.config.buy_amount_usd,
+                    amount_usd=round(amount_usd, 4),
                     worst_price=worst_price,
                     copyability_score=candidate.copyability_score,
                     order_type=self.config.order_type.upper(),
-                    reason="copyability threshold, no open position, exposure within limits, token id, and top-of-book depth checks passed",
+                    reason="copyability threshold, suggested sizing, no open position, exposure within limits, token id, and top-of-book depth checks passed",
                 )
             )
-            planned_exposure_usd += self.config.buy_amount_usd
+            planned_exposure_usd += amount_usd
             if len(intents) >= self.config.max_orders_per_run:
                 break
         return intents
+
+    def _planned_amount_usd(self, candidate: CopyCandidate, planned_exposure_usd: float) -> float:
+        amount_usd = candidate.suggested_position_usd if candidate.suggested_position_usd > 0 else self.config.buy_amount_usd
+        if self.config.exposure is not None:
+            if self.config.exposure.max_single_position_usd > 0:
+                amount_usd = min(amount_usd, self.config.exposure.max_single_position_usd)
+            if self.config.exposure.max_total_exposure_usd > 0:
+                remaining_capacity = self.config.exposure.max_total_exposure_usd - planned_exposure_usd
+                if remaining_capacity <= 0:
+                    return 0.0
+                amount_usd = min(amount_usd, remaining_capacity)
+        return max(amount_usd, 0.0)
 
 
 class LiveOrderExecutor:
