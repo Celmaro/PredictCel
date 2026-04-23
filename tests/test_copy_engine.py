@@ -1,6 +1,6 @@
 from predictcel.config import ArbitrageConfig, AppConfig, BasketRule, FilterConfig, LiveDataConfig
 from predictcel.copy_engine import CopyEngine
-from predictcel.models import MarketSnapshot, WalletTrade
+from predictcel.models import MarketSnapshot, WalletQuality, WalletTrade
 
 
 def make_config() -> AppConfig:
@@ -46,13 +46,19 @@ def test_emits_candidate_when_quorum_and_drift_pass() -> None:
             minutes_to_resolution=180,
         )
     }
+    wallet_qualities = {
+        "w1": WalletQuality(wallet="w1", topic="geopolitics", score=0.8, eligible_trade_count=3, average_age_seconds=500, average_drift=0.01, reason="test"),
+        "w2": WalletQuality(wallet="w2", topic="geopolitics", score=0.7, eligible_trade_count=2, average_age_seconds=700, average_drift=0.02, reason="test"),
+    }
 
-    candidates = engine.evaluate(trades, markets)
+    candidates = engine.evaluate(trades, markets, wallet_qualities)
 
     assert len(candidates) == 1
     assert candidates[0].side == "YES"
     assert candidates[0].market_id == "m1"
     assert candidates[0].topic == "geopolitics"
+    assert candidates[0].wallet_quality_score == 0.75
+    assert candidates[0].copyability_score > 0
 
 
 def test_skips_candidate_when_drift_is_too_large() -> None:
@@ -74,6 +80,6 @@ def test_skips_candidate_when_drift_is_too_large() -> None:
         )
     }
 
-    candidates = engine.evaluate(trades, markets)
+    candidates = engine.evaluate(trades, markets, {})
 
     assert candidates == []
