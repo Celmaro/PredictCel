@@ -1,4 +1,4 @@
-from predictcel.config import ArbitrageConfig, AppConfig, BasketRule, FilterConfig
+from predictcel.config import ArbitrageConfig, AppConfig, BasketRule, FilterConfig, LiveDataConfig
 from predictcel.copy_engine import CopyEngine
 from predictcel.models import MarketSnapshot, WalletTrade
 
@@ -17,6 +17,14 @@ def make_config() -> AppConfig:
         arbitrage=ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000),
         wallet_trades_path="",
         market_snapshots_path="",
+        live_data=LiveDataConfig(
+            enabled=False,
+            gamma_base_url="https://gamma-api.polymarket.com",
+            data_base_url="https://data-api.polymarket.com",
+            market_limit=100,
+            trade_limit=10,
+            request_timeout_seconds=15,
+        ),
     )
 
 
@@ -29,7 +37,7 @@ def test_emits_candidate_when_quorum_and_drift_pass() -> None:
     markets = {
         "m1": MarketSnapshot(
             market_id="m1",
-            topic="geopolitics",
+            topic="unknown",
             title="Example",
             yes_ask=0.61,
             no_ask=0.42,
@@ -44,6 +52,7 @@ def test_emits_candidate_when_quorum_and_drift_pass() -> None:
     assert len(candidates) == 1
     assert candidates[0].side == "YES"
     assert candidates[0].market_id == "m1"
+    assert candidates[0].topic == "geopolitics"
 
 
 def test_skips_candidate_when_drift_is_too_large() -> None:
@@ -55,7 +64,7 @@ def test_skips_candidate_when_drift_is_too_large() -> None:
     markets = {
         "m1": MarketSnapshot(
             market_id="m1",
-            topic="geopolitics",
+            topic="unknown",
             title="Example",
             yes_ask=0.61,
             no_ask=0.42,
