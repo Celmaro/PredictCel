@@ -184,7 +184,19 @@
         "0xd25c72ac0928385610611c8148803dc717334d20",
         "0x000d257d2dc7616feaef4ae0f14600fdf50a758e",
         "0x7f3c8979d0afa00007bae4747d5347122af05613",
-        "0x1986a3e555dd2a334c33c34b0168170cff54ef06"
+        "0x1986a3e555dd2a334c33c34b0168170cff54ef06",
+        "0x56687bf447db6ffa42ffe2204a05edaa20f55839",
+        "0x1f2dd6d473f3e824cd2f8a89d9c69fb96f6ad0cf",
+        "0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee",
+        "0x78b9ac44a6d7d7a076c14e0ad518b301b63c6b76",
+        "0xd235973291b2b75ff4070e9c0b01728c520b0f29",
+        "0x16f91db2592924cfed6e03b7e5cb5bb1e32299e3",
+        "0xefbc5fec8d7b0acdc8911bdd9a98d6964308f9a2",
+        "0x019782cab5d844f02bafb71f512758be78579f3c",
+        "0x16b29c50f2439faf627209b2ac0c7bbddaa8a881",
+        "0x02227b8f5a9636e895607edd3185ed6ee5598ff7",
+        "0xd38b71f3e8ed1af71983e5c309eac3dfa9b35029",
+        "0x9d84ce0306f8551e02efef1680475fc0f1dc1344"
       ],
       "quorum_ratio": 0.2,
       "note": "War, Ukraine, Russia, Iran, Israel, NATO, Taiwan"
@@ -215,7 +227,12 @@
         "0x44c1dfe43260c94ed4f1d00de2e1f80fb113ebc1",
         "0xee50a31c3f5a7c77824b12a941a54388a2827ed6",
         "0xa9878e59934ab507f9039bcb917c1bae0451141d",
-        "0x0b9cae2b0dfe7a71c413e0604eaac1c352f87e44"
+        "0x0b9cae2b0dfe7a71c413e0604eaac1c352f87e44",
+        "0x863134d00841b2e200492805a01e1e2f5defaa53",
+        "0x8119010a6e589062aa03583bb3f39ca632d9f887",
+        "0xee613b3fc183ee44f9da9c05f53e2da107e3debf",
+        "0x94a428cfa4f84b264e01f70d93d02bc96cb36356",
+        "0x2bf64b86b64c315d879571b07a3b76629e467cd0"
       ],
       "quorum_ratio": 0.2,
       "note": "Trump approval, impeachment, pardon, admin decisions"
@@ -243,7 +260,8 @@
         "0xf6714cd65f19a944fde191ec4ad9effbc2693d1f",
         "0xe8b7023153d625f8d111d3b1b93a672f2418c4db",
         "0x1c17f1d806926fbb900c59fb3c385fd75c013653",
-        "0x31864feb9d25dee93728c6225ba891530967e9ca"
+        "0x31864feb9d25dee93728c6225ba891530967e9ca",
+        "0x5bffcf561bcae83af680ad600cb99f1184d6ffbe"
       ],
       "quorum_ratio": 0.2,
       "note": "US elections, Senate, Congress, Biden, polls"
@@ -273,7 +291,12 @@
         "0x1f19c48aee80ec95396d91f0d21ac249b8a7f57a",
         "0x6bab41a0dc40d6dd4c1a915b8c01969479fd1292",
         "0x7177a7f5c216809c577c50c77b12aae81f81ddef",
-        "0xcd71fd5370880f3d92bb941e628c05840fe0d127"
+        "0xcd71fd5370880f3d92bb941e628c05840fe0d127",
+        "0xe9ad918c7678cd38b12603a762e638a5d1ee7091",
+        "0x23786fdad0073692157c6d7dc81f281843a35fcb",
+        "0xdb27bf2ac5d428a9c63dbc914611036855a6c56e",
+        "0x006cc834cc092684f1b56626e23bedb3835c16ea",
+        "0x7fb7ad0d194d7123e711e7db6c9d418fac14e33d"
       ],
       "quorum_ratio": 0.2,
       "note": "BTC/ETH/SOL short-term up-or-down"
@@ -322,7 +345,9 @@
         "0xfe3e63ff74085583791df5145ccc822abb1c70b4",
         "0x507e52ef684ca2dd91f90a9d26d149dd3288beae",
         "0xdbade4c82fb72780a0db9a38f821d8671aba9c95",
-        "0xf5fe759cece500f58a431ef8dacea321f6e3e23d"
+        "0xf5fe759cece500f58a431ef8dacea321f6e3e23d",
+        "0x0562c423912e325f83fa79df55085979e1f5594f",
+        "0xc2e7800b5af46e6093872b177b7a5e7f0563be51"
       ],
       "quorum_ratio": 0.2,
       "note": "NBA, NFL, MLB, UFC, Super Bowl"
