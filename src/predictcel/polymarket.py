@@ -36,6 +36,18 @@ class PolymarketPublicClient:
         payload = self._get_json(f"{self.gamma_base_url}/markets?{query}")
         return _extract_list(payload)
 
+    def fetch_markets_by_condition_ids(self, condition_ids: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        unique_ids = sorted({market_id.strip() for market_id in condition_ids if market_id and market_id.strip()})
+        for chunk in _chunks(unique_ids, max(chunk_size, 1)):
+            query = urlencode({"condition_ids": ",".join(chunk), "limit": len(chunk)})
+            try:
+                payload = self._get_json(f"{self.gamma_base_url}/markets?{query}")
+            except Exception:
+                continue
+            results.extend(_extract_list(payload))
+        return results
+
     def fetch_leaderboard(self, limit: int) -> list[dict[str, Any]]:
         query = urlencode({"limit": limit})
         payload = self._get_json(f"{self.data_base_url}/v1/leaderboard?{query}")
@@ -68,8 +80,10 @@ def build_market_snapshots(items: list[dict[str, Any]]) -> dict[str, MarketSnaps
     snapshots: dict[str, MarketSnapshot] = {}
     for item in items:
         snapshot = market_snapshot_from_gamma(item)
-        if snapshot is not None:
-            snapshots[snapshot.market_id] = snapshot
+        if snapshot is None:
+            continue
+        for market_id in _market_snapshot_aliases(item, snapshot):
+            snapshots.setdefault(market_id, snapshot)
     return snapshots
 
 
@@ -81,16 +95,28 @@ def enrich_market_snapshots_with_orderbooks(
     if not snapshots:
         return {}
 
-    enriched: dict[str, MarketSnapshot] = {}
-    workers = max(1, min(max_workers, len(snapshots)))
+    unique_snapshots: dict[str, MarketSnapshot] = {}
+    aliases_by_canonical: dict[str, list[str]] = {}
+    for alias, snapshot in snapshots.items():
+        unique_snapshots.setdefault(snapshot.market_id, snapshot)
+        aliases_by_canonical.setdefault(snapshot.market_id, []).append(alias)
+
+    enriched_unique: dict[str, MarketSnapshot] = {}
+    workers = max(1, min(max_workers, len(unique_snapshots)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_enrich_one_snapshot, snapshot, client): market_id for market_id, snapshot in snapshots.items()}
+        futures = {executor.submit(_enrich_one_snapshot, snapshot, client): market_id for market_id, snapshot in unique_snapshots.items()}
         for future in as_completed(futures):
             market_id = futures[future]
             try:
-                enriched[market_id] = future.result()
+                enriched_unique[market_id] = future.result()
             except Exception:
-                enriched[market_id] = snapshots[market_id]
+                enriched_unique[market_id] = unique_snapshots[market_id]
+
+    enriched: dict[str, MarketSnapshot] = {}
+    for canonical_id, aliases in aliases_by_canonical.items():
+        snapshot = enriched_unique.get(canonical_id, unique_snapshots[canonical_id])
+        for alias in aliases:
+            enriched[alias] = snapshot
     return enriched
 
 
@@ -140,8 +166,18 @@ def build_wallet_trades(
     return trades
 
 
+def extract_trade_market_ids(wallet_payloads: dict[str, list[dict[str, Any]]]) -> list[str]:
+    market_ids: set[str] = set()
+    for items in wallet_payloads.values():
+        for item in items:
+            market_id = _trade_market_id(item)
+            if market_id:
+                market_ids.add(market_id)
+    return sorted(market_ids)
+
+
 def market_snapshot_from_gamma(item: dict[str, Any]) -> MarketSnapshot | None:
-    market_id = str(item.get("conditionId") or item.get("id") or "").strip()
+    market_id = str(item.get("conditionId") or item.get("condition_id") or item.get("id") or "").strip()
     if not market_id:
         return None
 
@@ -176,7 +212,7 @@ def wallet_trade_from_data(
     item: dict[str, Any],
     now: datetime,
 ) -> WalletTrade | None:
-    market_id = str(item.get("conditionId") or item.get("market_id") or item.get("marketId") or item.get("market") or "").strip()
+    market_id = _trade_market_id(item)
     side = _trade_side(item)
     if not market_id or side not in {"YES", "NO"}:
         return None
@@ -207,6 +243,24 @@ def _extract_list(payload: Any) -> list[dict[str, Any]]:
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
     return []
+
+
+def _trade_market_id(item: dict[str, Any]) -> str:
+    for key in ("conditionId", "condition_id", "conditionID", "condition", "market_id", "marketId", "market"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _market_snapshot_aliases(item: dict[str, Any], snapshot: MarketSnapshot) -> list[str]:
+    aliases = [snapshot.market_id]
+    for key in ("conditionId", "condition_id", "conditionID", "condition", "id", "market_id", "marketId", "market", "slug", "marketSlug"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            aliases.append(str(value).strip())
+    aliases.extend(token_id for token_id in (snapshot.yes_token_id, snapshot.no_token_id) if token_id)
+    return list(dict.fromkeys(aliases))
 
 
 def _trade_side(item: dict[str, Any]) -> str:
@@ -305,6 +359,10 @@ def _parse_datetime(value: Any) -> datetime:
         normalized = value.replace("Z", "+00:00")
         return datetime.fromisoformat(normalized).astimezone(UTC)
     raise ValueError("Unsupported datetime value")
+
+
+def _chunks(items: list[str], size: int) -> list[list[str]]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
 
 
 def _retry_delay(base_delay: float, attempt: int) -> float:

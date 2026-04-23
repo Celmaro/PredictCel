@@ -14,13 +14,20 @@ from .copy_engine import CopyEngine
 from .execution import ExecutionPlanner, ExitRunner, LiveOrderExecutor, intents_as_dicts
 from .markets import load_market_snapshots
 from .models import Position
-from .polymarket import PolymarketPublicClient, build_market_snapshots, build_wallet_trades, enrich_market_snapshots_with_orderbooks
+from .polymarket import (
+    PolymarketPublicClient,
+    build_market_snapshots,
+    build_wallet_trades,
+    enrich_market_snapshots_with_orderbooks,
+    extract_trade_market_ids,
+)
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallet_discovery import WalletDiscoveryPipeline
 from .wallets import load_wallet_trades
 
 TRUSTED_POSITION_STATUSES = {"filled", "matched", "success", "submitted"}
+HEX_CHARS = set("0123456789abcdefABCDEF")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,7 +59,11 @@ def main() -> None:
     use_live_data = bool(args.live_data or (config.live_data and config.live_data.enabled))
 
     started = time.perf_counter()
-    trades, markets = _load_live_inputs(config) if use_live_data else (load_wallet_trades(config.wallet_trades_path), load_market_snapshots(config.market_snapshots_path))
+    live_input_diagnostics: dict[str, Any] = {}
+    if use_live_data:
+        trades, markets, live_input_diagnostics = _load_live_inputs(config)
+    else:
+        trades, markets = load_wallet_trades(config.wallet_trades_path), load_market_snapshots(config.market_snapshots_path)
     timings["input_load_ms"] = _elapsed_ms(started)
 
     started = time.perf_counter()
@@ -61,6 +72,7 @@ def main() -> None:
     scoring_diagnostics = {
         "rejection_counts": scorer.last_rejection_counts,
         "wallet_rejection_counts": scorer.last_wallet_rejection_counts,
+        "missing_market_samples": scorer.last_missing_market_samples,
     }
     timings["wallet_scoring_ms"] = _elapsed_ms(started)
 
@@ -124,6 +136,7 @@ def main() -> None:
         "mode": "live" if use_live_data else "file",
         "summary": summary,
         "latency_ms": timings,
+        "live_input_diagnostics": live_input_diagnostics,
         "scoring_diagnostics": scoring_diagnostics,
         "portfolio_summary": _portfolio_summary(store, config),
         "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
@@ -135,7 +148,16 @@ def main() -> None:
         "close_results": [result.__dict__ for result in close_results],
         "open_positions": [pos.__dict__ for pos in open_positions],
     }
-    _log_event("predictcel_cycle_latency", {"mode": output["mode"], "latency_ms": timings, "summary": summary, "scoring_diagnostics": scoring_diagnostics})
+    _log_event(
+        "predictcel_cycle_latency",
+        {
+            "mode": output["mode"],
+            "latency_ms": timings,
+            "summary": summary,
+            "live_input_diagnostics": live_input_diagnostics,
+            "scoring_diagnostics": scoring_diagnostics,
+        },
+    )
     print(json.dumps(output, indent=2, default=str))
 
 
@@ -168,11 +190,34 @@ def _load_live_inputs(config):
     if config.live_data is None:
         raise ValueError("--live-data was requested but live_data is not configured.")
     client = PolymarketPublicClient(config.live_data.gamma_base_url, config.live_data.data_base_url, config.live_data.clob_base_url, config.live_data.request_timeout_seconds)
-    topic_by_wallet = {wallet: basket.topic for basket in config.baskets for wallet in basket.wallets}
+    raw_topic_by_wallet = {wallet: basket.topic for basket in config.baskets for wallet in basket.wallets}
+    topic_by_wallet = {wallet: topic for wallet, topic in raw_topic_by_wallet.items() if _is_evm_address(wallet)}
+    skipped_wallets = [wallet for wallet in raw_topic_by_wallet if wallet not in topic_by_wallet]
+
     wallet_payloads = _fetch_wallet_payloads(client, list(topic_by_wallet), config.live_data.trade_limit)
     trades = build_wallet_trades(wallet_payloads, topic_by_wallet)
-    markets = build_market_snapshots(client.fetch_active_markets(config.live_data.market_limit))
-    return trades, enrich_market_snapshots_with_orderbooks(markets, client)
+    trade_market_ids = extract_trade_market_ids(wallet_payloads)
+
+    active_market_rows = client.fetch_active_markets(config.live_data.market_limit)
+    markets = build_market_snapshots(active_market_rows)
+    missing_trade_market_ids = [market_id for market_id in trade_market_ids if market_id not in markets]
+    supplemental_rows = client.fetch_markets_by_condition_ids(missing_trade_market_ids)
+    if supplemental_rows:
+        markets.update(build_market_snapshots(supplemental_rows))
+
+    diagnostics = {
+        "requested_wallets": len(raw_topic_by_wallet),
+        "valid_wallets": len(topic_by_wallet),
+        "skipped_invalid_wallets": len(skipped_wallets),
+        "sample_skipped_invalid_wallets": skipped_wallets[:5],
+        "wallet_payloads_loaded": sum(len(items) for items in wallet_payloads.values()),
+        "active_market_rows_loaded": len(active_market_rows),
+        "trade_market_ids_seen": len(trade_market_ids),
+        "supplemental_market_ids_requested": len(missing_trade_market_ids),
+        "supplemental_market_rows_loaded": len(supplemental_rows),
+        "market_cache_entries": len(markets),
+    }
+    return trades, enrich_market_snapshots_with_orderbooks(markets, client), diagnostics
 
 
 def _fetch_wallet_payloads(client: PolymarketPublicClient, wallets: list[str], limit: int) -> dict[str, list[dict[str, Any]]]:
@@ -198,6 +243,11 @@ def _filter_duplicate_candidates(store: SignalStore, candidates: list) -> tuple[
 
 def _is_trusted_execution_result(result) -> bool:
     return str(result.status).strip().lower() in TRUSTED_POSITION_STATUSES and bool(str(result.order_id).strip())
+
+
+def _is_evm_address(value: str) -> bool:
+    value = str(value).strip()
+    return len(value) == 42 and value.startswith("0x") and all(char in HEX_CHARS for char in value[2:])
 
 
 def _elapsed_ms(started: float) -> int:
