@@ -8,6 +8,7 @@ from .config import load_config
 from .copy_engine import CopyEngine
 from .markets import load_market_snapshots
 from .polymarket import PolymarketPublicClient, build_market_snapshots, build_wallet_trades
+from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallets import load_wallet_trades
 
@@ -35,10 +36,13 @@ def main() -> None:
         trades = load_wallet_trades(config.wallet_trades_path)
         markets = load_market_snapshots(config.market_snapshots_path)
 
+    wallet_quality_scorer = WalletQualityScorer(config.filters)
+    wallet_qualities = wallet_quality_scorer.score(trades, markets)
+
     copy_engine = CopyEngine(config)
     arb_sidecar = ArbitrageSidecar(config.arbitrage)
 
-    copy_candidates = copy_engine.evaluate(trades, markets)
+    copy_candidates = copy_engine.evaluate(trades, markets, wallet_qualities)
     arbitrage_opportunities = arb_sidecar.scan(markets)
 
     store = SignalStore(args.db)
@@ -47,6 +51,7 @@ def main() -> None:
 
     print(json.dumps({
         "mode": "live" if use_live_data else "file",
+        "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
         "arbitrage_opportunities": [opportunity.__dict__ for opportunity in arbitrage_opportunities],
     }, indent=2))
