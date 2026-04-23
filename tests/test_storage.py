@@ -59,3 +59,29 @@ def test_update_position_can_close_active_position() -> None:
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)
+
+
+def test_portfolio_summary_tracks_closed_winrate_and_pnl() -> None:
+    store, db_path = make_store()
+    try:
+        store.save_position(make_position("winner", "open", 10.0))
+        store.save_position(make_position("loser", "open", 10.0))
+        store.save_position(make_position("active", "open", 10.0))
+        store.update_position("winner", current_price=0.7, unrealized_pnl=4.0, status="closed")
+        store.update_position("loser", current_price=0.4, unrealized_pnl=-2.0, status="closed")
+        store.update_position("active", current_price=0.55, unrealized_pnl=1.0, status="open")
+
+        summary = store.get_portfolio_summary(starting_bankroll_usd=100.0)
+
+        assert summary["starting_bankroll_usd"] == 100.0
+        assert summary["open_position_count"] == 1
+        assert summary["closed_position_count"] == 2
+        assert summary["wins"] == 1
+        assert summary["losses"] == 1
+        assert summary["win_rate"] == 0.5
+        assert summary["realized_pnl_usd"] == 2.0
+        assert summary["unrealized_pnl_usd"] == 1.0
+        assert summary["estimated_equity_usd"] == 103.0
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
