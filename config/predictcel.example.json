@@ -11,12 +11,12 @@
     "request_timeout_seconds": 15
   },
   "filters": {
-    "max_trade_age_seconds": 21600,
-    "max_price_drift": 0.12,
-    "min_liquidity_usd": 1000,
-    "min_minutes_to_resolution": 30,
-    "max_minutes_to_resolution": 4320,
-    "min_position_size_usd": 5
+    "max_trade_age_seconds": 43200,
+    "max_price_drift": 0.15,
+    "min_liquidity_usd": 500,
+    "min_minutes_to_resolution": 15,
+    "max_minutes_to_resolution": 10080,
+    "min_position_size_usd": 1
   },
   "arbitrage": {
     "min_gross_edge": 0.02,
@@ -37,7 +37,7 @@
   "execution": {
     "enabled": true,
     "dry_run": true,
-    "min_copyability_score": 0.6,
+    "min_copyability_score": 0.45,
     "max_orders_per_run": 1,
     "buy_amount_usd": 10,
     "worst_price_buffer": 0.02,
@@ -58,9 +58,9 @@
   },
   "consensus": {
     "recency_half_life_seconds": 1800,
-    "min_weighted_consensus": 0.5,
+    "min_weighted_consensus": 0.45,
     "confidence_prior_strength": 2,
-    "min_confidence_score": 0.35,
+    "min_confidence_score": 0.25,
     "conflict_penalty_weight": 0.25,
     "bankroll_usd": 100,
     "kelly_fraction": 0.25,
@@ -105,7 +105,7 @@
         "0xead152b855effa6b5b5837f53b24c0756830c76a",
         "0x5ccf62ac8155e49bc7d021a1a66e9ef18f5579d7"
       ],
-      "quorum_ratio": 0.66
+      "quorum_ratio": 0.33
     },
     {
       "topic": "sports",
@@ -114,7 +114,7 @@
         "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
         "0x6211f97a76ed5c4b1d658f637041ac5f293db89e"
       ],
-      "quorum_ratio": 0.66
+      "quorum_ratio": 0.33
     },
     {
       "topic": "crypto",
@@ -123,7 +123,7 @@
         "0xeebde7a0e019a63e6b476eb425505b7b3e6eba30",
         "0x674887d1ac838099a48b629dff53f25b7b87ee08"
       ],
-      "quorum_ratio": 0.66
+      "quorum_ratio": 0.33
     }
   ]
 }
