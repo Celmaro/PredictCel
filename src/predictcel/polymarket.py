@@ -67,8 +67,8 @@ def enrich_market_snapshots_with_orderbooks(
         no_ask = _book_best_price(no_book, "asks") or snapshot.no_ask
         yes_ask_size = _book_best_size(yes_book, "asks")
         no_ask_size = _book_best_size(no_book, "asks")
-        yes_spread = max(yes_ask - yes_bid, 0.0) if yes_ask and yes_bid else 0.0
-        no_spread = max(no_ask - no_bid, 0.0) if no_ask and no_bid else 0.0
+        yes_spread = round(max(yes_ask - yes_bid, 0.0), 4) if yes_ask and yes_bid else 0.0
+        no_spread = round(max(no_ask - no_bid, 0.0), 4) if no_ask and no_bid else 0.0
 
         enriched[market_id] = replace(
             snapshot,
