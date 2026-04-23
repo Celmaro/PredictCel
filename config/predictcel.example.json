@@ -1,161 +1,158 @@
 {
-    "wallet_trades_path": "data/wallet_trades.example.json",
-    "market_snapshots_path": "data/market_snapshots.example.json",
-    "live_data": {
-        "enabled": false,
-        "gamma_base_url": "https://gamma-api.polymarket.com",
-        "data_base_url": "https://data-api.polymarket.com",
-        "clob_base_url": "https://clob.polymarket.com",
-        "market_limit": 2000,
-        "trade_limit": 5,
-        "request_timeout_seconds": 15
+  "wallet_trades_path": "data/wallet_trades.example.json",
+  "market_snapshots_path": "data/market_snapshots.example.json",
+  "live_data": {
+    "enabled": false,
+    "gamma_base_url": "https://gamma-api.polymarket.com",
+    "data_base_url": "https://data-api.polymarket.com",
+    "clob_base_url": "https://clob.polymarket.com",
+    "market_limit": 2000,
+    "trade_limit": 5,
+    "request_timeout_seconds": 15
+  },
+  "execution": {
+    "enabled": true,
+    "dry_run": true,
+    "min_copyability_score": 0.72,
+    "max_orders_per_run": 1,
+    "buy_amount_usd": 10.0,
+    "worst_price_buffer": 0.02,
+    "order_type": "FOK",
+    "chain_id": 137,
+    "signature_type": 0,
+    "position": {
+      "take_profit_pct": 0.3,
+      "stop_loss_pct": 0.1,
+      "max_hold_minutes": 1440
     },
-    "execution": {
-        "enabled": true,
-        "dry_run": true,
-        "min_copyability_score": 0.72,
-        "max_orders_per_run": 1,
-        "buy_amount_usd": 10.0,
-        "worst_price_buffer": 0.02,
-        "order_type": "FOK",
-        "chain_id": 137,
-        "signature_type": 0,
-        "position": {
-            "take_profit_pct": 0.3,
-            "stop_loss_pct": 0.1,
-            "max_hold_minutes": 1440
-        },
-        "exposure": {
-            "max_total_exposure_usd": 100.0,
-            "max_single_position_usd": 10.0
-        },
-        "max_retries": 3,
-        "retry_base_delay_seconds": 1.0
+    "exposure": {
+      "max_total_exposure_usd": 100.0,
+      "max_single_position_usd": 10.0
     },
-    "consensus": {
-        "recency_half_life_seconds": 1800,
-        "min_weighted_consensus": 0.6,
-        "confidence_prior_strength": 2.0,
-        "min_confidence_score": 0.5,
-        "conflict_penalty_weight": 0.25,
-        "bankroll_usd": 100.0,
-        "kelly_fraction": 0.25,
-        "max_suggested_position_usd": 10.0
-    },
-    "market_regime": {
-        "enabled": true,
-        "trend_price_skew": 0.15,
-        "range_price_skew": 0.08,
-        "max_stable_spread": 0.06,
-        "min_depth_usd": 50.0,
-        "trend_bonus": 0.05,
-        "range_bonus": 0.02,
-        "unstable_penalty": 0.1
-    },
-    "wallet_discovery": {
-        "enabled": true,
-        "mode": "auto_update",
-        "candidate_limit": 250,
-        "trade_limit_per_wallet": 100,
-        "min_trades": 20,
-        "min_recent_trades": 5,
-        "recent_window_seconds": 2592000,
-        "min_avg_trade_size_usd": 10.0,
-        "min_assignment_score": 0.5,
-        "exclude_existing_wallets": true,
-        "max_wallets_per_basket": 50,
-        "max_new_wallets_per_run": 10,
-        "topics": {
-            "geopolitics": [
-                "election",
-                "trump",
-                "biden",
-                "war",
-                "federal",
-                "senate",
-                "president"
-            ],
-            "sports": [
-                "nba",
-                "nfl",
-                "mlb",
-                "nhl",
-                "ufc",
-                "soccer",
-                "football",
-                "tennis"
-            ],
-            "crypto": [
-                "btc",
-                "eth",
-                "sol",
-                "bitcoin",
-                "ethereum",
-                "crypto"
-            ],
-            "macro": [
-                "economy",
-                "gdp",
-                "inflation",
-                "rates",
-                "stock",
-                "fed",
-                "recession"
-            ],
-            "weather": [
-                "weather",
-                "rain",
-                "snow",
-                "hurricane",
-                "temperature",
-                "storm"
-            ]
-        }
-    },
-    "baskets": [
-        {
-            "topic": "geopolitics",
-            "wallets": [
-                "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-                "0x21a31Ee1afC51d94C2efCCaa2092aD1028285549",
-                "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8"
-            ],
-            "quorum_ratio": 0.66
-        },
-        {
-            "topic": "sports",
-            "wallets": [
-                "0x861ae65ad67b06b5cdabe24ba6de052269221f15",
-                "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
-                "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
-                "0xa8e089ade142c95538e06196e09c85681112ad50",
-                "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0"
-            ],
-            "quorum_ratio": 0.66
-        }
-    ],
-    "filters": {
-        "max_trade_age_seconds": 14400,
-        "max_price_drift": 0.05,
-        "min_liquidity_usd": 10000,
-        "min_minutes_to_resolution": 60,
-        "max_minutes_to_resolution": 1440,
-        "min_position_size_usd": 10
-    },
-    "arbitrage": {
-        "min_gross_edge": 0.02,
-        "min_liquidity_usd": 10000,
-        "variable_cost_rate": 0.0,
-        "gas_cost_per_tx_usd": 0.02,
-        "settlement_tx_count": 2,
-        "slippage_rate": 0.001,
-        "min_profitable_position_usd": 5.0,
-        "max_position_usd": 50.0,
-        "target_annualized_return": 0.1,
-        "max_annualized_return": 10.0,
-        "edge_weight": 0.35,
-        "liquidity_weight": 0.25,
-        "speed_weight": 0.2,
-        "confidence_weight": 0.2
+    "max_retries": 3,
+    "retry_base_delay_seconds": 1.0
+  },
+  "consensus": {
+    "recency_half_life_seconds": 1800,
+    "min_weighted_consensus": 0.6,
+    "confidence_prior_strength": 2.0,
+    "min_confidence_score": 0.5,
+    "conflict_penalty_weight": 0.25,
+    "bankroll_usd": 100.0,
+    "kelly_fraction": 0.25,
+    "max_suggested_position_usd": 10.0
+  },
+  "market_regime": {
+    "enabled": true,
+    "trend_price_skew": 0.15,
+    "range_price_skew": 0.08,
+    "max_stable_spread": 0.06,
+    "min_depth_usd": 50.0,
+    "trend_bonus": 0.05,
+    "range_bonus": 0.02,
+    "unstable_penalty": 0.1
+  },
+  "wallet_discovery": {
+    "enabled": true,
+    "mode": "auto_update",
+    "candidate_limit": 250,
+    "trade_limit_per_wallet": 100,
+    "min_trades": 20,
+    "min_recent_trades": 5,
+    "recent_window_seconds": 2592000,
+    "min_avg_trade_size_usd": 10.0,
+    "min_assignment_score": 0.5,
+    "exclude_existing_wallets": true,
+    "max_wallets_per_baseline": 50,
+    "max_new_wallets_per_run": 10,
+    "topics": {
+      "geopolitics": [
+        "election",
+        "trump",
+        "biden",
+        "war",
+        "federal",
+        "senate",
+        "president"
+      ],
+      "sports": [
+        "nba",
+        "nfl",
+        "mlb",
+        "nhl",
+        "ufc",
+        "soccer",
+        "football",
+        "tennis"
+      ],
+      "crypto": [
+        "btc",
+        "eth",
+        "sol",
+        "bitcoin",
+        "ethereum",
+        "crypto"
+      ],
+      "macro": [
+        "economy",
+        "gdp",
+        "inflation",
+        "rates",
+        "stock",
+        "recession"
+      ],
+      "weather": [
+        "weather",
+        "rain",
+        "snow",
+        "hurricane",
+        "temperature",
+        "storm"
+      ]
     }
+  },
+  "baskets": [
+    {
+      "topic": "geopolitics",
+      "wallets": [
+        "0x8d8A6BF269646a9F72E8d9E03C53415D153b715d",
+        "0x21a31Ee1afc59152d32CF38a2a2952d2aECa921a",
+        "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8"
+      ],
+      "quorum_ratio": 0.66
+    },
+    {
+      "topic": "sports",
+      "wallets": [
+        "0x861ae65ad67b06b5cdabe24ba6de052269221f15",
+        "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
+        "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
+        "0xa8e089ade142c95538e06196e09c85681112ad50",
+        "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0"
+      ],
+      "quorum_ratio": 0.66
+    }
+  ],
+  "filters": {
+    "max_trade_age_seconds": 14400,
+    "max_price_drift": 0.05,
+    "min_liquidity_usd": 10000,
+    "min_minutes_to_resolution": 5,
+    "max_minutes_to_resolution": 1440,
+    "min_position_size_usd": 10
+  },
+  "arbitrage": {
+    "min_gross_edge": 0.02,
+    "min_liquidity_usd": 10000,
+    "variable_cost_rate": 0.0,
+    "gas_cost_per_tx_usd": 0.02,
+    "settlement_tx_count": 2,
+    "slippage_rate": 0.0001,
+    "min_profitable_position_usd": 5.0,
+    "max_position_usd": 50.0,
+    "edge_weight": 0.35,
+    "liquidity_weight": 0.25,
+    "speed_weight": 0.2,
+    "confidence_weight": 0.2
+  }
 }
