@@ -1,4 +1,13 @@
-from predictcel.config import ArbitrageConfig, AppConfig, BasketRule, ExecutionConfig, FilterConfig, LiveDataConfig
+from predictcel.config import (
+    ArbitrageConfig,
+    AppConfig,
+    BasketRule,
+    ExecutionConfig,
+    ExposureConfig,
+    FilterConfig,
+    LiveDataConfig,
+    PositionConfig,
+)
 from predictcel.copy_engine import CopyEngine
 from predictcel.models import MarketSnapshot, WalletQuality, WalletTrade
 
@@ -36,6 +45,10 @@ def make_config() -> AppConfig:
             order_type="FOK",
             chain_id=137,
             signature_type=0,
+            position=PositionConfig(take_profit_pct=0.3, stop_loss_pct=0.1, max_hold_minutes=1440),
+            exposure=ExposureConfig(max_total_exposure_usd=500.0, max_single_position_usd=50.0),
+            max_retries=3,
+            retry_base_delay_seconds=1.0,
         ),
     )
 
