@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import replace
+from datetime import UTC, datetime
 
 from .arb_sidecar import ArbitrageSidecar
 from .config import load_config
 from .copy_engine import CopyEngine
-from .execution import ExecutionPlanner, LiveOrderExecutor, intents_as_dicts
+from .execution import ExecutionPlanner, ExitRunner, LiveOrderExecutor, intents_as_dicts
 from .markets import load_market_snapshots
 from .polymarket import (
     PolymarketPublicClient,
@@ -56,20 +58,73 @@ def main() -> None:
     copy_candidates = copy_engine.evaluate(trades, markets, wallet_qualities)
     arbitrage_opportunities = arb_sidecar.scan(markets)
 
-    execution_intents = []
-    execution_results = []
+    execution_intents: list = []
+    execution_results: list = []
+    close_intents: list = []
+    close_results: list = []
+    open_positions: list = []
+    updated_positions: list = []
+
+    store = SignalStore(args.db)
+
     if args.live_trading:
         if config.execution is None or not config.execution.enabled:
             raise ValueError("--live-trading was requested but execution is not enabled in config.")
-        planner = ExecutionPlanner(config.execution)
-        execution_intents = planner.plan(copy_candidates, markets)
+
+        # Load held market IDs to avoid duplicate entries
+        held_market_ids = store.get_held_market_ids()
+
+        # --- Exit runner: evaluate and close existing positions ---
+        exit_runner = ExitRunner(config.execution, config.live_data)
+        open_positions = store.get_open_positions()
+
+        if open_positions:
+            close_intents, updated_positions = exit_runner.evaluate_and_close(open_positions, markets)
+            if close_intents:
+                executor = LiveOrderExecutor(config.execution, config.live_data)
+                close_results = executor.execute(close_intents)
+            # Persist updated position states
+            for pos in updated_positions:
+                store.update_position(
+                    market_id=pos.market_id,
+                    current_price=pos.current_price,
+                    unrealized_pnl=pos.unrealized_pnl,
+                    status=pos.status,
+                )
+
+        # --- Entry planner: skip markets that are already held ---
+        planner = ExecutionPlanner(config.execution, config.execution.position)
+        execution_intents = planner.plan(copy_candidates, markets, held_market_ids)
         executor = LiveOrderExecutor(config.execution, config.live_data)
         execution_results = executor.execute(execution_intents)
 
-    store = SignalStore(args.db)
+        # Persist new positions after fills
+        now = datetime.now(UTC)
+        position_config = config.execution.position
+        for result in execution_results:
+            if result.status not in ("dry_run", "error"):
+                store.save_position(
+                    Position(
+                        market_id=result.market_id,
+                        topic=result.topic,
+                        side=result.side,
+                        token_id=result.token_id,
+                        entry_price=result.worst_price,
+                        entry_amount_usd=result.amount_usd,
+                        current_price=result.worst_price,
+                        unrealized_pnl=0.0,
+                        opened_at=now,
+                        last_updated=now,
+                        take_profit_pct=position_config.take_profit_pct,
+                        stop_loss_pct=position_config.stop_loss_pct,
+                        max_hold_minutes=position_config.max_hold_minutes,
+                        status="open",
+                    )
+                )
+
     store.save_copy_candidates(copy_candidates)
     store.save_arbitrage_opportunities(arbitrage_opportunities)
-    store.save_execution_results(execution_results)
+    store.save_execution_results(execution_results + close_results)
 
     print(json.dumps({
         "mode": "live" if use_live_data else "file",
@@ -78,6 +133,9 @@ def main() -> None:
         "arbitrage_opportunities": [opportunity.__dict__ for opportunity in arbitrage_opportunities],
         "execution_intents": intents_as_dicts(execution_intents),
         "execution_results": [result.__dict__ for result in execution_results],
+        "close_intents": intents_as_dicts(close_intents),
+        "close_results": [result.__dict__ for result in close_results],
+        "open_positions": [pos.__dict__ for pos in updated_positions],
     }, indent=2))
 
 
