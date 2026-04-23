@@ -40,6 +40,7 @@ def test_wallet_quality_scores_eligible_wallet() -> None:
     assert scores["w1"].eligible_trade_count == 2
     assert "exponential freshness" in scores["w1"].reason
     assert scorer.last_rejection_counts == {}
+    assert scorer.last_missing_market_samples == []
 
 
 def test_scoring_diagnostics_count_rejection_reasons() -> None:
@@ -59,6 +60,7 @@ def test_scoring_diagnostics_count_rejection_reasons() -> None:
     assert scorer.last_rejection_counts == {"missing_market": 1, "too_old": 1, "too_small": 1}
     assert scorer.last_wallet_rejection_counts["w1"] == {"missing_market": 1, "too_small": 1}
     assert scorer.last_wallet_rejection_counts["w2"] == {"too_old": 1}
+    assert scorer.last_missing_market_samples == ["missing"]
 
 
 def test_compute_copyability_score_rewards_better_inputs() -> None:
