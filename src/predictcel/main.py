@@ -6,6 +6,7 @@ import json
 from .arb_sidecar import ArbitrageSidecar
 from .config import load_config
 from .copy_engine import CopyEngine
+from .execution import ExecutionPlanner, LiveOrderExecutor, intents_as_dicts
 from .markets import load_market_snapshots
 from .polymarket import (
     PolymarketPublicClient,
@@ -26,6 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--live-data",
         action="store_true",
         help="Fetch live public market and wallet data from Polymarket instead of local example files",
+    )
+    parser.add_argument(
+        "--live-trading",
+        action="store_true",
+        help="Submit live orders for planned copy trades when execution is enabled and credentials are configured",
     )
     return parser
 
@@ -50,15 +56,28 @@ def main() -> None:
     copy_candidates = copy_engine.evaluate(trades, markets, wallet_qualities)
     arbitrage_opportunities = arb_sidecar.scan(markets)
 
+    execution_intents = []
+    execution_results = []
+    if args.live_trading:
+        if config.execution is None or not config.execution.enabled:
+            raise ValueError("--live-trading was requested but execution is not enabled in config.")
+        planner = ExecutionPlanner(config.execution)
+        execution_intents = planner.plan(copy_candidates, markets)
+        executor = LiveOrderExecutor(config.execution, config.live_data)
+        execution_results = executor.execute(execution_intents)
+
     store = SignalStore(args.db)
     store.save_copy_candidates(copy_candidates)
     store.save_arbitrage_opportunities(arbitrage_opportunities)
+    store.save_execution_results(execution_results)
 
     print(json.dumps({
         "mode": "live" if use_live_data else "file",
         "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
         "arbitrage_opportunities": [opportunity.__dict__ for opportunity in arbitrage_opportunities],
+        "execution_intents": intents_as_dicts(execution_intents),
+        "execution_results": [result.__dict__ for result in execution_results],
     }, indent=2))
 
 
