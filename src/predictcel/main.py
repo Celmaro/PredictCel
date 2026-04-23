@@ -194,12 +194,20 @@ def _load_live_inputs(config):
     if config.live_data is None:
         raise ValueError("--live-data was requested but live_data is not configured.")
     client = PolymarketPublicClient(config.live_data.gamma_base_url, config.live_data.data_base_url, config.live_data.clob_base_url, config.live_data.request_timeout_seconds)
-    raw_topic_by_wallet = {wallet: basket.topic for basket in config.baskets for wallet in basket.wallets}
-    topic_by_wallet = {wallet: topic for wallet, topic in raw_topic_by_wallet.items() if _is_evm_address(wallet)}
-    skipped_wallets = [wallet for wallet in raw_topic_by_wallet if wallet not in topic_by_wallet]
 
-    wallet_payloads = _fetch_wallet_payloads(client, list(topic_by_wallet), config.live_data.trade_limit)
-    trades = build_wallet_trades(wallet_payloads, topic_by_wallet)
+    raw_topic_by_wallet: dict[str, list[str]] = {}
+    invalid_wallets: list[str] = []
+    for basket in config.baskets:
+        for wallet in basket.wallets:
+            if not _is_evm_address(wallet):
+                invalid_wallets.append(wallet)
+                continue
+            topics = raw_topic_by_wallet.setdefault(wallet, [])
+            if basket.topic not in topics:
+                topics.append(basket.topic)
+
+    wallet_payloads = _fetch_wallet_payloads(client, list(raw_topic_by_wallet), config.live_data.trade_limit)
+    trades = build_wallet_trades(wallet_payloads, raw_topic_by_wallet)
     trade_market_ids = extract_trade_market_ids(wallet_payloads)
 
     active_market_rows = client.fetch_active_markets(config.live_data.market_limit)
@@ -212,16 +220,17 @@ def _load_live_inputs(config):
     market_ids_after_supplemental = set(markets)
     matched_trade_market_ids = [market_id for market_id in trade_market_ids if market_id in market_ids_after_supplemental]
     diagnostics = {
-        "requested_wallets": len(raw_topic_by_wallet),
-        "valid_wallets": len(topic_by_wallet),
-        "skipped_invalid_wallets": len(skipped_wallets),
-        "sample_skipped_invalid_wallets": skipped_wallets[:5],
+        "requested_wallets": sum(len(basket.wallets) for basket in config.baskets),
+        "valid_wallets": len(raw_topic_by_wallet),
+        "skipped_invalid_wallets": len(invalid_wallets),
+        "sample_skipped_invalid_wallets": invalid_wallets[:5],
         "wallet_payloads_loaded": sum(len(items) for items in wallet_payloads.values()),
         "active_market_rows_loaded": len(active_market_rows),
         "trade_market_ids_seen": len(trade_market_ids),
         "supplemental_market_ids_requested": len(missing_trade_market_ids),
         "supplemental_market_rows_loaded": len(supplemental_rows),
         "market_cache_entries": len(markets),
+        "multi_topic_wallets": sum(1 for topics in raw_topic_by_wallet.values() if len(topics) > 1),
         "market_crossref": {
             "unique_trade_market_ids": len(trade_market_ids),
             "matched_count": len(matched_trade_market_ids),
