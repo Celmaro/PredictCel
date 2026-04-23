@@ -68,15 +68,15 @@ class CopyEngine:
         if market.minutes_to_resolution > self.config.filters.max_minutes_to_resolution:
             return None
 
-        unique_wallets = sorted({trade.wallet for trade in valid_trades})
-        consensus_ratio = len(unique_wallets) / len(basket.wallets)
-        if consensus_ratio < basket.quorum_ratio:
-            return None
-
         side_counts = Counter(trade.side.upper() for trade in valid_trades)
         side, _ = side_counts.most_common(1)[0]
         aligned = [trade for trade in valid_trades if trade.side.upper() == side]
         if not aligned:
+            return None
+
+        aligned_wallets = sorted({trade.wallet for trade in aligned})
+        consensus_ratio = len(aligned_wallets) / len(basket.wallets)
+        if consensus_ratio < basket.quorum_ratio:
             return None
 
         reference_price = sum(trade.price for trade in aligned) / len(aligned)
@@ -86,7 +86,7 @@ class CopyEngine:
             return None
 
         average_age = sum(trade.age_seconds for trade in aligned) / len(aligned)
-        quality_values = [wallet_qualities[wallet].score for wallet in unique_wallets if wallet in wallet_qualities]
+        quality_values = [wallet_qualities[wallet].score for wallet in aligned_wallets if wallet in wallet_qualities]
         wallet_quality_score = round(sum(quality_values) / len(quality_values), 4) if quality_values else 0.5
         side_spread = market.yes_spread if side == "YES" else market.no_spread
         side_ask_size = market.yes_ask_size if side == "YES" else market.no_ask_size
@@ -110,7 +110,7 @@ class CopyEngine:
             reference_price=reference_price,
             current_price=current_price,
             liquidity_usd=market.liquidity_usd,
-            source_wallets=unique_wallets,
+            source_wallets=aligned_wallets,
             wallet_quality_score=wallet_quality_score,
             copyability_score=copyability_score,
             reason="basket consensus, quality scoring, age, liquidity, drift, and orderbook filters passed",
