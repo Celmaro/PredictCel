@@ -24,6 +24,15 @@ class MarketSnapshot:
     best_bid: float
     liquidity_usd: float
     minutes_to_resolution: int
+    yes_token_id: str = ""
+    no_token_id: str = ""
+    yes_bid: float = 0.0
+    no_bid: float = 0.0
+    yes_ask_size: float = 0.0
+    no_ask_size: float = 0.0
+    yes_spread: float = 0.0
+    no_spread: float = 0.0
+    orderbook_ready: bool = False
 
 
 @dataclass(frozen=True)
