@@ -42,9 +42,19 @@
     "kelly_fraction": 0.25,
     "max_suggested_position_usd": 10.0
   },
+  "market_regime": {
+    "enabled": true,
+    "trend_price_skew": 0.15,
+    "range_price_skew": 0.08,
+    "max_stable_spread": 0.06,
+    "min_depth_usd": 50.0,
+    "trend_bonus": 0.05,
+    "range_bonus": 0.02,
+    "unstable_penalty": 0.10
+  },
   "wallet_discovery": {
     "enabled": true,
-    "mode": "report_only",
+    "mode": "auto_update",
     "candidate_limit": 100,
     "trade_limit_per_wallet": 100,
     "min_trades": 20,
