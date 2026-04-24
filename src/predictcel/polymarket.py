@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from .models import MarketSnapshot, WalletTrade
@@ -41,6 +41,39 @@ class PolymarketPublicClient:
 
     def fetch_markets_by_clob_token_ids(self, token_ids: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
         return self._fetch_markets_by_array_filter("clob_token_ids", token_ids, chunk_size)
+
+    def fetch_market_by_slug(self, slug: str) -> dict[str, Any]:
+        normalized_slug = str(slug).strip()
+        if not normalized_slug:
+            return {}
+        payload = self._get_json(f"{self.gamma_base_url}/markets/slug/{quote(normalized_slug, safe='')}")
+        return payload if isinstance(payload, dict) else {}
+
+    def fetch_markets_by_slugs(self, slugs: list[str], max_workers: int = 8) -> list[dict[str, Any]]:
+        unique_slugs = sorted({str(slug).strip() for slug in slugs if str(slug).strip()})
+        if not unique_slugs:
+            return []
+
+        results: list[dict[str, Any]] = []
+        seen_market_keys: set[str] = set()
+        workers = max(1, min(max_workers, len(unique_slugs)))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(self.fetch_market_by_slug, slug): slug for slug in unique_slugs}
+            for future in as_completed(futures):
+                try:
+                    payload = future.result()
+                except Exception:
+                    continue
+                rows = _extract_list(payload)
+                if not rows and payload:
+                    rows = [payload]
+                for row in rows:
+                    key = str(row.get("conditionId") or row.get("condition_id") or row.get("id") or row.get("slug") or row).strip()
+                    if key in seen_market_keys:
+                        continue
+                    seen_market_keys.add(key)
+                    results.append(row)
+        return results
 
     def fetch_markets_by_identifiers(self, identifiers: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
@@ -226,6 +259,16 @@ def extract_trade_market_ids(wallet_payloads: dict[str, list[dict[str, Any]]]) -
     return sorted(market_ids)
 
 
+def extract_trade_market_slugs(wallet_payloads: dict[str, list[dict[str, Any]]]) -> list[str]:
+    market_slugs: set[str] = set()
+    for items in wallet_payloads.values():
+        for item in items:
+            market_slug = _trade_market_slug(item)
+            if market_slug:
+                market_slugs.add(market_slug)
+    return sorted(market_slugs)
+
+
 def market_snapshot_from_gamma(item: dict[str, Any]) -> MarketSnapshot | None:
     market_id = str(item.get("conditionId") or item.get("condition_id") or item.get("id") or "").strip()
     if not market_id:
@@ -327,6 +370,19 @@ def _trade_market_id(item: dict[str, Any]) -> str:
         "clob_token_id",
     ):
         value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _trade_market_slug(item: dict[str, Any]) -> str:
+    for key in ("marketSlug", "slug"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    nested_market = item.get("market")
+    if isinstance(nested_market, dict):
+        value = nested_market.get("slug") or nested_market.get("marketSlug")
         if value is not None and str(value).strip():
             return str(value).strip()
     return ""
