@@ -16,6 +16,9 @@ from .models import (
     Position,
 )
 
+MIN_ENTRY_MINUTES_TO_RESOLUTION = 30
+MAX_ENTRY_PRICE = 0.95
+
 
 class ExecutionPlanner:
     def __init__(self, config: ExecutionConfig, position_config: PositionConfig) -> None:
@@ -41,6 +44,8 @@ class ExecutionPlanner:
             market = markets.get(candidate.market_id)
             if market is None or not market.orderbook_ready:
                 continue
+            if market.minutes_to_resolution < MIN_ENTRY_MINUTES_TO_RESOLUTION:
+                continue
 
             amount_usd = self._planned_amount_usd(candidate, planned_exposure_usd)
             if amount_usd <= 0:
@@ -48,6 +53,8 @@ class ExecutionPlanner:
 
             token_id = market.yes_token_id if candidate.side == "YES" else market.no_token_id
             current_price = market.yes_ask if candidate.side == "YES" else market.no_ask
+            if current_price >= MAX_ENTRY_PRICE:
+                continue
             side_depth_shares = market.yes_ask_size if candidate.side == "YES" else market.no_ask_size
             side_depth_usd = side_depth_shares * current_price
             if not token_id or side_depth_usd < amount_usd:
@@ -64,7 +71,8 @@ class ExecutionPlanner:
                     worst_price=worst_price,
                     copyability_score=candidate.copyability_score,
                     order_type=self.config.order_type.upper(),
-                    reason="copyability threshold, 5-10 USD sizing policy, no open position, exposure within limits, token id, and top-of-book depth checks passed",
+                    reason="copyability threshold, safety gates, 5-10 USD sizing policy, no open position, exposure within limits, token id, and top-of-book depth checks passed",
+                    market_title=market.title,
                 )
             )
             planned_exposure_usd += amount_usd
@@ -114,6 +122,7 @@ class LiveOrderExecutor:
             error="",
             copyability_score=intent.copyability_score,
             reason=intent.reason,
+            market_title=intent.market_title,
         )
 
     def _build_client(self) -> Any:
@@ -175,6 +184,7 @@ class LiveOrderExecutor:
                     error=error,
                     copyability_score=intent.copyability_score,
                     reason=intent.reason,
+                    market_title=intent.market_title,
                 )
             except Exception as exc:
                 error_msg = str(exc)
@@ -203,6 +213,7 @@ class LiveOrderExecutor:
                     error=f"attempt {attempt + 1}/{max_retries}: {error_msg}",
                     copyability_score=intent.copyability_score,
                     reason=intent.reason,
+                    market_title=intent.market_title,
                 )
 
 
@@ -246,6 +257,7 @@ class ExitRunner:
                 current_price=current_price,
                 unrealized_pnl=unrealized_pnl,
                 last_updated=now,
+                market_title=market.title,
             )
 
             should_close = False
@@ -279,6 +291,7 @@ class ExitRunner:
                         copyability_score=0.0,
                         order_type=self.config.order_type.upper(),
                         reason=reason,
+                        market_title=market.title,
                     )
                 )
             updated_positions.append(updated_pos)
