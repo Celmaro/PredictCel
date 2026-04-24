@@ -1,21 +1,14 @@
 import pytest
+from pathlib import Path
 from src.predictcel.copy_engine import CopyEngine
-from src.predictcel.config import AppConfig, BasketRule
+from src.predictcel.config import load_config
 from src.predictcel.models import MarketSnapshot, WalletTrade, WalletQuality
 from datetime import datetime, UTC
 
 
 @pytest.fixture
 def sample_config():
-    return AppConfig(
-        baskets=[BasketRule(topic="crypto", wallets=["wallet1", "wallet2"], quorum_ratio=0.6)],
-        filters=None,  # Simplified
-        arbitrage=None,
-        wallet_trades_path="",
-        market_snapshots_path="",
-        live_data=None,
-        execution=None,
-    )
+    return load_config(Path("config/predictcel.example.json"))
 
 
 @pytest.fixture
