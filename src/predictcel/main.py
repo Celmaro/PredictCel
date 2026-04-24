@@ -20,6 +20,7 @@ from .polymarket import (
     build_wallet_trades,
     enrich_market_snapshots_with_orderbooks,
     extract_trade_market_ids,
+    extract_trade_market_slugs,
 )
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
@@ -157,12 +158,12 @@ def main() -> None:
             "mode": output["mode"],
             "latency_ms": timings,
             "summary": summary,
-            "live_input_diagnostics": live_input_diagnostics,
-            "scoring_diagnostics": scoring_diagnostics,
+            "live_input_diagnostics": _compact_live_input_diagnostics(live_input_diagnostics),
+            "scoring_diagnostics": _compact_scoring_diagnostics(scoring_diagnostics),
             "copy_engine_diagnostics": copy_engine_diagnostics,
         },
     )
-    print(json.dumps(output, indent=2, default=str))
+    print(json.dumps(_compact_cycle_output(output), sort_keys=True, default=str), flush=True)
 
 
 def _run_wallet_discovery(argv: list[str]) -> None:
@@ -207,16 +208,23 @@ def _load_live_inputs(config):
     wallet_payloads = _fetch_wallet_payloads(client, list(raw_topic_by_wallet), config.live_data.trade_limit)
     trades = build_wallet_trades(wallet_payloads, raw_topic_by_wallet)
     trade_market_ids = extract_trade_market_ids(wallet_payloads)
+    trade_market_slugs = extract_trade_market_slugs(wallet_payloads)
 
     active_market_rows = client.fetch_active_markets(config.live_data.market_limit)
     markets = build_market_snapshots(active_market_rows)
+
     missing_trade_market_ids = [market_id for market_id in trade_market_ids if market_id not in markets]
     supplemental_rows = client.fetch_markets_by_identifiers(missing_trade_market_ids)
     if supplemental_rows:
         markets.update(build_market_snapshots(supplemental_rows))
 
-    market_ids_after_supplemental = set(markets)
-    matched_trade_market_ids = [market_id for market_id in trade_market_ids if market_id in market_ids_after_supplemental]
+    missing_trade_market_slugs = [market_slug for market_slug in trade_market_slugs if market_slug not in markets]
+    supplemental_slug_rows = client.fetch_markets_by_slugs(missing_trade_market_slugs)
+    if supplemental_slug_rows:
+        markets.update(build_market_snapshots(supplemental_slug_rows))
+
+    trade_market_keys = sorted(set(trade_market_ids + trade_market_slugs))
+    matched_trade_market_keys = [market_key for market_key in trade_market_keys if market_key in markets]
     wallets_with_payloads = sum(1 for items in wallet_payloads.values() if items)
     wallets_with_parsed_trades = len({trade.wallet for trade in trades})
     diagnostics = {
@@ -230,14 +238,17 @@ def _load_live_inputs(config):
         "parsed_trade_count": len(trades),
         "active_market_rows_loaded": len(active_market_rows),
         "trade_market_ids_seen": len(trade_market_ids),
+        "trade_market_slugs_seen": len(trade_market_slugs),
         "supplemental_market_ids_requested": len(missing_trade_market_ids),
         "supplemental_market_rows_loaded": len(supplemental_rows),
+        "supplemental_market_slugs_requested": len(missing_trade_market_slugs),
+        "supplemental_slug_rows_loaded": len(supplemental_slug_rows),
         "market_cache_entries": len(markets),
         "multi_topic_wallets": sum(1 for topics in raw_topic_by_wallet.values() if len(topics) > 1),
         "market_crossref": {
-            "unique_trade_market_ids": len(trade_market_ids),
-            "matched_count": len(matched_trade_market_ids),
-            "match_rate_pct": round((len(matched_trade_market_ids) / len(trade_market_ids)) * 100, 1) if trade_market_ids else 0.0,
+            "unique_trade_market_keys": len(trade_market_keys),
+            "matched_count": len(matched_trade_market_keys),
+            "match_rate_pct": round((len(matched_trade_market_keys) / len(trade_market_keys)) * 100, 1) if trade_market_keys else 0.0,
         },
     }
     return trades, enrich_market_snapshots_with_orderbooks(markets, client), diagnostics
@@ -275,6 +286,97 @@ def _creates_or_updates_paper_position(result) -> bool:
 def _is_evm_address(value: str) -> bool:
     value = str(value).strip()
     return len(value) == 42 and value.startswith("0x") and all(char in HEX_CHARS for char in value[2:])
+
+
+def _compact_cycle_output(output: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        "mode": output["mode"],
+        "summary": output["summary"],
+        "latency_ms": output["latency_ms"],
+        "portfolio_summary": output["portfolio_summary"],
+    }
+    if output.get("live_input_diagnostics"):
+        compact["live_input_diagnostics"] = _compact_live_input_diagnostics(output["live_input_diagnostics"])
+    if output.get("scoring_diagnostics"):
+        compact["scoring_diagnostics"] = _compact_scoring_diagnostics(output["scoring_diagnostics"])
+    if output.get("copy_engine_diagnostics"):
+        compact["copy_engine_diagnostics"] = output["copy_engine_diagnostics"]
+    top_wallet_qualities = _top_wallet_qualities(output.get("wallet_qualities", {}))
+    if top_wallet_qualities:
+        compact["wallet_qualities"] = top_wallet_qualities
+    for key in (
+        "copy_candidates",
+        "arbitrage_opportunities",
+        "execution_intents",
+        "execution_results",
+        "close_intents",
+        "close_results",
+        "open_positions",
+    ):
+        if output.get(key):
+            compact[key] = output[key]
+    return compact
+
+
+def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    if not diagnostics:
+        return {}
+    compact = {
+        "requested_wallets": diagnostics.get("requested_wallets", 0),
+        "valid_wallets": diagnostics.get("valid_wallets", 0),
+        "wallet_payloads_loaded": diagnostics.get("wallet_payloads_loaded", 0),
+        "wallets_with_parsed_trades": diagnostics.get("wallets_with_parsed_trades", 0),
+        "parsed_trade_count": diagnostics.get("parsed_trade_count", 0),
+        "active_market_rows_loaded": diagnostics.get("active_market_rows_loaded", 0),
+        "trade_market_ids_seen": diagnostics.get("trade_market_ids_seen", 0),
+        "trade_market_slugs_seen": diagnostics.get("trade_market_slugs_seen", 0),
+        "supplemental_market_ids_requested": diagnostics.get("supplemental_market_ids_requested", 0),
+        "supplemental_market_rows_loaded": diagnostics.get("supplemental_market_rows_loaded", 0),
+        "supplemental_market_slugs_requested": diagnostics.get("supplemental_market_slugs_requested", 0),
+        "supplemental_slug_rows_loaded": diagnostics.get("supplemental_slug_rows_loaded", 0),
+        "market_cache_entries": diagnostics.get("market_cache_entries", 0),
+        "market_crossref": diagnostics.get("market_crossref", {}),
+    }
+    skipped_invalid_wallets = diagnostics.get("skipped_invalid_wallets", 0)
+    if skipped_invalid_wallets:
+        compact["skipped_invalid_wallets"] = skipped_invalid_wallets
+        compact["sample_skipped_invalid_wallets"] = diagnostics.get("sample_skipped_invalid_wallets", [])[:3]
+    return compact
+
+
+def _compact_scoring_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    if not diagnostics:
+        return {}
+    wallet_rejection_counts = diagnostics.get("wallet_rejection_counts", {})
+    top_wallet_rejections = sorted(
+        (
+            {
+                "wallet": wallet,
+                "total": sum(counts.values()),
+                "reasons": counts,
+            }
+            for wallet, counts in wallet_rejection_counts.items()
+            if counts
+        ),
+        key=lambda item: item["total"],
+        reverse=True,
+    )[:3]
+    compact = {
+        "rejection_counts": diagnostics.get("rejection_counts", {}),
+        "wallets_with_rejections": len(wallet_rejection_counts),
+    }
+    if top_wallet_rejections:
+        compact["top_wallet_rejections"] = top_wallet_rejections
+    return compact
+
+
+def _top_wallet_qualities(wallet_qualities: dict[str, dict[str, Any]], limit: int = 3) -> dict[str, dict[str, Any]]:
+    ranked = sorted(
+        wallet_qualities.items(),
+        key=lambda item: float(item[1].get("score", 0.0)),
+        reverse=True,
+    )[:limit]
+    return {wallet: quality for wallet, quality in ranked}
 
 
 def _elapsed_ms(started: float) -> int:
