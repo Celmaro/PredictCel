@@ -256,25 +256,28 @@ class SignalStore:
             return 0.0
 
         if use_monte_carlo:
-            var = self._monte_carlo_var(positions, confidence_level, time_horizon_days, simulations)
-            logger.info(f"Monte Carlo VaR calculated: {var:.2f} USD at {confidence_level:.0%} confidence")
-            return var
-        else:
-            position_vars = []
-            for pos in positions:
-                volatility = 0.02
-                position_var = pos.entry_amount_usd * volatility * (time_horizon_days ** 0.5)
-                position_vars.append(position_var)
+            try:
+                var = self._monte_carlo_var(positions, confidence_level, time_horizon_days, simulations)
+                logger.info(f"Monte Carlo VaR calculated: {var:.2f} USD at {confidence_level:.0%} confidence")
+                return var
+            except (ImportError, ModuleNotFoundError) as exc:
+                logger.warning(f"Monte Carlo VaR unavailable ({exc}); falling back to analytical VaR")
 
-            correlation = 0.3
-            portfolio_volatility = (sum(v**2 for v in position_vars) + 2 * correlation * sum(
-                position_vars[i] * position_vars[j] for i in range(len(position_vars)) for j in range(i+1, len(position_vars))
-            )) ** 0.5
+        position_vars = []
+        for pos in positions:
+            volatility = 0.02
+            position_var = pos.entry_amount_usd * volatility * (time_horizon_days ** 0.5)
+            position_vars.append(position_var)
 
-            z_score = {0.95: 1.645, 0.99: 2.326}.get(confidence_level, 1.645)
-            var = portfolio_volatility * z_score
-            logger.info(f"Analytical VaR calculated: {var:.2f} USD at {confidence_level:.0%} confidence")
-            return var
+        correlation = 0.3
+        portfolio_volatility = (sum(v**2 for v in position_vars) + 2 * correlation * sum(
+            position_vars[i] * position_vars[j] for i in range(len(position_vars)) for j in range(i+1, len(position_vars))
+        )) ** 0.5
+
+        z_score = {0.95: 1.645, 0.99: 2.326}.get(confidence_level, 1.645)
+        var = portfolio_volatility * z_score
+        logger.info(f"Analytical VaR calculated: {var:.2f} USD at {confidence_level:.0%} confidence")
+        return var
 
     def _monte_carlo_var(self, positions: list[Position], confidence_level: float, time_horizon_days: int, simulations: int) -> float:
         """Perform Monte Carlo simulation for VaR under stress conditions."""
