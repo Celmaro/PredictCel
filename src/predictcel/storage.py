@@ -3,28 +3,36 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from dataclasses import asdict
-from datetime import UTC, datetime, timedelta
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Any
 
-from .models import ArbitrageOpportunity, CopyCandidate, ExecutionResult, Position
+from .models import (
+    ArbitrageOpportunity,
+    CopyCandidate,
+    ExecutionResult,
+    MarketSnapshot,
+    Position,
+)
 
 logger = logging.getLogger(__name__)
 
-ACTIVE_POSITION_STATUSES = ("open", "closing")
-
 
 class SignalStore:
+    """SQLite-backed store for cycle state, signals, and execution history."""
+
     def __init__(self, db_path: str) -> None:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(db_path)
         self._init_schema()
 
+    # ------------------------------------------------------------------
+    # Schema
+    # ------------------------------------------------------------------
     def _init_schema(self) -> None:
         cursor = self.connection.cursor()
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS copy_candidates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 market_id TEXT NOT NULL,
@@ -33,10 +41,8 @@ class SignalStore:
                 consensus_ratio REAL NOT NULL,
                 payload TEXT NOT NULL
             )
-            """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS arbitrage_opportunities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 market_id TEXT NOT NULL,
@@ -44,10 +50,8 @@ class SignalStore:
                 gross_edge REAL NOT NULL,
                 payload TEXT NOT NULL
             )
-            """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS execution_results (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 market_id TEXT NOT NULL,
@@ -56,10 +60,8 @@ class SignalStore:
                 status TEXT NOT NULL,
                 payload TEXT NOT NULL
             )
-            """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS positions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 market_id TEXT NOT NULL,
@@ -75,29 +77,11 @@ class SignalStore:
                 take_profit_pct REAL NOT NULL,
                 stop_loss_pct REAL NOT NULL,
                 max_hold_minutes INTEGER NOT NULL,
-                status TEXT NOT NULL
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS open_orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                market_id TEXT NOT NULL,
-                topic TEXT NOT NULL,
-                side TEXT NOT NULL,
-                token_id TEXT NOT NULL,
-                order_type TEXT NOT NULL,
-                price REAL NOT NULL,
-                amount REAL NOT NULL,
                 status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                market_title TEXT DEFAULT ""
             )
-            """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS signal_fingerprints (
                 fingerprint TEXT PRIMARY KEY,
                 market_id TEXT NOT NULL,
@@ -105,372 +89,309 @@ class SignalStore:
                 side TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
-            """
-        )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS open_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT NOT NULL UNIQUE,
+                market_id TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                side TEXT NOT NULL,
+                token_id TEXT NOT NULL,
+                amount_usd REAL NOT NULL,
+                worst_price REAL NOT NULL,
+                copyability_score REAL NOT NULL,
+                order_type TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                market_title TEXT DEFAULT "",
+                status TEXT NOT NULL DEFAULT "pending",
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                error TEXT DEFAULT ""
+            )
+        """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_fingerprints_created_at ON signal_fingerprints(created_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_fingerprints_market_topic_side ON signal_fingerprints(market_id, topic, side)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status_market ON positions(status, market_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_opened_at ON positions(opened_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_open_orders_status_market ON open_orders(status, market_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_open_orders_market ON open_orders(market_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_open_orders_status ON open_orders(status)")
         self.connection.execute("PRAGMA synchronous = NORMAL")
         self.connection.commit()
 
-    def save_copy_candidates(self, candidates: Iterable[CopyCandidate]) -> None:
-        cursor = self.connection.cursor()
-        rows = [
-            (
-                candidate.market_id,
-                candidate.topic,
-                candidate.side,
-                candidate.consensus_ratio,
-                json.dumps(asdict(candidate), sort_keys=True),
-            )
-            for candidate in candidates
-        ]
-        cursor.executemany(
-            "INSERT INTO copy_candidates (market_id, topic, side, consensus_ratio, payload) VALUES (?, ?, ?, ?, ?)",
-            rows,
+    # ------------------------------------------------------------------
+    # Open Orders (new)
+    # ------------------------------------------------------------------
+    def save_open_order(self, result: ExecutionResult) -> str:
+        """Persist or update a submitted order. Returns the stored order_id."""
+        now = datetime.now(UTC).isoformat()
+        self.connection.execute("""
+            INSERT INTO open_orders (
+                order_id, market_id, topic, side, token_id,
+                amount_usd, worst_price, copyability_score,
+                order_type, reason, market_title,
+                status, created_at, updated_at, error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(order_id) DO UPDATE SET
+                status = excluded.status,
+                updated_at = excluded.updated_at,
+                error = excluded.error
+        """, (
+            result.order_id,
+            result.market_id,
+            result.topic,
+            result.side,
+            result.token_id,
+            result.amount_usd,
+            result.worst_price,
+            result.copyability_score,
+            getattr(result, "order_type", ""),
+            result.reason,
+            getattr(result, "market_title", ""),
+            result.status,
+            now,
+            now,
+            result.error,
+        ))
+        self.connection.commit()
+        return result.order_id
+
+    def get_open_orders(self) -> list[dict[str, Any]]:
+        """Return all non-terminal orders (pending / submitted / filled)."""
+        rows = self.connection.execute(
+            "SELECT * FROM open_orders WHERE status NOT IN ('filled','matched','error','cancelled','dry_run') ORDER BY created_at DESC"
+        ).fetchall()
+        cols = [c[0] for c in self.connection.execute("PRAGMA table_info(open_orders)").fetchall()]
+        return [dict(zip(cols, row)) for row in rows]
+
+    def get_open_orders_by_market(self, market_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT * FROM open_orders WHERE market_id = ? AND status NOT IN ('filled','matched','error','cancelled') ORDER BY created_at",
+            (market_id,)
+        ).fetchall()
+        cols = [c[0] for c in self.connection.execute("PRAGMA table_info(open_orders)").fetchall()]
+        return [dict(zip(cols, row)) for row in rows]
+
+    def cancel_open_order(self, order_id: str) -> None:
+        now = datetime.now(UTC).isoformat()
+        self.connection.execute(
+            "UPDATE open_orders SET status = 'cancelled', updated_at = ? WHERE order_id = ?",
+            (now, order_id)
         )
         self.connection.commit()
 
-    def save_arbitrage_opportunities(self, opportunities: Iterable[ArbitrageOpportunity]) -> None:
+    # ------------------------------------------------------------------
+    # Positions
+    # ------------------------------------------------------------------
+    def get_open_positions(self) -> list[Position]:
+        rows = self.connection.execute(
+            "SELECT * FROM positions WHERE status IN ('open', 'closing')"
+        ).fetchall()
+        cols = [c[0] for c in self.connection.execute("PRAGMA table_info(positions)").fetchall()]
+        positions = []
+        for row in rows:
+            d = dict(zip(cols, row))
+            d.pop("id", None)
+            d["opened_at"] = datetime.fromisoformat(d["opened_at"])
+            d["last_updated"] = datetime.fromisoformat(d["last_updated"])
+            positions.append(Position(**d))
+        return positions
+
+    def get_total_exposure(self) -> float:
+        row = self.connection.execute(
+            "SELECT COALESCE(SUM(entry_amount_usd), 0.0) FROM positions WHERE status IN ('open', 'closing')"
+        ).fetchone()
+        return float(row[0]) if row else 0.0
+
+    def save_positions(self, positions: list[Position]) -> None:
         cursor = self.connection.cursor()
-        rows = [
-            (
-                opportunity.market_id,
-                opportunity.topic,
-                opportunity.gross_edge,
-                json.dumps(asdict(opportunity), sort_keys=True),
-            )
-            for opportunity in opportunities
-        ]
-        cursor.executemany(
-            "INSERT INTO arbitrage_opportunities (market_id, topic, gross_edge, payload) VALUES (?, ?, ?, ?)",
-            rows,
-        )
+        cursor.execute("DELETE FROM positions WHERE status IN ('open', 'closing')")
+        for pos in positions:
+            cursor.execute("""
+                INSERT INTO positions (
+                    market_id, topic, side, token_id,
+                    entry_price, entry_amount_usd, current_price, unrealized_pnl,
+                    opened_at, last_updated, take_profit_pct, stop_loss_pct,
+                    max_hold_minutes, status, market_title
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                pos.market_id, pos.topic, pos.side, pos.token_id,
+                pos.entry_price, pos.entry_amount_usd, pos.current_price, pos.unrealized_pnl,
+                pos.opened_at.isoformat(), pos.last_updated.isoformat(),
+                pos.take_profit_pct, pos.stop_loss_pct,
+                pos.max_hold_minutes, pos.status,
+                getattr(pos, "market_title", ""),
+            ))
         self.connection.commit()
 
-    def save_execution_results(self, results: Iterable[ExecutionResult]) -> None:
-        cursor = self.connection.cursor()
-        rows = [
-            (
-                result.market_id,
-                result.topic,
-                result.side,
-                result.status,
-                json.dumps(asdict(result), sort_keys=True),
-            )
-            for result in results
-        ]
-        cursor.executemany(
+    # ------------------------------------------------------------------
+    # Execution results
+    # ------------------------------------------------------------------
+    def save_execution_result(self, result: ExecutionResult) -> None:
+        self.connection.execute(
             "INSERT INTO execution_results (market_id, topic, side, status, payload) VALUES (?, ?, ?, ?, ?)",
-            rows,
+            (result.market_id, result.topic, result.side, result.status, json.dumps(asdict(result)))
         )
         self.connection.commit()
+
+    # ------------------------------------------------------------------
+    # Signal fingerprints
+    # ------------------------------------------------------------------
+    def make_signal_fingerprint(self, topic: str, market_id: str, side: str) -> str:
+        return f"{topic.lower()}:{market_id}:{side.upper()}"
+
+    def mark_signal_seen(self, fingerprint: str, topic: str, market_id: str, side: str) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO signal_fingerprints (fingerprint, market_id, topic, side, created_at) VALUES (?, ?, ?, ?, ?)",
+            (fingerprint, market_id, topic, side, datetime.now(UTC).isoformat())
+        )
+        self.connection.commit()
+
+    def mark_signals_seen(self, fingerprints: list[str], ttl_minutes: int = 1440) -> None:
+        now = datetime.now(UTC)
+        cutoff = datetime.fromtimestamp(now.timestamp() - ttl_minutes * 60, tz=UTC).isoformat()
+        self.connection.execute(
+            "DELETE FROM signal_fingerprints WHERE created_at < ?",
+            (cutoff,)
+        )
+        self.connection.executemany(
+            "INSERT OR IGNORE INTO signal_fingerprints (fingerprint, market_id, topic, side, created_at) VALUES (?, ?, ?, ?, ?)",
+            [(fp, "", "", "", now.isoformat()) for fp in fingerprints]
+        )
+        self.connection.commit()
+
+    def has_recent_signal(self, fingerprint: str, ttl_minutes: int = 1440) -> bool:
+        cutoff = datetime.fromtimestamp(
+            datetime.now(UTC).timestamp() - ttl_minutes * 60,
+            tz=UTC
+        ).isoformat()
+        row = self.connection.execute(
+            "SELECT 1 FROM signal_fingerprints WHERE fingerprint = ? AND created_at >= ?",
+            (fingerprint, cutoff)
+        ).fetchone()
+        return row is not None
+
+    def has_recent_signals(
+        self, fingerprints: list[str], ttl_minutes: int = 1440
+    ) -> list[str]:
+        if not fingerprints:
+            return []
+        cutoff = datetime.fromtimestamp(
+            datetime.now(UTC).timestamp() - ttl_minutes * 60,
+            tz=UTC
+        ).isoformat()
+        chunks = [fingerprints[i : i + 500] for i in range(0, len(fingerprints), 500)]
+        seen: set[str] = set()
+        for chunk in chunks:
+            placeholders = ",".join("?" * len(chunk))
+            rows = self.connection.execute(
+                f"SELECT fingerprint FROM signal_fingerprints WHERE fingerprint IN ({placeholders}) AND created_at >= ?",
+                (*chunk, cutoff)
+            ).fetchall()
+            seen.update(r[0] for r in rows)
+        return [fp for fp in fingerprints if fp in seen]
+
+    # ------------------------------------------------------------------
+    # Portfolio analytics
+    # ------------------------------------------------------------------
+    def get_portfolio_summary(self, starting_bankroll_usd: float = 100.0) -> dict[str, Any]:
+        positions = self.get_open_positions()
+        total_exposure = sum(p.entry_amount_usd for p in positions)
+        unrealized_pnl = sum(p.unrealized_pnl for p in positions)
+        return {
+            "open_positions": len(positions),
+            "total_exposure_usd": round(total_exposure, 4),
+            "unrealized_pnl_usd": round(unrealized_pnl, 4),
+            "cash_remaining_usd": round(max(0.0, starting_bankroll_usd - total_exposure), 4),
+        }
+
+    def get_portfolio_var(
+        self,
+        confidence_level: float = 0.95,
+        time_horizon_days: int = 1,
+        simulations: int = 10000,
+        starting_bankroll_usd: float = 100.0,
+    ) -> dict[str, Any]:
+        positions = self.get_open_positions()
+        if not positions:
+            return {"var_usd": 0.0, "method": "no_positions", "confidence_level": confidence_level}
+        try:
+            import numpy as np
+        except (ImportError, ModuleNotFoundError):
+            return self._analytical_var(positions, confidence_level, starting_bankroll_usd)
+
+        exposures = [p.entry_amount_usd for p in positions]
+        market_returns = np.random.randn(simulations, len(positions))
+        correlations = np.full((len(positions), len(positions)), 0.3)
+        np.fill_diagonal(correlations, 1.0)
+        L = np.linalg.cholesky(correlations)
+        correlated_returns = market_returns @ L.T
+        position_losses = np.array(exposures)[np.newaxis, :] * (1 - np.exp(correlated_returns))
+        portfolio_losses = position_losses.sum(axis=1)
+        var = np.percentile(portfolio_losses, (1 - confidence_level) * 100)
+        return {
+            "var_usd": round(float(np.abs(var)), 4),
+            "method": "monte_carlo",
+            "confidence_level": confidence_level,
+            "simulations": simulations,
+            "positions": len(positions),
+        }
+
+    def _analytical_var(
+        self,
+        positions: list[Position],
+        confidence_level: float,
+        starting_bankroll_usd: float,
+    ) -> dict[str, Any]:
+        import math
+        total = sum(p.entry_amount_usd for p in positions)
+        if total <= 0:
+            return {"var_usd": 0.0, "method": "analytical", "confidence_level": confidence_level}
+        z = {0.90: 1.28, 0.95: 1.65, 0.99: 2.33}.get(confidence_level, 1.65)
+        vol = 0.30
+        var = total * vol * z * math.sqrt(1 / 365)
+        return {
+            "var_usd": round(var, 4),
+            "method": "analytical",
+            "confidence_level": confidence_level,
+            "positions": len(positions),
+        }
 
     def save_cycle_payloads(
         self,
-        candidates: Iterable[CopyCandidate],
-        opportunities: Iterable[ArbitrageOpportunity],
-        execution_results: Iterable[ExecutionResult],
+        candidates: list[CopyCandidate],
+        arbitrage_opportunities: list[ArbitrageOpportunity],
+        markets: dict[str, MarketSnapshot],
     ) -> None:
         cursor = self.connection.cursor()
-        candidate_rows = [
-            (
-                candidate.market_id,
-                candidate.topic,
-                candidate.side,
-                candidate.consensus_ratio,
-                json.dumps(asdict(candidate), sort_keys=True),
-            )
-            for candidate in candidates
-        ]
-        opportunity_rows = [
-            (
-                opportunity.market_id,
-                opportunity.topic,
-                opportunity.gross_edge,
-                json.dumps(asdict(opportunity), sort_keys=True),
-            )
-            for opportunity in opportunities
-        ]
-        execution_rows = [
-            (
-                result.market_id,
-                result.topic,
-                result.side,
-                result.status,
-                json.dumps(asdict(result), sort_keys=True),
-            )
-            for result in execution_results
-        ]
-        if candidate_rows:
-            cursor.executemany(
-                "INSERT INTO copy_candidates (market_id, topic, side, consensus_ratio, payload) VALUES (?, ?, ?, ?, ?)",
-                candidate_rows,
-            )
-        if opportunity_rows:
-            cursor.executemany(
-                "INSERT INTO arbitrage_opportunities (market_id, topic, gross_edge, payload) VALUES (?, ?, ?, ?)",
-                opportunity_rows,
-            )
-        if execution_rows:
-            cursor.executemany(
-                "INSERT INTO execution_results (market_id, topic, side, status, payload) VALUES (?, ?, ?, ?, ?)",
-                execution_rows,
-            )
-        self.connection.commit()
-
-    def get_open_positions(self) -> list[Position]:
-        cursor = self.connection.cursor()
-        cursor.execute(
-            "SELECT market_id, topic, side, token_id, entry_price, entry_amount_usd, "
-            "current_price, unrealized_pnl, opened_at, last_updated, "
-            "take_profit_pct, stop_loss_pct, max_hold_minutes, status "
-            "FROM positions WHERE status IN ('open', 'closing') ORDER BY opened_at"
-        )
-        rows = cursor.fetchall()
-        return [
-            Position(
-                market_id=r[0],
-                topic=r[1],
-                side=r[2],
-                token_id=r[3],
-                entry_price=r[4],
-                entry_amount_usd=r[5],
-                current_price=r[6],
-                unrealized_pnl=r[7],
-                opened_at=_parse_dt(r[8]),
-                last_updated=_parse_dt(r[9]),
-                take_profit_pct=r[10],
-                stop_loss_pct=r[11],
-                max_hold_minutes=r[12],
-                status=r[13],
-            )
-            for r in rows
-        ]
-
-    def get_held_market_ids(self) -> set[str]:
-        cursor = self.connection.cursor()
-        cursor.execute("SELECT DISTINCT market_id FROM positions WHERE status IN ('open', 'closing')")
-        return {row[0] for row in cursor.fetchall()}
-
-    def get_total_exposure(self) -> float:
-        cursor = self.connection.cursor()
-        cursor.execute("SELECT COALESCE(SUM(entry_amount_usd), 0.0) FROM positions WHERE status IN ('open', 'closing')")
-        row = cursor.fetchone()
-        return float(row[0]) if row else 0.0
-
-    def get_portfolio_var(self, confidence_level: float = 0.95, time_horizon_days: int = 1, use_monte_carlo: bool = True, simulations: int = 10000) -> float:
-        """Calculate Value at Risk for current portfolio using historical volatility proxy or Monte Carlo simulations."""
-        positions = self.get_open_positions()
-        if not positions:
-            logger.info("No open positions for VaR calculation")
-            return 0.0
-
-        total_exposure = sum(pos.entry_amount_usd for pos in positions)
-        if total_exposure == 0:
-            logger.info("Zero total exposure for VaR calculation")
-            return 0.0
-
-        if use_monte_carlo:
-            try:
-                var = self._monte_carlo_var(positions, confidence_level, time_horizon_days, simulations)
-                logger.info(f"Monte Carlo VaR calculated: {var:.2f} USD at {confidence_level:.0%} confidence")
-                return var
-            except (ImportError, ModuleNotFoundError) as exc:
-                logger.warning(f"Monte Carlo VaR unavailable ({exc}); falling back to analytical VaR")
-
-        position_vars = []
-        for pos in positions:
-            volatility = 0.02
-            position_var = pos.entry_amount_usd * volatility * (time_horizon_days ** 0.5)
-            position_vars.append(position_var)
-
-        correlation = 0.3
-        portfolio_volatility = (sum(v**2 for v in position_vars) + 2 * correlation * sum(
-            position_vars[i] * position_vars[j] for i in range(len(position_vars)) for j in range(i+1, len(position_vars))
-        )) ** 0.5
-
-        z_score = {0.95: 1.645, 0.99: 2.326}.get(confidence_level, 1.645)
-        var = portfolio_volatility * z_score
-        logger.info(f"Analytical VaR calculated: {var:.2f} USD at {confidence_level:.0%} confidence")
-        return var
-
-    def _monte_carlo_var(self, positions: list[Position], confidence_level: float, time_horizon_days: int, simulations: int) -> float:
-        """Perform Monte Carlo simulation for VaR under stress conditions."""
-        import math
-        import numpy as np
-
-        stress_volatility = 0.05
-        correlation_matrix = np.full((len(positions), len(positions)), 0.3)
-        np.fill_diagonal(correlation_matrix, 1.0)
-
-        chol = np.linalg.cholesky(correlation_matrix)
-
-        portfolio_losses = []
-        for _ in range(simulations):
-            uncorrelated = np.random.normal(0, 1, len(positions))
-            correlated = chol @ uncorrelated
-            returns = correlated * stress_volatility * math.sqrt(time_horizon_days)
-
-            loss = sum(pos.entry_amount_usd * (1 - np.exp(ret)) for pos, ret in zip(positions, returns))
-            portfolio_losses.append(loss)
-
-        portfolio_losses.sort()
-        var_index = int((1 - confidence_level) * simulations)
-        raw_var = portfolio_losses[var_index] if var_index < len(portfolio_losses) else portfolio_losses[-1]
-        var = round(abs(float(raw_var)), 4)
-        logger.debug(f"Monte Carlo VaR simulation completed with {simulations} runs")
-        return var
-
-    def get_portfolio_summary(self, starting_bankroll_usd: float = 0.0) -> dict[str, float | int]:
-        cursor = self.connection.cursor()
-        cursor.execute(
-            """
-            SELECT
-                COALESCE(SUM(CASE WHEN status IN ('open', 'closing') THEN entry_amount_usd ELSE 0 END), 0.0),
-                COALESCE(SUM(CASE WHEN status IN ('open', 'closing') THEN unrealized_pnl ELSE 0 END), 0.0),
-                COALESCE(SUM(CASE WHEN status = 'closed' THEN unrealized_pnl ELSE 0 END), 0.0),
-                SUM(CASE WHEN status IN ('open', 'closing') THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status = 'closed' AND unrealized_pnl > 0 THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status = 'closed' AND unrealized_pnl <= 0 THEN 1 ELSE 0 END)
-            FROM positions
-            """
-        )
-        row = cursor.fetchone() or (0, 0, 0, 0, 0, 0, 0)
-        open_count = int(row[3] or 0)
-        closed_count = int(row[4] or 0)
-        wins = int(row[5] or 0)
-        losses = int(row[6] or 0)
-        realized_pnl = round(float(row[2] or 0.0), 4)
-        unrealized_pnl = round(float(row[1] or 0.0), 4)
-        win_rate = round(wins / closed_count, 4) if closed_count else 0.0
-
-        return {
-            "starting_bankroll_usd": round(starting_bankroll_usd, 4),
-            "current_exposure_usd": round(float(row[0] or 0.0), 4),
-            "open_position_count": open_count,
-            "closed_position_count": closed_count,
-            "wins": wins,
-            "losses": losses,
-            "win_rate": win_rate,
-            "realized_pnl_usd": realized_pnl,
-            "unrealized_pnl_usd": unrealized_pnl,
-            "estimated_equity_usd": round(starting_bankroll_usd + realized_pnl + unrealized_pnl, 4),
-        }
-
-    def save_position(self, position: Position) -> None:
-        self.save_positions([position])
-
-    def save_positions(self, positions: Iterable[Position]) -> None:
-        cursor = self.connection.cursor()
-        rows = [
-            (
-                position.market_id,
-                position.topic,
-                position.side,
-                position.token_id,
-                position.entry_price,
-                position.entry_amount_usd,
-                position.current_price,
-                position.unrealized_pnl,
-                position.opened_at.isoformat(),
-                position.last_updated.isoformat(),
-                position.take_profit_pct,
-                position.stop_loss_pct,
-                position.max_hold_minutes,
-                position.status,
-            )
-            for position in positions
-        ]
-        cursor.executemany(
-            "INSERT INTO positions (market_id, topic, side, token_id, entry_price, "
-            "entry_amount_usd, current_price, unrealized_pnl, opened_at, last_updated, "
-            "take_profit_pct, stop_loss_pct, max_hold_minutes, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            rows,
-        )
-        self.connection.commit()
-
-    def mark_signals_seen(self, signals: Iterable[tuple[str, str, str]]) -> None:
-        cursor = self.connection.cursor()
-        rows = [
-            (
-                self.make_signal_fingerprint(market_id, topic, side),
-                market_id,
-                topic,
-                side,
-                datetime.now(UTC).isoformat(),
-            )
-            for market_id, topic, side in signals
-        ]
-        cursor.executemany(
-            "INSERT OR REPLACE INTO signal_fingerprints (fingerprint, market_id, topic, side, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            rows,
-        )
-        self.connection.commit()
-
-    def update_position(self, market_id: str, current_price: float, unrealized_pnl: float, status: str) -> None:
-        cursor = self.connection.cursor()
-        cursor.execute(
-            "UPDATE positions SET current_price = ?, unrealized_pnl = ?, "
-            "last_updated = ?, status = ? WHERE market_id = ? AND status IN ('open', 'closing')",
-            (current_price, unrealized_pnl, datetime.now(UTC).isoformat(), status, market_id),
-        )
-        self.connection.commit()
-
-    def make_signal_fingerprint(self, market_id: str, topic: str, side: str) -> str:
-        return f"{topic.strip().lower()}:{market_id.strip()}:{side.strip().upper()}"
-
-    def has_recent_signal(self, market_id: str, topic: str, side: str, ttl_minutes: int = 1440) -> bool:
-        cutoff = datetime.now(UTC) - timedelta(minutes=ttl_minutes)
-        cursor = self.connection.cursor()
-        cursor.execute(
-            "SELECT created_at FROM signal_fingerprints WHERE fingerprint = ?",
-            (self.make_signal_fingerprint(market_id, topic, side),),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return False
-        return _parse_dt(row[0]) >= cutoff
-
-    def has_recent_signals(self, signals: Iterable[tuple[str, str, str]], ttl_minutes: int = 1440) -> set[str]:
-        signals = list(signals)
-        if not signals:
-            return set()
-        cutoff = datetime.now(UTC) - timedelta(minutes=ttl_minutes)
-        fingerprints = [self.make_signal_fingerprint(market_id, topic, side) for market_id, topic, side in signals]
-        recent: set[str] = set()
-        cursor = self.connection.cursor()
-        chunk_size = 500
-        for i in range(0, len(fingerprints), chunk_size):
-            chunk = fingerprints[i : i + chunk_size]
-            placeholders = ",".join("?" for _ in chunk)
+        cursor.execute("DELETE FROM copy_candidates")
+        cursor.execute("DELETE FROM arbitrage_opportunities")
+        for c in candidates:
             cursor.execute(
-                f"SELECT fingerprint, created_at FROM signal_fingerprints WHERE fingerprint IN ({placeholders})",
-                tuple(chunk),
+                "INSERT INTO copy_candidates (market_id, topic, side, consensus_ratio, payload) VALUES (?, ?, ?, ?, ?)",
+                (c.market_id, c.topic, c.side, c.consensus_ratio, json.dumps(asdict(c)))
             )
-            for fingerprint, created_at in cursor.fetchall():
-                if _parse_dt(created_at) >= cutoff:
-                    recent.add(fingerprint)
-        return recent
-
-    def mark_signal_seen(self, market_id: str, topic: str, side: str) -> None:
-        cursor = self.connection.cursor()
-        fingerprint = self.make_signal_fingerprint(market_id, topic, side)
-        cursor.execute(
-            "INSERT OR REPLACE INTO signal_fingerprints (fingerprint, market_id, topic, side, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (fingerprint, market_id, topic, side, datetime.now(UTC).isoformat()),
-        )
+        for arb in arbitrage_opportunities:
+            cursor.execute(
+                "INSERT INTO arbitrage_opportunities (market_id, topic, gross_edge, payload) VALUES (?, ?, ?, ?)",
+                (arb.market_id, arb.topic, arb.gross_edge, json.dumps(asdict(arb)))
+            )
         self.connection.commit()
 
+    def close(self) -> None:
+        self.connection.close()
 
-def _parse_dt(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value)
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed
+
+def asdict(obj: Any) -> dict[str, Any]:
+    result = {}
+    for k, v in vars(obj).items():
+        if hasattr(v, "__dataclass_fields__"):
+            result[k] = asdict(v)
+        elif isinstance(v, (list, tuple)):
+            result[k] = [
+                asdict(i) if hasattr(i, "__dataclass_fields__") else i
+                for i in v
+            ]
+        else:
+            result[k] = v
+    return result
