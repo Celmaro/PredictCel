@@ -117,12 +117,10 @@ def main() -> None:
     metrics.set("markets_loaded", len(markets))
     metrics.set("trades_loaded", len(trades))
 
-    # Calculate and log portfolio VaR
     store = SignalStore(args.db)
     var_95 = store.get_portfolio_var(confidence_level=0.95)
     logger.info(f"Portfolio VaR (95%): {var_95:.2f} USD")
 
-    # Check for rebalancing needs
     current_positions = [{"topic": pos.topic, "exposure_usd": pos.entry_amount_usd} for pos in store.get_open_positions()]
     basket_planner = BasketManagerPlanner(config)
     rebalance_actions = basket_planner.rebalance(current_positions)
@@ -177,7 +175,7 @@ def main() -> None:
 
     started = time.perf_counter()
     store.save_cycle_payloads(copy_candidates, arbitrage_opportunities, execution_results + close_results)
-    open_positions = store.get_open_positions()
+    open_positions = _decorate_positions_with_titles(store.get_open_positions(), markets)
     timings["storage_ms"] = _elapsed_ms(started)
     timings["total_cycle_ms"] = _elapsed_ms(cycle_started)
 
@@ -258,6 +256,7 @@ def _persist_execution_side_effects(store: SignalStore, config: Any, execution_r
                     position_config.stop_loss_pct,
                     position_config.max_hold_minutes,
                     "open",
+                    result.market_title,
                 )
             )
     if signals:
@@ -376,6 +375,31 @@ def _creates_or_updates_paper_position(result) -> bool:
 def _is_evm_address(value: str) -> bool:
     value = str(value).strip()
     return len(value) == 42 and value.startswith("0x") and all(char in HEX_CHARS for char in value[2:])
+
+
+def _decorate_positions_with_titles(positions: list[Position], markets: dict[str, Any]) -> list[Position]:
+    decorated: list[Position] = []
+    for pos in positions:
+        market = markets.get(pos.market_id)
+        title = pos.market_title or (market.title if market is not None else "")
+        decorated.append(Position(
+            pos.market_id,
+            pos.topic,
+            pos.side,
+            pos.token_id,
+            pos.entry_price,
+            pos.entry_amount_usd,
+            pos.current_price,
+            pos.unrealized_pnl,
+            pos.opened_at,
+            pos.last_updated,
+            pos.take_profit_pct,
+            pos.stop_loss_pct,
+            pos.max_hold_minutes,
+            pos.status,
+            title,
+        ))
+    return decorated
 
 
 def _compact_cycle_output(output: dict[str, Any]) -> dict[str, Any]:
