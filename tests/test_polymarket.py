@@ -7,6 +7,7 @@ from predictcel.polymarket import (
     build_wallet_trades,
     enrich_market_snapshots_with_orderbooks,
     extract_trade_market_ids,
+    extract_trade_market_slugs,
     market_snapshot_from_gamma,
     wallet_trade_from_data,
 )
@@ -28,6 +29,18 @@ class FakeGammaClient(PolymarketPublicClient):
     def _get_json(self, url: str):
         self.urls.append(url)
         return {"markets": [{"conditionId": "cond_1", "outcomePrices": "[0.61, 0.35]"}]}
+
+
+class FakeSlugClient(PolymarketPublicClient):
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+
+    def _get_json(self, url: str):
+        self.urls.append(url)
+        if "/markets/slug/will-event-x-happen" in url:
+            return {"conditionId": "cond_1", "slug": "will-event-x-happen", "outcomePrices": "[0.61, 0.35]"}
+        return {"markets": []}
 
 
 class FakeTradeClient(PolymarketPublicClient):
@@ -86,6 +99,15 @@ def test_fetch_active_markets_includes_active_filters() -> None:
     assert "limit=50" in client.urls[0]
     assert "closed=false" in client.urls[0]
     assert "active=true" in client.urls[0]
+
+
+def test_fetch_markets_by_slugs_uses_slug_endpoint_and_deduplicates() -> None:
+    client = FakeSlugClient()
+
+    rows = client.fetch_markets_by_slugs(["will-event-x-happen", "will-event-x-happen"])
+
+    assert rows == [{"conditionId": "cond_1", "slug": "will-event-x-happen", "outcomePrices": "[0.61, 0.35]"}]
+    assert any("/markets/slug/will-event-x-happen" in url for url in client.urls)
 
 
 def test_fetch_wallet_trades_accepts_asset_backed_trade_rows() -> None:
@@ -221,6 +243,18 @@ def test_extract_trade_market_ids_deduplicates_common_shapes() -> None:
     }
 
     assert extract_trade_market_ids(payloads) == ["cond_1", "market_2", "token_yes"]
+
+
+def test_extract_trade_market_slugs_deduplicates_common_shapes() -> None:
+    payloads = {
+        "wallet_a": [
+            {"marketSlug": "will-event-x-happen"},
+            {"slug": "will-event-x-happen"},
+            {"market": {"slug": "another-market"}},
+        ]
+    }
+
+    assert extract_trade_market_slugs(payloads) == ["another-market", "will-event-x-happen"]
 
 
 def test_gamma_market_array_filter_uses_repeated_query_params() -> None:
