@@ -238,7 +238,7 @@ class CopyEngine:
 
         skew = abs(current_price - 0.5)
         if skew >= config.trend_price_skew:
-            directional_match = (side == "YES" and current_price > 0.5) or (side == "NO" and current_price > 0.5)
+            directional_match = (side == "YES" and current_price > 0.5) or (side == "NO" and current_price < 0.5)
             score = 0.75 + config.trend_bonus if directional_match else 0.60
             return MarketRegime("TREND", round(min(score, 1.0), 4), "price is directionally skewed with stable orderbook conditions")
 

@@ -277,7 +277,7 @@ def _load_live_inputs(config):
             "match_rate_pct": round((len(matched_trade_market_keys) / len(trade_market_keys)) * 100, 1) if trade_market_keys else 0.0,
         },
     }
-    return trades, enrich_market_snapshots_with_orderbooks(markets, client), diagnostics
+    return trades, markets, diagnostics
 
 
 def _fetch_wallet_payloads(client: PolymarketPublicClient, wallets: list[str], limit: int) -> dict[str, list[dict[str, Any]]]:
