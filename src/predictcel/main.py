@@ -115,9 +115,7 @@ def main() -> None:
     timings["execution_ms"] = _elapsed_ms(started)
 
     started = time.perf_counter()
-    store.save_copy_candidates(copy_candidates)
-    store.save_arbitrage_opportunities(arbitrage_opportunities)
-    store.save_execution_results(execution_results + close_results)
+    store.save_cycle_payloads(copy_candidates, arbitrage_opportunities, execution_results + close_results)
     open_positions = store.get_open_positions()
     timings["storage_ms"] = _elapsed_ms(started)
     timings["total_cycle_ms"] = _elapsed_ms(cycle_started)
@@ -177,10 +175,33 @@ def _run_wallet_discovery(argv: list[str]) -> None:
 def _persist_execution_side_effects(store: SignalStore, config: Any, execution_results: list) -> None:
     now = datetime.now(UTC)
     position_config = config.execution.position
+    signals: list[tuple[str, str, str]] = []
+    positions: list[Position] = []
     for result in execution_results:
         if _creates_or_updates_paper_position(result):
-            store.mark_signal_seen(result.market_id, result.topic, result.side)
-            store.save_position(Position(result.market_id, result.topic, result.side, result.token_id, result.worst_price, result.amount_usd, result.worst_price, 0.0, now, now, position_config.take_profit_pct, position_config.stop_loss_pct, position_config.max_hold_minutes, "open"))
+            signals.append((result.market_id, result.topic, result.side))
+            positions.append(
+                Position(
+                    result.market_id,
+                    result.topic,
+                    result.side,
+                    result.token_id,
+                    result.worst_price,
+                    result.amount_usd,
+                    result.worst_price,
+                    0.0,
+                    now,
+                    now,
+                    position_config.take_profit_pct,
+                    position_config.stop_loss_pct,
+                    position_config.max_hold_minutes,
+                    "open",
+                )
+            )
+    if signals:
+        store.mark_signals_seen(signals)
+    if positions:
+        store.save_positions(positions)
 
 
 def _portfolio_summary(store: SignalStore, config: Any) -> dict:
@@ -223,6 +244,11 @@ def _load_live_inputs(config):
     if supplemental_slug_rows:
         markets.update(build_market_snapshots(supplemental_slug_rows))
 
+    relevant_market_keys = {market_key for market_key in (*trade_market_ids, *trade_market_slugs) if market_key in markets}
+    if relevant_market_keys:
+        relevant_snapshots = {market_id: markets[market_id] for market_id in relevant_market_keys}
+        markets.update(enrich_market_snapshots_with_orderbooks(relevant_snapshots, client))
+
     trade_market_keys = sorted(set(trade_market_ids + trade_market_slugs))
     matched_trade_market_keys = [market_key for market_key in trade_market_keys if market_key in markets]
     wallets_with_payloads = sum(1 for items in wallet_payloads.values() if items)
@@ -258,7 +284,7 @@ def _fetch_wallet_payloads(client: PolymarketPublicClient, wallets: list[str], l
     if not wallets:
         return {}
     payloads: dict[str, list[dict[str, Any]]] = {}
-    workers = max(1, min(8, len(wallets)))
+    workers = max(1, min(16, len(wallets)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(client.fetch_wallet_trades, wallet, limit): wallet for wallet in wallets}
         for future in as_completed(futures):

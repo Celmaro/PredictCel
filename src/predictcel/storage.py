@@ -142,6 +142,59 @@ class SignalStore:
         )
         self.connection.commit()
 
+    def save_cycle_payloads(
+        self,
+        candidates: Iterable[CopyCandidate],
+        opportunities: Iterable[ArbitrageOpportunity],
+        execution_results: Iterable[ExecutionResult],
+    ) -> None:
+        cursor = self.connection.cursor()
+        candidate_rows = [
+            (
+                candidate.market_id,
+                candidate.topic,
+                candidate.side,
+                candidate.consensus_ratio,
+                json.dumps(asdict(candidate), sort_keys=True),
+            )
+            for candidate in candidates
+        ]
+        opportunity_rows = [
+            (
+                opportunity.market_id,
+                opportunity.topic,
+                opportunity.gross_edge,
+                json.dumps(asdict(opportunity), sort_keys=True),
+            )
+            for opportunity in opportunities
+        ]
+        execution_rows = [
+            (
+                result.market_id,
+                result.topic,
+                result.side,
+                result.status,
+                json.dumps(asdict(result), sort_keys=True),
+            )
+            for result in execution_results
+        ]
+        if candidate_rows:
+            cursor.executemany(
+                "INSERT INTO copy_candidates (market_id, topic, side, consensus_ratio, payload) VALUES (?, ?, ?, ?, ?)",
+                candidate_rows,
+            )
+        if opportunity_rows:
+            cursor.executemany(
+                "INSERT INTO arbitrage_opportunities (market_id, topic, gross_edge, payload) VALUES (?, ?, ?, ?)",
+                opportunity_rows,
+            )
+        if execution_rows:
+            cursor.executemany(
+                "INSERT INTO execution_results (market_id, topic, side, status, payload) VALUES (?, ?, ?, ?, ?)",
+                execution_rows,
+            )
+        self.connection.commit()
+
     def get_open_positions(self) -> list[Position]:
         cursor = self.connection.cursor()
         cursor.execute(
@@ -220,12 +273,11 @@ class SignalStore:
         }
 
     def save_position(self, position: Position) -> None:
+        self.save_positions([position])
+
+    def save_positions(self, positions: Iterable[Position]) -> None:
         cursor = self.connection.cursor()
-        cursor.execute(
-            "INSERT INTO positions (market_id, topic, side, token_id, entry_price, "
-            "entry_amount_usd, current_price, unrealized_pnl, opened_at, last_updated, "
-            "take_profit_pct, stop_loss_pct, max_hold_minutes, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows = [
             (
                 position.market_id,
                 position.topic,
@@ -241,7 +293,34 @@ class SignalStore:
                 position.stop_loss_pct,
                 position.max_hold_minutes,
                 position.status,
-            ),
+            )
+            for position in positions
+        ]
+        cursor.executemany(
+            "INSERT INTO positions (market_id, topic, side, token_id, entry_price, "
+            "entry_amount_usd, current_price, unrealized_pnl, opened_at, last_updated, "
+            "take_profit_pct, stop_loss_pct, max_hold_minutes, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        self.connection.commit()
+
+    def mark_signals_seen(self, signals: Iterable[tuple[str, str, str]]) -> None:
+        cursor = self.connection.cursor()
+        rows = [
+            (
+                self.make_signal_fingerprint(market_id, topic, side),
+                market_id,
+                topic,
+                side,
+                datetime.now(UTC).isoformat(),
+            )
+            for market_id, topic, side in signals
+        ]
+        cursor.executemany(
+            "INSERT OR REPLACE INTO signal_fingerprints (fingerprint, market_id, topic, side, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            rows,
         )
         self.connection.commit()
 

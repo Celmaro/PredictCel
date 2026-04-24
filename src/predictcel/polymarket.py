@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
@@ -30,6 +31,8 @@ class PolymarketPublicClient:
         self.timeout_seconds = timeout_seconds
         self.max_retries = max(max_retries, 1)
         self.retry_base_delay_seconds = retry_base_delay_seconds
+        self._request_cache: dict[str, Any] = {}
+        self._cache_lock = threading.Lock()
 
     def fetch_active_markets(self, limit: int) -> list[dict[str, Any]]:
         query = urlencode({"limit": limit, "closed": "false", "active": "true"})
@@ -97,12 +100,12 @@ class PolymarketPublicClient:
 
     def fetch_wallet_trades(self, wallet: str, limit: int) -> list[dict[str, Any]]:
         request_variants = [
+            (f"{self.data_base_url}/v1/trades", {"user": wallet, "limit": limit}),
+            (f"{self.data_base_url}/v1/trades", {"address": wallet, "limit": limit}),
             (f"{self.data_base_url}/trades", {"user": wallet, "limit": limit}),
             (f"{self.data_base_url}/trades", {"address": wallet, "limit": limit}),
             (f"{self.data_base_url}/activity", {"user": wallet, "limit": limit}),
             (f"{self.data_base_url}/activity", {"address": wallet, "limit": limit}),
-            (f"{self.data_base_url}/v1/trades", {"user": wallet, "limit": limit}),
-            (f"{self.data_base_url}/v1/trades", {"address": wallet, "limit": limit}),
         ]
         wallet_key = wallet.lower()
         best_rows: list[dict[str, Any]] = []
@@ -146,11 +149,18 @@ class PolymarketPublicClient:
         return results
 
     def _get_json(self, url: str) -> Any:
+        with self._cache_lock:
+            if url in self._request_cache:
+                return self._request_cache[url]
+
         request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
         for attempt in range(self.max_retries):
             try:
                 with urlopen(request, timeout=self.timeout_seconds) as response:
-                    return json.loads(response.read().decode("utf-8"))
+                    payload = json.loads(response.read().decode("utf-8"))
+                    with self._cache_lock:
+                        self._request_cache[url] = payload
+                    return payload
             except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
                 if attempt >= self.max_retries - 1:
                     raise
