@@ -70,7 +70,6 @@ class BasketManagerPlanner:
             logger.info("No target allocations set for baskets, skipping rebalancing")
             return actions
 
-        # Calculate current allocations by topic (simplified as number of positions or exposure)
         current_by_topic = {}
         for pos in current_positions:
             topic = pos.get('topic', 'unknown')
@@ -82,8 +81,7 @@ class BasketManagerPlanner:
             logger.info("No current exposure, skipping rebalancing")
             return actions
 
-        # Check for drift
-        drift_threshold = 0.05  # 5% drift
+        drift_threshold = 0.05
         rebalance_needed = False
         for basket in self.config.baskets:
             if basket.target_allocation == 0:
@@ -94,11 +92,11 @@ class BasketManagerPlanner:
             if drift > drift_threshold:
                 rebalance_needed = True
                 reason = f"Allocation drift {drift:.2%} exceeds threshold {drift_threshold:.2%}"
-                logger.warning(f"Rebalancing needed for basket {basket.topic}: {reason}")
+                logger.info(f"Rebalancing advisory for basket {basket.topic}: {reason}")
                 actions.append(BasketManagerAction(
                     action="rebalance",
                     basket=basket.topic,
-                    wallet_address="",  # No specific wallet
+                    wallet_address="",
                     score=0.0,
                     confidence="HIGH",
                     reason=reason
