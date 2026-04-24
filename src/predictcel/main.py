@@ -98,7 +98,7 @@ def main() -> None:
     config = load_config(args.config)
     use_live_data = bool(args.live_data or (config.live_data and config.live_data.enabled))
 
-    logger.info("Starting PredictCel cycle", extra={"mode": "live" if use_live_data else "file", "config": args.config})
+    logger.info("Starting PredictCel cycle", extra={"mode": "live" if use_live_data else "file", "config": args.config, "db_path": args.db})
     metrics.increment("cycles_total")
 
     started = time.perf_counter()
@@ -118,10 +118,16 @@ def main() -> None:
     metrics.set("trades_loaded", len(trades))
 
     store = SignalStore(args.db)
+    open_positions_at_start = store.get_open_positions()
+    db_diagnostics = {
+        "path": args.db,
+        "is_ephemeral": args.db.startswith("/tmp/"),
+        "open_position_count_at_start": len(open_positions_at_start),
+    }
     var_95 = store.get_portfolio_var(confidence_level=0.95)
     logger.info(f"Portfolio VaR (95%): {var_95:.2f} USD")
 
-    current_positions = [{"topic": pos.topic, "exposure_usd": pos.entry_amount_usd} for pos in store.get_open_positions()]
+    current_positions = [{"topic": pos.topic, "exposure_usd": pos.entry_amount_usd} for pos in open_positions_at_start]
     basket_planner = BasketManagerPlanner(config)
     rebalance_actions = basket_planner.rebalance(current_positions)
     if rebalance_actions:
@@ -176,6 +182,7 @@ def main() -> None:
     started = time.perf_counter()
     store.save_cycle_payloads(copy_candidates, arbitrage_opportunities, execution_results + close_results)
     open_positions = _decorate_positions_with_titles(store.get_open_positions(), markets)
+    db_diagnostics["open_position_count_at_end"] = len(open_positions)
     timings["storage_ms"] = _elapsed_ms(started)
     timings["total_cycle_ms"] = _elapsed_ms(cycle_started)
 
@@ -196,6 +203,7 @@ def main() -> None:
         "mode": "live" if use_live_data else "file",
         "summary": summary,
         "latency_ms": timings,
+        "db": db_diagnostics,
         "live_input_diagnostics": live_input_diagnostics,
         "scoring_diagnostics": scoring_diagnostics,
         "copy_engine_diagnostics": copy_engine_diagnostics,
@@ -213,6 +221,7 @@ def main() -> None:
         "predictcel_cycle_latency",
         {
             "mode": output["mode"],
+            "db": db_diagnostics,
             "latency_ms": timings,
             "summary": summary,
             "live_input_diagnostics": _compact_live_input_diagnostics(live_input_diagnostics),
@@ -220,7 +229,7 @@ def main() -> None:
             "copy_engine_diagnostics": copy_engine_diagnostics,
         },
     )
-    logger.info("Cycle complete", extra={"summary": summary, "timings": timings, "metrics": metrics.get_metrics()})
+    logger.info("Cycle complete", extra={"summary": summary, "timings": timings, "metrics": metrics.get_metrics(), "db": db_diagnostics})
     print(json.dumps(_compact_cycle_output(output), sort_keys=True, default=str), flush=True)
 
 
@@ -407,6 +416,7 @@ def _compact_cycle_output(output: dict[str, Any]) -> dict[str, Any]:
         "mode": output["mode"],
         "summary": output["summary"],
         "latency_ms": output["latency_ms"],
+        "db": output["db"],
         "portfolio_summary": output["portfolio_summary"],
     }
     if output.get("live_input_diagnostics"):
