@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import random
@@ -12,8 +13,6 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import aiohttp
-import asyncio
-import redis
 
 from .models import MarketSnapshot, WalletTrade
 
@@ -78,7 +77,12 @@ class PolymarketPublicClient:
         self.max_retries = max(max_retries, 1)
         self.retry_base_delay_seconds = retry_base_delay_seconds
         self.use_redis = use_redis
+        self.redis_client = None
         if use_redis:
+            try:
+                import redis
+            except ModuleNotFoundError as exc:
+                raise RuntimeError("Redis caching was requested, but the 'redis' package is not installed.") from exc
             self.redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
         else:
             self._request_cache: dict[str, Any] = {}
@@ -195,7 +199,6 @@ class PolymarketPublicClient:
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(ws_url) as ws:
                     logger.info("WebSocket connected successfully")
-                    # Subscribe to markets
                     subscribe_msg = {"type": "subscribe", "markets": market_ids}
                     await ws.send_json(subscribe_msg)
                     logger.info(f"Subscribed to market updates for {market_ids}")
@@ -205,7 +208,6 @@ class PolymarketPublicClient:
                             data = msg.json()
                             if data.get("type") == "update":
                                 logger.debug(f"Received market update: {data}")
-                                # Process update and call callback
                                 callback(data)
                         elif msg.type == aiohttp.WSMsgType.ERROR:
                             logger.error("WebSocket error encountered")
@@ -235,7 +237,7 @@ class PolymarketPublicClient:
                     try:
                         payload = json.loads(cached)
                         if isinstance(payload, dict) and payload.get("_cached_at"):
-                            if time.time() - payload["_cached_at"] < 300:  # 5 min TTL
+                            if time.time() - payload["_cached_at"] < 300:
                                 return {k: v for k, v in payload.items() if k != "_cached_at"}
                         elif not isinstance(payload, dict):
                             return payload
@@ -246,7 +248,7 @@ class PolymarketPublicClient:
                     if url in self._request_cache:
                         cached = self._request_cache[url]
                         if isinstance(cached, dict) and cached.get("_cached_at"):
-                            if time.time() - cached["_cached_at"] < 300:  # 5 min TTL
+                            if time.time() - cached["_cached_at"] < 300:
                                 return {k: v for k, v in cached.items() if k != "_cached_at"}
                         elif not isinstance(cached, dict):
                             return cached
@@ -283,7 +285,6 @@ class PolymarketPublicClient:
         if not isinstance(payload, (dict, list)):
             raise ValueError(f"Invalid response type for {url}: {type(payload)}")
 
-        # Anomaly detection: check for extreme prices using z-score
         if isinstance(payload, list):
             prices = []
             for item in payload:
@@ -299,7 +300,7 @@ class PolymarketPublicClient:
                 import statistics
                 mean_price = statistics.mean(prices)
                 stdev_price = statistics.stdev(prices) if len(prices) > 1 else 0
-                z_threshold = 3.0  # Flag outliers beyond 3 standard deviations
+                z_threshold = 3.0
                 anomalies = 0
                 for price in prices:
                     if stdev_price > 0:
@@ -309,7 +310,6 @@ class PolymarketPublicClient:
                 if anomalies > 0:
                     logger.warning(f"Detected {anomalies} anomalous prices in response from {url}")
 
-        # Checksum-like validation: ensure required fields for markets
         if "markets" in url and isinstance(payload, dict):
             data = payload.get("data", payload)
             if isinstance(data, list) and data:
