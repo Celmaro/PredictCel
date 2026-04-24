@@ -78,10 +78,32 @@ def test_portfolio_summary_tracks_closed_winrate_and_pnl() -> None:
         assert summary["closed_position_count"] == 2
         assert summary["wins"] == 1
         assert summary["losses"] == 1
+        assert summary["breakeven_count"] == 0
         assert summary["win_rate"] == 0.5
         assert summary["realized_pnl_usd"] == 2.0
         assert summary["unrealized_pnl_usd"] == 1.0
         assert summary["estimated_equity_usd"] == 103.0
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_portfolio_summary_tracks_breakeven_closed_positions_separately() -> None:
+    store, db_path = make_store()
+    try:
+        store.save_position(make_position("winner", "open", 10.0))
+        store.save_position(make_position("flat", "open", 10.0))
+        store.update_position("winner", current_price=0.7, unrealized_pnl=4.0, status="closed")
+        store.update_position("flat", current_price=0.5, unrealized_pnl=0.0, status="closed")
+
+        summary = store.get_portfolio_summary(starting_bankroll_usd=100.0)
+
+        assert summary["closed_position_count"] == 2
+        assert summary["wins"] == 1
+        assert summary["losses"] == 0
+        assert summary["breakeven_count"] == 1
+        assert summary["win_rate"] == 1.0
+        assert summary["realized_pnl_usd"] == 4.0
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)
