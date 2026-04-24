@@ -31,8 +31,12 @@ class CopyEngine:
             return self._ml_model
         model_path = os.path.join(os.path.dirname(__file__), "position_sizing_model.pkl")
         if not os.path.exists(model_path):
-            self._ml_model_loaded = True
-            return None
+            fallback_path = os.path.abspath("position_sizing_model.pkl")
+            if os.path.exists(fallback_path):
+                model_path = fallback_path
+            else:
+                self._ml_model_loaded = True
+                return None
         try:
             from sklearn.ensemble import RandomForestRegressor
             from sklearn.metrics import mean_squared_error
@@ -75,7 +79,8 @@ class CopyEngine:
         mse = mean_squared_error(y_test, y_pred)
         logger.info(f"ML position sizing model trained with MSE: {mse:.4f}")
 
-        with open("position_sizing_model.pkl", "wb") as f:
+        model_path = os.path.join(os.path.dirname(__file__), "position_sizing_model.pkl")
+        with open(model_path, "wb") as f:
             pickle.dump(model, f)
         self._ml_model = model
 
@@ -222,7 +227,7 @@ class CopyEngine:
         if confidence_score < self.config.consensus.min_confidence_score:
             return None, "below_confidence"
 
-        reference_price = self._weighted_reference_price(aligned, trade_weights)
+        reference_price = self._weighted_reference_price(list(wallet_votes.values()), trade_weights)
         current_price = market.yes_ask if side == "YES" else market.no_ask
         if current_price >= LATE_ENTRY_PRICE_THRESHOLD:
             return None, "too_late_price"

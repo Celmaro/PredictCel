@@ -6,13 +6,13 @@ from predictcel.models import Position
 from predictcel.storage import SignalStore
 
 
-def make_position(market_id: str, status: str, amount: float = 25.0) -> Position:
+def make_position(market_id: str, status: str, amount: float = 25.0, token_id: str = "yes_token") -> Position:
     now = datetime.now(UTC)
     return Position(
         market_id=market_id,
         topic="geopolitics",
         side="YES",
-        token_id="yes_token",
+        token_id=token_id,
         entry_price=0.5,
         entry_amount_usd=amount,
         current_price=0.5,
@@ -56,6 +56,23 @@ def test_update_position_can_close_active_position() -> None:
         assert store.get_held_market_ids() == set()
         assert store.get_total_exposure() == 0.0
         assert store.get_open_positions() == []
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_update_position_by_token_id_preserves_same_market_positions() -> None:
+    store, db_path = make_store()
+    try:
+        store.save_position(make_position("m1", "open", 25.0, token_id="yes_token"))
+        store.save_position(make_position("m1", "open", 30.0, token_id="no_token"))
+
+        store.update_position("m1", current_price=0.6, unrealized_pnl=5.0, status="closed", token_id="yes_token")
+
+        open_positions = store.get_open_positions()
+        assert len(open_positions) == 1
+        assert open_positions[0].token_id == "no_token"
+        assert open_positions[0].status == "open"
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)

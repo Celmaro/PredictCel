@@ -417,13 +417,20 @@ class SignalStore:
         )
         self.connection.commit()
 
-    def update_position(self, market_id: str, current_price: float, unrealized_pnl: float, status: str) -> None:
+    def update_position(self, market_id: str, current_price: float, unrealized_pnl: float, status: str, token_id: str | None = None) -> None:
         cursor = self.connection.cursor()
-        cursor.execute(
-            "UPDATE positions SET current_price = ?, unrealized_pnl = ?, "
-            "last_updated = ?, status = ? WHERE market_id = ? AND status IN ('open', 'closing')",
-            (current_price, unrealized_pnl, datetime.now(UTC).isoformat(), status, market_id),
-        )
+        if token_id is not None:
+            cursor.execute(
+                "UPDATE positions SET current_price = ?, unrealized_pnl = ?, "
+                "last_updated = ?, status = ? WHERE market_id = ? AND token_id = ? AND status IN ('open', 'closing')",
+                (current_price, unrealized_pnl, datetime.now(UTC).isoformat(), status, market_id, token_id),
+            )
+        else:
+            cursor.execute(
+                "UPDATE positions SET current_price = ?, unrealized_pnl = ?, "
+                "last_updated = ?, status = ? WHERE market_id = ? AND status IN ('open', 'closing')",
+                (current_price, unrealized_pnl, datetime.now(UTC).isoformat(), status, market_id),
+            )
         self.connection.commit()
 
     def make_signal_fingerprint(self, market_id: str, topic: str, side: str) -> str:

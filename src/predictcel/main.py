@@ -168,9 +168,10 @@ def main() -> None:
         if open_positions:
             close_intents, updated_positions = ExitRunner(config.execution, config.live_data).evaluate_and_close(open_positions, markets)
             close_results = LiveOrderExecutor(config.execution, config.live_data).execute(close_intents) if close_intents else []
-            closed_market_ids = {result.market_id for result in close_results if _creates_or_updates_paper_position(result)}
+            closed_positions = {(result.market_id, result.token_id) for result in close_results if _creates_or_updates_paper_position(result)}
             for pos in updated_positions:
-                store.update_position(pos.market_id, pos.current_price, pos.unrealized_pnl, "closed" if pos.market_id in closed_market_ids else pos.status)
+                status = "closed" if (pos.market_id, pos.token_id) in closed_positions else pos.status
+                store.update_position(pos.market_id, pos.current_price, pos.unrealized_pnl, status, token_id=pos.token_id)
             current_exposure_usd = store.get_total_exposure()
 
         fresh_candidates, skipped_duplicate_signals = _filter_duplicate_candidates(store, copy_candidates)
