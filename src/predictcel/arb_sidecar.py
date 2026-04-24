@@ -10,6 +10,14 @@ class ArbitrageSidecar:
     def __init__(self, config: ArbitrageConfig) -> None:
         self.config = config
 
+    def scan(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
+        opportunities: list[ArbitrageOpportunity] = []
+        for market in markets.values():
+            opportunity = self._evaluate_market(market)
+            if opportunity is not None:
+                opportunities.append(opportunity)
+        return sorted(opportunities, key=lambda item: (item.quality_score, item.net_edge), reverse=True)
+
     def scan_multi_market(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
         """Detect arbitrage opportunities across correlated markets."""
         opportunities = []

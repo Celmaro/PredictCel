@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import random
 import threading
@@ -13,6 +11,44 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from .models import MarketSnapshot, WalletTrade
+
+
+# Global metrics (simplified, in real app use proper metrics system)
+api_metrics = {"requests": 0, "errors": 0}
+
+
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failure_count = 0
+        self.last_failure_time = 0
+        self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+
+    def call(self, func, *args, **kwargs):
+        if self.state == "OPEN":
+            if time.time() - self.last_failure_time > self.recovery_timeout:
+                self.state = "HALF_OPEN"
+            else:
+                raise Exception("Circuit breaker is OPEN")
+
+        try:
+            result = func(*args, **kwargs)
+            self._on_success()
+            return result
+        except Exception as e:
+            self._on_failure()
+            raise e
+
+    def _on_success(self):
+        self.failure_count = 0
+        self.state = "CLOSED"
+
+    def _on_failure(self):
+        self.failure_count += 1
+        self.last_failure_time = time.time()
+        if self.failure_count >= self.failure_threshold:
+            self.state = "OPEN"
 
 
 class PolymarketPublicClient:
@@ -33,6 +69,7 @@ class PolymarketPublicClient:
         self.retry_base_delay_seconds = retry_base_delay_seconds
         self._request_cache: dict[str, Any] = {}
         self._cache_lock = threading.Lock()
+        self._circuit_breaker = CircuitBreaker()
 
     def fetch_active_markets(self, limit: int) -> list[dict[str, Any]]:
         query = urlencode({"limit": limit, "closed": "false", "active": "true"})
@@ -149,30 +186,63 @@ class PolymarketPublicClient:
         return results
 
     def _get_json(self, url: str) -> Any:
-        with self._cache_lock:
-            if url in self._request_cache:
-                cached = self._request_cache[url]
-                if isinstance(cached, dict) and cached.get("_cached_at"):
-                    if time.time() - cached["_cached_at"] < 300:  # 5 min TTL
-                        return {k: v for k, v in cached.items() if k != "_cached_at"}
-                elif not isinstance(cached, dict):
-                    return cached
+        def _fetch_url():
+            api_metrics["requests"] += 1
+            with self._cache_lock:
+                if url in self._request_cache:
+                    cached = self._request_cache[url]
+                    if isinstance(cached, dict) and cached.get("_cached_at"):
+                        if time.time() - cached["_cached_at"] < 300:  # 5 min TTL
+                            return {k: v for k, v in cached.items() if k != "_cached_at"}
+                    elif not isinstance(cached, dict):
+                        return cached
 
-        request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
-        for attempt in range(self.max_retries):
-            try:
-                with urlopen(request, timeout=self.timeout_seconds) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-                    with self._cache_lock:
-                        if isinstance(payload, dict):
-                            payload["_cached_at"] = time.time()
-                        self._request_cache[url] = payload
-                    return payload
-            except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
-                if attempt >= self.max_retries - 1:
-                    raise
-                time.sleep(_retry_delay(self.retry_base_delay_seconds, attempt))
-        return None
+            request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
+            for attempt in range(self.max_retries):
+                try:
+                    with urlopen(request, timeout=self.timeout_seconds) as response:
+                        payload = json.loads(response.read().decode("utf-8"))
+                        self._validate_response(payload, url)
+                        with self._cache_lock:
+                            if isinstance(payload, dict):
+                                payload["_cached_at"] = time.time()
+                            self._request_cache[url] = payload
+                        return payload
+                except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
+                    api_metrics["errors"] += 1
+                    if attempt >= self.max_retries - 1:
+                        raise
+                    delay = _retry_delay(self.retry_base_delay_seconds, attempt)
+                    time.sleep(delay)
+            return None
+
+        return self._circuit_breaker.call(_fetch_url)
+
+    def _validate_response(self, payload: Any, url: str) -> None:
+        """Basic schema validation for API responses."""
+        if not isinstance(payload, (dict, list)):
+            raise ValueError(f"Invalid response type for {url}: {type(payload)}")
+
+        # Anomaly detection: check for extreme prices
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    yes_ask = item.get("yes", item.get("yesPrice"))
+                    no_ask = item.get("no", item.get("noPrice"))
+                    if yes_ask is not None and (yes_ask < 0 or yes_ask > 1):
+                        raise ValueError(f"Anomalous price in response: yes_ask={yes_ask}")
+                    if no_ask is not None and (no_ask < 0 or no_ask > 1):
+                        raise ValueError(f"Anomalous price in response: no_ask={no_ask}")
+
+        # Checksum-like validation: ensure required fields for markets
+        if "markets" in url and isinstance(payload, dict):
+            data = payload.get("data", payload)
+            if isinstance(data, list) and data:
+                sample = data[0]
+                required_fields = ["conditionId", "yes", "no"]
+                for field in required_fields:
+                    if field not in sample:
+                        raise ValueError(f"Missing required field '{field}' in market data")
 
 
 def build_market_snapshots(items: list[dict[str, Any]]) -> dict[str, MarketSnapshot]:

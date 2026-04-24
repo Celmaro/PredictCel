@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -29,6 +30,43 @@ from .wallets import load_wallet_trades
 
 TRUSTED_POSITION_STATUSES = {"filled", "matched", "success", "submitted"}
 HEX_CHARS = set("0123456789abcdefABCDEF")
+
+
+def setup_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+    return logging.getLogger(__name__)
+
+
+logger = setup_logging()
+
+
+class MetricsCollector:
+    def __init__(self):
+        self.metrics = {
+            "cycles_total": 0,
+            "api_requests_total": 0,
+            "api_errors_total": 0,
+            "trades_executed_total": 0,
+            "pnl_total": 0.0,
+            "latency_ms": {},
+        }
+
+    def increment(self, key: str, value: float = 1.0):
+        if key in self.metrics:
+            self.metrics[key] += value
+
+    def set(self, key: str, value: float):
+        self.metrics[key] = value
+
+    def get_metrics(self) -> dict:
+        return self.metrics.copy()
+
+
+metrics = MetricsCollector()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,13 +97,24 @@ def main() -> None:
     config = load_config(args.config)
     use_live_data = bool(args.live_data or (config.live_data and config.live_data.enabled))
 
+    logger.info("Starting PredictCel cycle", extra={"mode": "live" if use_live_data else "file", "config": args.config})
+    metrics.increment("cycles_total")
+
     started = time.perf_counter()
     live_input_diagnostics: dict[str, Any] = {}
     if use_live_data:
-        trades, markets, live_input_diagnostics = _load_live_inputs(config)
+        try:
+            trades, markets, live_input_diagnostics = _load_live_inputs(config)
+        except Exception as e:
+            logger.warning("Live data fetch failed, falling back to file data", extra={"error": str(e)})
+            trades, markets = load_wallet_trades(config.wallet_trades_path), load_market_snapshots(config.market_snapshots_path)
+            live_input_diagnostics = {"fallback_reason": str(e)}
     else:
         trades, markets = load_wallet_trades(config.wallet_trades_path), load_market_snapshots(config.market_snapshots_path)
     timings["input_load_ms"] = _elapsed_ms(started)
+    logger.info("Input loading complete", extra={"markets_loaded": len(markets), "trades_loaded": len(trades), "latency_ms": timings["input_load_ms"]})
+    metrics.set("markets_loaded", len(markets))
+    metrics.set("trades_loaded", len(trades))
 
     started = time.perf_counter()
     scorer = WalletQualityScorer(config.filters, config.consensus.recency_half_life_seconds)
@@ -161,6 +210,7 @@ def main() -> None:
             "copy_engine_diagnostics": copy_engine_diagnostics,
         },
     )
+    logger.info("Cycle complete", extra={"summary": summary, "timings": timings, "metrics": metrics.get_metrics()})
     print(json.dumps(_compact_cycle_output(output), sort_keys=True, default=str), flush=True)
 
 
