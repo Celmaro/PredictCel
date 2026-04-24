@@ -87,6 +87,11 @@ class SignalStore:
             )
             """
         )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_fingerprints_created_at ON signal_fingerprints(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_fingerprints_market_topic_side ON signal_fingerprints(market_id, topic, side)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status_market ON positions(status, market_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_opened_at ON positions(opened_at)")
+        self.connection.execute("PRAGMA synchronous = NORMAL")
         self.connection.commit()
 
     def save_copy_candidates(self, candidates: Iterable[CopyCandidate]) -> None:

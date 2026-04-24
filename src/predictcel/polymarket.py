@@ -151,7 +151,12 @@ class PolymarketPublicClient:
     def _get_json(self, url: str) -> Any:
         with self._cache_lock:
             if url in self._request_cache:
-                return self._request_cache[url]
+                cached = self._request_cache[url]
+                if isinstance(cached, dict) and cached.get("_cached_at"):
+                    if time.time() - cached["_cached_at"] < 300:  # 5 min TTL
+                        return {k: v for k, v in cached.items() if k != "_cached_at"}
+                elif not isinstance(cached, dict):
+                    return cached
 
         request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
         for attempt in range(self.max_retries):
@@ -159,6 +164,8 @@ class PolymarketPublicClient:
                 with urlopen(request, timeout=self.timeout_seconds) as response:
                     payload = json.loads(response.read().decode("utf-8"))
                     with self._cache_lock:
+                        if isinstance(payload, dict):
+                            payload["_cached_at"] = time.time()
                         self._request_cache[url] = payload
                     return payload
             except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
@@ -29,25 +30,40 @@ class CopyEngine:
         market_not_found = 0
         basket_not_found = 0
         rejection_counts: Counter[str] = Counter()
-        for market_id, market_trades in grouped.items():
+
+        def process_market(market_id: str, market_trades: list[WalletTrade]) -> tuple[list[CopyCandidate], int, int, Counter]:
+            local_candidates = []
+            local_market_not_found = 0
+            local_basket_not_found = 0
+            local_rejection_counts = Counter()
             market = markets.get(market_id)
             if market is None:
-                market_not_found += 1
-                rejection_counts["market_not_found"] += 1
-                continue
+                local_market_not_found += 1
+                local_rejection_counts["market_not_found"] += 1
+                return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
 
             topic = self._resolve_topic(market_trades)
             basket = self.baskets_by_topic.get(topic)
             if basket is None:
-                basket_not_found += 1
-                rejection_counts["basket_not_found"] += 1
-                continue
+                local_basket_not_found += 1
+                local_rejection_counts["basket_not_found"] += 1
+                return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
 
             candidate, rejection_reason = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities)
             if candidate is not None:
-                candidates.append(candidate)
+                local_candidates.append(candidate)
             elif rejection_reason is not None:
-                rejection_counts[rejection_reason] += 1
+                local_rejection_counts[rejection_reason] += 1
+            return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
+
+        with ThreadPoolExecutor(max_workers=min(8, len(grouped))) as executor:
+            futures = {executor.submit(process_market, market_id, market_trades): market_id for market_id, market_trades in grouped.items()}
+            for future in as_completed(futures):
+                local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts = future.result()
+                candidates.extend(local_candidates)
+                market_not_found += local_market_not_found
+                basket_not_found += local_basket_not_found
+                rejection_counts.update(local_rejection_counts)
 
         filtered_at_evaluate = sum(
             count
