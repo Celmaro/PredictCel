@@ -14,7 +14,7 @@
     "max_trade_age_seconds": 43200,
     "max_price_drift": 0.65,
     "min_liquidity_usd": 500,
-    "min_minutes_to_resolution": 1,
+    "min_minutes_to_resolution": 30,
     "max_minutes_to_resolution": 43200,
     "min_position_size_usd": 1
   },
