@@ -240,42 +240,34 @@ class SignalStore:
         row = cursor.fetchone()
         return float(row[0]) if row else 0.0
 
-    def get_portfolio_summary(self, starting_bankroll_usd: float) -> dict[str, float | int]:
-        cursor = self.connection.cursor()
-        cursor.execute(
-            """
-            SELECT
-                COALESCE(SUM(CASE WHEN status IN ('open', 'closing') THEN entry_amount_usd ELSE 0 END), 0.0),
-                COALESCE(SUM(CASE WHEN status IN ('open', 'closing') THEN unrealized_pnl ELSE 0 END), 0.0),
-                COALESCE(SUM(CASE WHEN status = 'closed' THEN unrealized_pnl ELSE 0 END), 0.0),
-                SUM(CASE WHEN status IN ('open', 'closing') THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status = 'closed' AND unrealized_pnl > 0 THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status = 'closed' AND unrealized_pnl <= 0 THEN 1 ELSE 0 END)
-            FROM positions
-            """
-        )
-        row = cursor.fetchone() or (0, 0, 0, 0, 0, 0, 0)
-        open_count = int(row[3] or 0)
-        closed_count = int(row[4] or 0)
-        wins = int(row[5] or 0)
-        losses = int(row[6] or 0)
-        realized_pnl = round(float(row[2] or 0.0), 4)
-        unrealized_pnl = round(float(row[1] or 0.0), 4)
-        win_rate = round(wins / closed_count, 4) if closed_count else 0.0
+    def get_portfolio_var(self, confidence_level: float = 0.95, time_horizon_days: int = 1) -> float:
+        """Calculate Value at Risk for current portfolio using historical volatility proxy."""
+        positions = self.get_open_positions()
+        if not positions:
+            return 0.0
 
-        return {
-            "starting_bankroll_usd": round(starting_bankroll_usd, 4),
-            "current_exposure_usd": round(float(row[0] or 0.0), 4),
-            "open_position_count": open_count,
-            "closed_position_count": closed_count,
-            "wins": wins,
-            "losses": losses,
-            "win_rate": win_rate,
-            "realized_pnl_usd": realized_pnl,
-            "unrealized_pnl_usd": unrealized_pnl,
-            "estimated_equity_usd": round(starting_bankroll_usd + realized_pnl + unrealized_pnl, 4),
-        }
+        total_exposure = sum(pos.entry_amount_usd for pos in positions)
+        if total_exposure == 0:
+            return 0.0
+
+        # Simplified VaR: assume 2% daily volatility per position, correlation 0.3
+        position_vars = []
+        for pos in positions:
+            # Estimate position volatility from spread or assume 2%
+            volatility = 0.02  # Placeholder: in real impl, use historical data
+            position_var = pos.entry_amount_usd * volatility * (time_horizon_days ** 0.5)
+            position_vars.append(position_var)
+
+        # Portfolio VaR with correlation
+        correlation = 0.3
+        portfolio_volatility = (sum(v**2 for v in position_vars) + 2 * correlation * sum(
+            position_vars[i] * position_vars[j] for i in range(len(position_vars)) for j in range(i+1, len(position_vars))
+        )) ** 0.5
+
+        # Normal distribution VaR
+        import math
+        z_score = {0.95: 1.645, 0.99: 2.326}.get(confidence_level, 1.645)
+        return portfolio_volatility * z_score
 
     def save_position(self, position: Position) -> None:
         self.save_positions([position])

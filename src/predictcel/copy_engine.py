@@ -20,6 +20,7 @@ class CopyEngine:
         trades: list[WalletTrade],
         markets: dict[str, MarketSnapshot],
         wallet_qualities: dict[str, WalletQuality] | None = None,
+        store: Any = None,
     ) -> list[CopyCandidate]:
         wallet_qualities = wallet_qualities or {}
         grouped: dict[str, list[WalletTrade]] = {}
@@ -49,7 +50,7 @@ class CopyEngine:
                 local_rejection_counts["basket_not_found"] += 1
                 return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
 
-            candidate, rejection_reason = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities)
+            candidate, rejection_reason = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities, store)
             if candidate is not None:
                 local_candidates.append(candidate)
             elif rejection_reason is not None:
@@ -93,6 +94,7 @@ class CopyEngine:
         market: MarketSnapshot,
         trades: list[WalletTrade],
         wallet_qualities: dict[str, WalletQuality],
+        store: Any = None,
     ) -> tuple[CopyCandidate | None, str | None]:
         wallet_set = self.basket_wallets_by_topic.get(topic, set())
         max_age = self.config.filters.max_trade_age_seconds
@@ -172,7 +174,7 @@ class CopyEngine:
             recency_half_life_seconds=self.config.consensus.recency_half_life_seconds,
         )
         copyability_score = round(max(0.0, min(1.0, (base_score * 0.70) + (confidence_score * 0.15) + (recency_score * 0.10) + (regime.score * 0.05) - conflict_penalty)), 4)
-        suggested_position_usd = self._suggested_position_size(current_price, confidence_score, copyability_score)
+        suggested_position_usd = self._suggested_position_size(current_price, confidence_score, copyability_score, store)
 
         return CopyCandidate(
             topic=topic,
@@ -248,27 +250,46 @@ class CopyEngine:
         if not config.enabled:
             return MarketRegime("DISABLED", 0.5, "market regime scoring disabled")
 
+        # Volatility-based clustering
+        volatility_score = min(side_spread / 0.05, 1.0)  # Normalize spread as volatility proxy
+        depth_score = min(side_depth_usd / 1000, 1.0)    # Depth stability proxy
+
         if side_spread > config.max_stable_spread or side_depth_usd < config.min_depth_usd:
-            score = max(0.0, 0.5 - config.unstable_penalty)
-            return MarketRegime("UNSTABLE", round(score, 4), "spread or top-of-book depth failed stable regime thresholds")
+            score = max(0.0, 0.5 - config.unstable_penalty - 0.1 * volatility_score)
+            return MarketRegime("UNSTABLE", round(score, 4), f"spread={side_spread:.4f}, depth=${side_depth_usd:.0f}, volatility={volatility_score:.2f}")
 
         skew = abs(current_price - 0.5)
         if skew >= config.trend_price_skew:
             directional_match = (side == "YES" and current_price > 0.5) or (side == "NO" and current_price < 0.5)
             score = 0.75 + config.trend_bonus if directional_match else 0.60
-            return MarketRegime("TREND", round(min(score, 1.0), 4), "price is directionally skewed with stable orderbook conditions")
+            score += 0.05 * (1 - volatility_score)  # Bonus for low volatility in trend
+            return MarketRegime("TREND", round(min(score, 1.0), 4), f"price skew={skew:.3f}, directional_match={directional_match}, volatility={volatility_score:.2f}")
 
         if skew <= config.range_price_skew:
-            return MarketRegime("RANGE", round(min(0.65 + config.range_bonus, 1.0), 4), "price is near the midpoint with stable two-sided conditions")
+            score = round(min(0.65 + config.range_bonus + 0.1 * depth_score, 1.0), 4)
+            return MarketRegime("RANGE", score, f"price near midpoint, depth_score={depth_score:.2f}")
 
-        return MarketRegime("TRANSITION", 0.55, "price is between range and trend thresholds")
+        score = 0.55 + 0.05 * (1 - volatility_score)
+        return MarketRegime("TRANSITION", round(min(score, 1.0), 4), f"between range/trend thresholds, volatility={volatility_score:.2f}")
 
-    def _suggested_position_size(self, price: float, confidence_score: float, copyability_score: float) -> float:
+    def _suggested_position_size(self, price: float, confidence_score: float, copyability_score: float, store: Any = None) -> float:
         if price <= 0 or price >= 1:
             return 0.0
         b = (1.0 - price) / price
         p = max(0.0, min(1.0, (confidence_score + copyability_score) / 2.0))
+
+        # Dynamic Kelly adjustment based on recent performance
+        kelly_multiplier = 1.0
+        if store:
+            summary = store.get_portfolio_summary()
+            recent_win_rate = summary.get("win_rate", 0.5)
+            if recent_win_rate < 0.4:
+                kelly_multiplier = 0.5  # Reduce risk if losing
+            elif recent_win_rate > 0.6:
+                kelly_multiplier = 1.2  # Increase if winning
+
+        adjusted_kelly = self.config.consensus.kelly_fraction * kelly_multiplier
         q = 1.0 - p
         kelly_fraction = max(0.0, ((b * p) - q) / b) if b > 0 else 0.0
-        raw_size = self.config.consensus.bankroll_usd * kelly_fraction * self.config.consensus.kelly_fraction
+        raw_size = self.config.consensus.bankroll_usd * kelly_fraction * adjusted_kelly
         return round(min(max(raw_size, 0.0), self.config.consensus.max_suggested_position_usd), 4)

@@ -10,13 +10,51 @@ class ArbitrageSidecar:
     def __init__(self, config: ArbitrageConfig) -> None:
         self.config = config
 
-    def scan(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
-        opportunities: list[ArbitrageOpportunity] = []
-        for market in markets.values():
-            opportunity = self._evaluate_market(market)
-            if opportunity is not None:
-                opportunities.append(opportunity)
-        return sorted(opportunities, key=lambda item: (item.quality_score, item.net_edge), reverse=True)
+    def scan_multi_market(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
+        """Detect arbitrage opportunities across correlated markets."""
+        opportunities = []
+        market_list = list(markets.values())
+
+        # Simple correlation proxy: same topic
+        topic_groups = {}
+        for market in market_list:
+            topic_groups.setdefault(market.topic, []).append(market)
+
+        for topic, group in topic_groups.items():
+            if len(group) < 2:
+                continue
+
+            # Check for opposing positions with arb potential
+            for i, market1 in enumerate(group):
+                for market2 in group[i+1:]:
+                    # If one market is YES heavy and other NO heavy, potential arb
+                    if (market1.yes_ask < 0.5 and market2.no_ask < 0.5) or (market1.no_ask < 0.5 and market2.yes_ask < 0.5):
+                        # Simplified: if both have low costs, create opportunity
+                        combined_cost = (market1.yes_ask + market1.no_ask + market2.yes_ask + market2.no_ask) / 2
+                        if combined_cost < 1.0:
+                            opportunities.append(ArbitrageOpportunity(
+                                market_id=f"{market1.market_id}+{market2.market_id}",
+                                topic=topic,
+                                yes_ask=market1.yes_ask,
+                                no_ask=market1.no_ask,
+                                total_cost=combined_cost,
+                                gross_edge=1.0 - combined_cost,
+                                liquidity_usd=min(market1.liquidity_usd, market2.liquidity_usd),
+                                reason="multi-market arbitrage across correlated topics",
+                                net_edge=1.0 - combined_cost,  # Simplified
+                                annualized_return=0.0,  # Would need calculation
+                                min_profitable_position=5.0,
+                                safe_position_size=10.0,
+                                quality_score=0.5,
+                                liquidity_score=0.5,
+                                speed_score=0.5,
+                                confidence_score=0.5,
+                                gas_cost_percentage=0.0,
+                                resolution_risk="MEDIUM",
+                                estimated_slippage=0.001,
+                                best_execution_path="multi-market",
+                            ))
+        return opportunities
 
     def _evaluate_market(self, market: MarketSnapshot) -> ArbitrageOpportunity | None:
         if market.liquidity_usd < self.config.min_liquidity_usd:

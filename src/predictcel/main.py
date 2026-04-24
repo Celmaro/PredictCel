@@ -79,7 +79,7 @@ def main() -> None:
 
     started = time.perf_counter()
     copy_engine = CopyEngine(config)
-    copy_candidates = copy_engine.evaluate(trades, markets, wallet_qualities)
+    copy_candidates = copy_engine.evaluate(trades, markets, wallet_qualities, store)
     copy_engine_diagnostics = getattr(copy_engine, "last_diagnostics", {})
     timings["copy_engine_ms"] = _elapsed_ms(started)
 
