@@ -132,10 +132,12 @@ def test_execution_planner_selects_top_copyable_markets() -> None:
 
     assert len(intents) == 2
     assert intents[0].market_id == "m1"
+    assert intents[0].market_title == "One"
     assert intents[0].token_id == "yes_1"
     assert intents[0].worst_price == 0.62
     assert intents[0].amount_usd == 25.0
     assert intents[1].market_id == "m2"
+    assert intents[1].market_title == "Two"
     assert intents[1].token_id == "no_2"
 
 
@@ -229,6 +231,88 @@ def test_execution_planner_skips_missing_depth_or_token() -> None:
     assert intents == []
 
 
+def test_execution_planner_skips_markets_resolving_within_30_minutes() -> None:
+    config = make_execution_config()
+    planner = ExecutionPlanner(config, config.position)
+    candidates = [
+        CopyCandidate(
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            consensus_ratio=0.67,
+            reference_price=0.58,
+            current_price=0.6,
+            liquidity_usd=12000,
+            source_wallets=["w1", "w2"],
+            wallet_quality_score=0.8,
+            copyability_score=0.83,
+            reason="ok",
+        )
+    ]
+    markets = {
+        "m1": MarketSnapshot(
+            market_id="m1",
+            topic="geopolitics",
+            title="One",
+            yes_ask=0.6,
+            no_ask=0.39,
+            best_bid=0.58,
+            liquidity_usd=12000,
+            minutes_to_resolution=29,
+            yes_token_id="yes_1",
+            no_token_id="no_1",
+            yes_ask_size=100,
+            no_ask_size=80,
+            orderbook_ready=True,
+        )
+    }
+
+    intents = planner.plan(candidates, markets, held_market_ids=set(), current_exposure_usd=0.0)
+
+    assert intents == []
+
+
+def test_execution_planner_skips_late_price_entries() -> None:
+    config = make_execution_config()
+    planner = ExecutionPlanner(config, config.position)
+    candidates = [
+        CopyCandidate(
+            topic="crypto",
+            market_id="m1",
+            side="YES",
+            consensus_ratio=0.67,
+            reference_price=0.54,
+            current_price=0.96,
+            liquidity_usd=12000,
+            source_wallets=["w1", "w2"],
+            wallet_quality_score=0.8,
+            copyability_score=0.83,
+            reason="ok",
+        )
+    ]
+    markets = {
+        "m1": MarketSnapshot(
+            market_id="m1",
+            topic="crypto",
+            title="Late",
+            yes_ask=0.96,
+            no_ask=0.03,
+            best_bid=0.95,
+            liquidity_usd=12000,
+            minutes_to_resolution=180,
+            yes_token_id="yes_1",
+            no_token_id="no_1",
+            yes_ask_size=100,
+            no_ask_size=80,
+            orderbook_ready=True,
+        )
+    }
+
+    intents = planner.plan(candidates, markets, held_market_ids=set(), current_exposure_usd=0.0)
+
+    assert intents == []
+
+
 def test_live_order_executor_returns_dry_run_results() -> None:
     config = make_execution_config()
     executor = LiveOrderExecutor(config, make_live_data())
@@ -274,6 +358,7 @@ def test_live_order_executor_returns_dry_run_results() -> None:
     results = executor.execute(intents)
 
     assert len(results) == 1
+    assert results[0].market_title == "One"
     assert results[0].status == "dry_run"
     assert results[0].order_id == ""
     assert results[0].error == ""
@@ -320,8 +405,10 @@ def test_exit_runner_creates_close_intent_without_mutating_status() -> None:
     intents, updated = runner.evaluate_and_close(positions, markets)
 
     assert len(intents) == 1
+    assert intents[0].market_title == "One"
     assert intents[0].side == "CLOSE"
     assert intents[0].token_id == "yes_1"
+    assert updated[0].market_title == "One"
     assert updated[0].status == "open"
     assert updated[0].unrealized_pnl > 0
 
@@ -339,9 +426,11 @@ def test_live_executor_dry_run_preserves_close_side() -> None:
             copyability_score=0.0,
             order_type="FOK",
             reason="take profit",
+            market_title="One",
         )
     ])
 
+    assert results[0].market_title == "One"
     assert results[0].side == "CLOSE"
     assert results[0].status == "dry_run"
 
