@@ -15,6 +15,19 @@ from predictcel.copy_engine import CopyEngine
 from predictcel.models import MarketSnapshot, WalletQuality, WalletTrade
 
 
+class CountingStore:
+    def __init__(self, win_rate: float = 0.5) -> None:
+        self.win_rate = win_rate
+        self.calls = 0
+
+    def get_portfolio_summary(self, starting_bankroll_usd: float = 0.0):
+        self.calls += 1
+        return {
+            "starting_bankroll_usd": starting_bankroll_usd,
+            "win_rate": self.win_rate,
+        }
+
+
 def make_config(consensus: ConsensusConfig | None = None) -> AppConfig:
     return AppConfig(
         baskets=[BasketRule(topic="geopolitics", wallets=["w1", "w2", "w3"], quorum_ratio=0.66)],
@@ -222,6 +235,27 @@ def test_records_low_liquidity_rejection() -> None:
 
     assert candidates == []
     assert engine.last_diagnostics["low_liquidity"] == 1
+
+
+def test_evaluate_reads_portfolio_summary_once_before_threading() -> None:
+    engine = CopyEngine(make_config(ConsensusConfig(min_confidence_score=0.20, bankroll_usd=1000.0, kelly_fraction=1.0, max_suggested_position_usd=12.0)))
+    store = CountingStore(win_rate=0.65)
+    markets = {
+        "m1": replace(make_market(), market_id="m1", yes_ask=0.40),
+        "m2": replace(make_market(), market_id="m2", yes_ask=0.41),
+    }
+    trades = [
+        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.39, size_usd=300, age_seconds=60),
+        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.40, size_usd=300, age_seconds=60),
+        WalletTrade(wallet="w1", topic="geopolitics", market_id="m2", side="YES", price=0.40, size_usd=300, age_seconds=60),
+        WalletTrade(wallet="w2", topic="geopolitics", market_id="m2", side="YES", price=0.41, size_usd=300, age_seconds=60),
+    ]
+
+    candidates = engine.evaluate(trades, markets, make_qualities(), store)
+
+    assert len(candidates) == 2
+    assert store.calls == 1
+    assert all(candidate.suggested_position_usd > 0 for candidate in candidates)
 
 
 def test_evaluate_with_no_trades_returns_empty_diagnostics() -> None:
