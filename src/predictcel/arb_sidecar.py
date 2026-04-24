@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-import pandas as pd
-import statsmodels.api as sm
 
 from .config import ArbitrageConfig
 from .models import ArbitrageOpportunity, MarketSnapshot
@@ -26,6 +24,8 @@ class ArbitrageSidecar:
 
     def scan_multi_market(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
         """Detect arbitrage opportunities across correlated markets using statistical analysis."""
+        import pandas as pd
+        import statsmodels.api as sm
         opportunities = []
         market_list = list(markets.values())
 

@@ -7,10 +7,6 @@ import logging
 import pickle
 import os
 
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
@@ -26,17 +22,33 @@ class CopyEngine:
         self.baskets_by_topic = {basket.topic: basket for basket in config.baskets}
         self.basket_wallets_by_topic = {basket.topic: set(basket.wallets) for basket in config.baskets}
         self.last_diagnostics: dict[str, int] = {}
-        self.ml_model = None
+        self._ml_model = None
+        self._ml_model_loaded = False
         self._load_ml_model()
 
-    def _load_ml_model(self) -> None:
-        model_path = "position_sizing_model.pkl"
-        if os.path.exists(model_path):
+    def _load_ml_model(self) -> Any | None:
+        if self._ml_model_loaded:
+            return self._ml_model
+        model_path = os.path.join(os.path.dirname(__file__), "position_sizing_model.pkl")
+        if not os.path.exists(model_path):
+            self._ml_model_loaded = True
+            return None
+        try:
+            from sklearn.ensemble import RandomForestRegressor
+            from sklearn.metrics import mean_squared_error
+            from sklearn.model_selection import train_test_split
             with open(model_path, "rb") as f:
-                self.ml_model = pickle.load(f)
+                self._ml_model = pickle.load(f)
+        except Exception:
+            self._ml_model = None
+        self._ml_model_loaded = True
+        return self._ml_model
 
     def train_position_sizing_model(self, backtest_data: list[dict]) -> None:
         """Train ML model on backtest data for position sizing."""
+        from sklearn.ensemble import RandomForestRegressor
+        from sklearn.metrics import mean_squared_error
+        from sklearn.model_selection import train_test_split
         features = []
         targets = []
         for record in backtest_data:
@@ -65,7 +77,7 @@ class CopyEngine:
 
         with open("position_sizing_model.pkl", "wb") as f:
             pickle.dump(model, f)
-        self.ml_model = model
+        self._ml_model = model
 
     def evaluate(
         self,
@@ -363,7 +375,8 @@ class CopyEngine:
             elif win_rate > 0.6:
                 kelly_multiplier = 1.2
 
-        if self.ml_model:
+        # Use ML model if available
+        if self._ml_model:
             features = [
                 confidence_score,
                 copyability_score,
@@ -372,7 +385,8 @@ class CopyEngine:
                 win_rate,
                 1000,
             ]
-            ml_prediction = self.ml_model.predict([features])[0]
+            ml_prediction = self._ml_model.predict([features])[0]
+            # Assume model predicts optimal fraction of bankroll
             raw_size = self.config.consensus.bankroll_usd * max(0.0, min(1.0, ml_prediction)) * kelly_multiplier
             logger.debug(f"ML position sizing: predicted fraction {ml_prediction:.4f}, size {raw_size:.2f}")
         else:

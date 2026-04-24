@@ -169,7 +169,7 @@ class LiveOrderExecutor:
                 status = str(response.get("status") or "submitted") if isinstance(response, dict) else "submitted"
                 error = str(response.get("errorMsg") or "") if isinstance(response, dict) else ""
 
-                if isinstance(response, dict) and response.get("status") == 429:
+                if isinstance(response, dict) and str(response.get("status")) == "429":
                     raise RuntimeError("Rate limited (429)")
 
                 return ExecutionResult(

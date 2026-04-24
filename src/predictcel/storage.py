@@ -81,6 +81,23 @@ class SignalStore:
         )
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS open_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                side TEXT NOT NULL,
+                token_id TEXT NOT NULL,
+                order_type TEXT NOT NULL,
+                price REAL NOT NULL,
+                amount REAL NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS signal_fingerprints (
                 fingerprint TEXT PRIMARY KEY,
                 market_id TEXT NOT NULL,
@@ -94,6 +111,7 @@ class SignalStore:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_fingerprints_market_topic_side ON signal_fingerprints(market_id, topic, side)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_status_market ON positions(status, market_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_positions_opened_at ON positions(opened_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_open_orders_status_market ON open_orders(status, market_id)")
         self.connection.execute("PRAGMA synchronous = NORMAL")
         self.connection.commit()
 
