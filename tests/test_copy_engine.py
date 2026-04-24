@@ -108,6 +108,7 @@ def test_emits_candidate_when_quorum_and_drift_pass() -> None:
     assert len(candidates) == 1
     assert candidates[0].side == "YES"
     assert candidates[0].market_id == "m1"
+    assert candidates[0].market_title == "Example"
     assert candidates[0].topic == "geopolitics"
     assert candidates[0].wallet_quality_score == 0.75
     assert candidates[0].weighted_consensus >= 0.6
@@ -131,6 +132,20 @@ def test_skips_candidate_when_drift_is_too_large() -> None:
 
     assert candidates == []
     assert engine.last_diagnostics["too_much_drift"] == 1
+
+
+def test_skips_candidate_when_price_is_too_late() -> None:
+    engine = CopyEngine(make_config())
+    late_market = replace(make_market(), yes_ask=0.97)
+    trades = [
+        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.90, size_usd=200, age_seconds=600),
+        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.91, size_usd=220, age_seconds=800),
+    ]
+
+    candidates = engine.evaluate(trades, {"m1": late_market}, make_qualities())
+
+    assert candidates == []
+    assert engine.last_diagnostics["too_late_price"] == 1
 
 
 def test_weighted_consensus_can_reject_raw_quorum_with_stale_low_quality_votes() -> None:
