@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from .config import ArbitrageConfig
 from .models import ArbitrageOpportunity, MarketSnapshot
@@ -8,6 +9,24 @@ from .models import ArbitrageOpportunity, MarketSnapshot
 logger = logging.getLogger(__name__)
 
 MINUTES_PER_YEAR = 525_600
+
+
+def _get_pd():
+    """Lazy import of pandas. Returns None if not installed."""
+    try:
+        import pandas as pd
+        return pd
+    except ImportError:
+        return None
+
+
+def _get_sm():
+    """Lazy import of statsmodels. Returns None if not installed."""
+    try:
+        import statsmodels.api as sm
+        return sm
+    except ImportError:
+        return None
 
 
 class ArbitrageSidecar:
@@ -24,13 +43,15 @@ class ArbitrageSidecar:
 
     def scan_multi_market(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
         """Detect arbitrage opportunities across correlated markets using statistical analysis."""
-        import pandas as pd
-        import statsmodels.api as sm
+        pd = _get_pd()
+        if pd is None:
+            logger.warning("pandas not installed; scan_multi_market is unavailable")
+            return []
+
         opportunities = []
         market_list = list(markets.values())
 
-        # Group by topic for potential correlation
-        topic_groups = {}
+        topic_groups: dict[str, list[MarketSnapshot]] = {}
         for market in market_list:
             topic_groups.setdefault(market.topic, []).append(market)
 
@@ -38,36 +59,32 @@ class ArbitrageSidecar:
             if len(group) < 2:
                 continue
 
-            # Compute correlations between market prices
-            prices = {m.market_id: (m.yes_ask + m.no_ask) / 2 for m in group}
-            df = pd.DataFrame(list(prices.items()), columns=['market', 'price'])
+            prices: dict[str, float] = {m.market_id: (m.yes_ask + m.no_ask) / 2 for m in group}
+            df = pd.DataFrame(list(prices.items()), columns=["market", "price"])
             if len(df) < 2:
                 continue
 
-            # Simple correlation matrix
-            corr_matrix = df.set_index('market').T.corr()
-            high_corr_pairs = []
+            corr_matrix = df.set_index("market").T.corr()
+            high_corr_pairs: list[tuple[str, str, float]] = []
             for i in range(len(corr_matrix)):
-                for j in range(i+1, len(corr_matrix)):
+                for j in range(i + 1, len(corr_matrix)):
                     corr = corr_matrix.iloc[i, j]
-                    if abs(corr) > 0.5:  # High correlation threshold
+                    if abs(corr) > 0.5:
                         market1 = corr_matrix.index[i]
                         market2 = corr_matrix.index[j]
                         high_corr_pairs.append((market1, market2, corr))
 
-            logger.info(f"Found {len(high_corr_pairs)} highly correlated market pairs in topic {topic}")
+            logger.info("Found %d highly correlated market pairs in topic %s", len(high_corr_pairs), topic)
             for market1_id, market2_id, corr in high_corr_pairs:
                 market1 = markets[market1_id]
                 market2 = markets[market2_id]
 
-                # Check for arbitrage: if correlated markets have opposing mispricings
-                # Simplified: if one is overpriced and other underpriced
                 avg_price1 = (market1.yes_ask + market1.no_ask) / 2
                 avg_price2 = (market2.yes_ask + market2.no_ask) / 2
-                if abs(avg_price1 - avg_price2) > 0.1:  # Significant difference
+                if abs(avg_price1 - avg_price2) > 0.1:
                     combined_cost = avg_price1 + avg_price2
                     if combined_cost < 1.0:
-                        logger.info(f"Cross-asset arbitrage opportunity detected: {market1_id} + {market2_id} with correlation {corr:.2f}")
+                        logger.info("Cross-asset arb: %s + %s corr=%.2f", market1_id, market2_id, corr)
                         opportunities.append(ArbitrageOpportunity(
                             market_id=f"{market1_id}+{market2_id}",
                             topic=topic,
