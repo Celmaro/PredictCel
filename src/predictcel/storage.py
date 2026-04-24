@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
@@ -8,6 +9,8 @@ from pathlib import Path
 from typing import Iterable
 
 from .models import ArbitrageOpportunity, CopyCandidate, ExecutionResult, Position
+
+logger = logging.getLogger(__name__)
 
 ACTIVE_POSITION_STATUSES = ("open", "closing")
 
@@ -240,34 +243,71 @@ class SignalStore:
         row = cursor.fetchone()
         return float(row[0]) if row else 0.0
 
-    def get_portfolio_var(self, confidence_level: float = 0.95, time_horizon_days: int = 1) -> float:
-        """Calculate Value at Risk for current portfolio using historical volatility proxy."""
+    def get_portfolio_var(self, confidence_level: float = 0.95, time_horizon_days: int = 1, use_monte_carlo: bool = True, simulations: int = 10000) -> float:
+        """Calculate Value at Risk for current portfolio using historical volatility proxy or Monte Carlo simulations."""
         positions = self.get_open_positions()
         if not positions:
+            logger.info("No open positions for VaR calculation")
             return 0.0
 
         total_exposure = sum(pos.entry_amount_usd for pos in positions)
         if total_exposure == 0:
+            logger.info("Zero total exposure for VaR calculation")
             return 0.0
 
-        # Simplified VaR: assume 2% daily volatility per position, correlation 0.3
-        position_vars = []
-        for pos in positions:
-            # Estimate position volatility from spread or assume 2%
-            volatility = 0.02  # Placeholder: in real impl, use historical data
-            position_var = pos.entry_amount_usd * volatility * (time_horizon_days ** 0.5)
-            position_vars.append(position_var)
+        if use_monte_carlo:
+            var = self._monte_carlo_var(positions, confidence_level, time_horizon_days, simulations)
+            logger.info(f"Monte Carlo VaR calculated: {var:.2f} USD at {confidence_level:.0%} confidence")
+            return var
+        else:
+            # Original simplified VaR
+            position_vars = []
+            for pos in positions:
+                volatility = 0.02  # Placeholder
+                position_var = pos.entry_amount_usd * volatility * (time_horizon_days ** 0.5)
+                position_vars.append(position_var)
 
-        # Portfolio VaR with correlation
-        correlation = 0.3
-        portfolio_volatility = (sum(v**2 for v in position_vars) + 2 * correlation * sum(
-            position_vars[i] * position_vars[j] for i in range(len(position_vars)) for j in range(i+1, len(position_vars))
-        )) ** 0.5
+            correlation = 0.3
+            portfolio_volatility = (sum(v**2 for v in position_vars) + 2 * correlation * sum(
+                position_vars[i] * position_vars[j] for i in range(len(position_vars)) for j in range(i+1, len(position_vars))
+            )) ** 0.5
 
-        # Normal distribution VaR
+            import math
+            z_score = {0.95: 1.645, 0.99: 2.326}.get(confidence_level, 1.645)
+            var = portfolio_volatility * z_score
+            logger.info(f"Analytical VaR calculated: {var:.2f} USD at {confidence_level:.0%} confidence")
+            return var
+
+    def _monte_carlo_var(self, positions: list[Position], confidence_level: float, time_horizon_days: int, simulations: int) -> float:
+        """Perform Monte Carlo simulation for VaR under stress conditions."""
+        import numpy as np
         import math
-        z_score = {0.95: 1.645, 0.99: 2.326}.get(confidence_level, 1.645)
-        return portfolio_volatility * z_score
+
+        # Assume log-normal returns with stress-adjusted volatility
+        stress_volatility = 0.05  # 5% daily volatility under stress (e.g., 2008-style)
+        correlation_matrix = np.full((len(positions), len(positions)), 0.3)
+        np.fill_diagonal(correlation_matrix, 1.0)
+
+        # Cholesky decomposition for correlated random variables
+        chol = np.linalg.cholesky(correlation_matrix)
+
+        portfolio_losses = []
+        for _ in range(simulations):
+            # Generate correlated random returns
+            uncorrelated = np.random.normal(0, 1, len(positions))
+            correlated = chol @ uncorrelated
+            returns = correlated * stress_volatility * math.sqrt(time_horizon_days)
+
+            # Calculate portfolio loss
+            loss = sum(pos.entry_amount_usd * (1 - np.exp(ret)) for pos, ret in zip(positions, returns))
+            portfolio_losses.append(loss)
+
+        # VaR as the loss at the confidence level
+        portfolio_losses.sort()
+        var_index = int((1 - confidence_level) * simulations)
+        var = portfolio_losses[var_index] if var_index < len(portfolio_losses) else portfolio_losses[-1]
+        logger.debug(f"Monte Carlo VaR simulation completed with {simulations} runs")
+        return var
 
     def get_portfolio_summary(self, starting_bankroll_usd: float) -> dict[str, float | int]:
         cursor = self.connection.cursor()

@@ -2,10 +2,19 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+import pickle
+import os
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
 
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
+
+logger = logging.getLogger(__name__)
 
 
 class CopyEngine:
@@ -14,6 +23,47 @@ class CopyEngine:
         self.baskets_by_topic = {basket.topic: basket for basket in config.baskets}
         self.basket_wallets_by_topic = {basket.topic: set(basket.wallets) for basket in config.baskets}
         self.last_diagnostics: dict[str, int] = {}
+        self.ml_model = None
+        self._load_ml_model()
+
+    def _load_ml_model(self) -> None:
+        model_path = "position_sizing_model.pkl"
+        if os.path.exists(model_path):
+            with open(model_path, "rb") as f:
+                self.ml_model = pickle.load(f)
+
+    def train_position_sizing_model(self, backtest_data: list[dict]) -> None:
+        """Train ML model on backtest data for position sizing."""
+        features = []
+        targets = []
+        for record in backtest_data:
+            # Features: confidence_score, copyability_score, price, volatility, win_rate, etc.
+            feat = [
+                record.get("confidence_score", 0.5),
+                record.get("copyability_score", 0.5),
+                record.get("price", 0.5),
+                record.get("volatility", 0.02),
+                record.get("win_rate", 0.5),
+                record.get("liquidity_usd", 1000),
+            ]
+            target = record.get("actual_pnl", 0.0)  # Or optimal size
+            features.append(feat)
+            targets.append(target)
+
+        if not features:
+            logger.warning("No backtest data available for ML training")
+            return
+
+        X_train, X_test, y_train, y_test = train_test_split(features, targets, test_size=0.2, random_state=42)
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        mse = mean_squared_error(y_test, y_pred)
+        logger.info(f"ML position sizing model trained with MSE: {mse:.4f}")
+
+        with open("position_sizing_model.pkl", "wb") as f:
+            pickle.dump(model, f)
+        self.ml_model = model
 
     def evaluate(
         self,
@@ -280,16 +330,34 @@ class CopyEngine:
 
         # Dynamic Kelly adjustment based on recent performance
         kelly_multiplier = 1.0
+        win_rate = 0.5
         if store:
             summary = store.get_portfolio_summary()
-            recent_win_rate = summary.get("win_rate", 0.5)
-            if recent_win_rate < 0.4:
+            win_rate = summary.get("win_rate", 0.5)
+            if win_rate < 0.4:
                 kelly_multiplier = 0.5  # Reduce risk if losing
-            elif recent_win_rate > 0.6:
+            elif win_rate > 0.6:
                 kelly_multiplier = 1.2  # Increase if winning
 
-        adjusted_kelly = self.config.consensus.kelly_fraction * kelly_multiplier
-        q = 1.0 - p
-        kelly_fraction = max(0.0, ((b * p) - q) / b) if b > 0 else 0.0
-        raw_size = self.config.consensus.bankroll_usd * kelly_fraction * adjusted_kelly
+        # Use ML model if available
+        if self.ml_model:
+            features = [
+                confidence_score,
+                copyability_score,
+                price,
+                0.02,  # placeholder volatility
+                win_rate,
+                1000,  # placeholder liquidity
+            ]
+            ml_prediction = self.ml_model.predict([features])[0]
+            # Assume model predicts optimal fraction of bankroll
+            raw_size = self.config.consensus.bankroll_usd * max(0.0, min(1.0, ml_prediction)) * kelly_multiplier
+            logger.debug(f"ML position sizing: predicted fraction {ml_prediction:.4f}, size {raw_size:.2f}")
+        else:
+            adjusted_kelly = self.config.consensus.kelly_fraction * kelly_multiplier
+            q = 1.0 - p
+            kelly_fraction = max(0.0, ((b * p) - q) / b) if b > 0 else 0.0
+            raw_size = self.config.consensus.bankroll_usd * kelly_fraction * adjusted_kelly
+            logger.debug(f"Kelly position sizing: fraction {kelly_fraction:.4f}, size {raw_size:.2f}")
+
         return round(min(max(raw_size, 0.0), self.config.consensus.max_suggested_position_usd), 4)

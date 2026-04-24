@@ -116,6 +116,18 @@ def main() -> None:
     metrics.set("markets_loaded", len(markets))
     metrics.set("trades_loaded", len(trades))
 
+    # Calculate and log portfolio VaR
+    store = SignalStore(args.db)
+    var_95 = store.get_portfolio_var(confidence_level=0.95)
+    logger.info(f"Portfolio VaR (95%): {var_95:.2f} USD")
+
+    # Check for rebalancing needs
+    current_positions = [{"topic": pos.topic, "exposure_usd": pos.entry_amount_usd} for pos in store.get_open_positions()]
+    basket_planner = BasketManagerPlanner(config)
+    rebalance_actions = basket_planner.rebalance(current_positions)
+    if rebalance_actions:
+        logger.info(f"Rebalancing actions suggested: {len(rebalance_actions)}")
+
     started = time.perf_counter()
     scorer = WalletQualityScorer(config.filters, config.consensus.recency_half_life_seconds)
     wallet_qualities = scorer.score(trades, markets)
@@ -141,7 +153,6 @@ def main() -> None:
     close_intents: list = []
     close_results: list = []
     skipped_duplicate_signals = 0
-    store = SignalStore(args.db)
 
     started = time.perf_counter()
     if args.live_trading:

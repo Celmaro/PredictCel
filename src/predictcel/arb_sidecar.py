@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import logging
+import pandas as pd
+import statsmodels.api as sm
+
 from .config import ArbitrageConfig
 from .models import ArbitrageOpportunity, MarketSnapshot
+
+logger = logging.getLogger(__name__)
 
 MINUTES_PER_YEAR = 525_600
 
@@ -19,11 +25,11 @@ class ArbitrageSidecar:
         return sorted(opportunities, key=lambda item: (item.quality_score, item.net_edge), reverse=True)
 
     def scan_multi_market(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
-        """Detect arbitrage opportunities across correlated markets."""
+        """Detect arbitrage opportunities across correlated markets using statistical analysis."""
         opportunities = []
         market_list = list(markets.values())
 
-        # Simple correlation proxy: same topic
+        # Group by topic for potential correlation
         topic_groups = {}
         for market in market_list:
             topic_groups.setdefault(market.topic, []).append(market)
@@ -32,36 +38,58 @@ class ArbitrageSidecar:
             if len(group) < 2:
                 continue
 
-            # Check for opposing positions with arb potential
-            for i, market1 in enumerate(group):
-                for market2 in group[i+1:]:
-                    # If one market is YES heavy and other NO heavy, potential arb
-                    if (market1.yes_ask < 0.5 and market2.no_ask < 0.5) or (market1.no_ask < 0.5 and market2.yes_ask < 0.5):
-                        # Simplified: if both have low costs, create opportunity
-                        combined_cost = (market1.yes_ask + market1.no_ask + market2.yes_ask + market2.no_ask) / 2
-                        if combined_cost < 1.0:
-                            opportunities.append(ArbitrageOpportunity(
-                                market_id=f"{market1.market_id}+{market2.market_id}",
-                                topic=topic,
-                                yes_ask=market1.yes_ask,
-                                no_ask=market1.no_ask,
-                                total_cost=combined_cost,
-                                gross_edge=1.0 - combined_cost,
-                                liquidity_usd=min(market1.liquidity_usd, market2.liquidity_usd),
-                                reason="multi-market arbitrage across correlated topics",
-                                net_edge=1.0 - combined_cost,  # Simplified
-                                annualized_return=0.0,  # Would need calculation
-                                min_profitable_position=5.0,
-                                safe_position_size=10.0,
-                                quality_score=0.5,
-                                liquidity_score=0.5,
-                                speed_score=0.5,
-                                confidence_score=0.5,
-                                gas_cost_percentage=0.0,
-                                resolution_risk="MEDIUM",
-                                estimated_slippage=0.001,
-                                best_execution_path="multi-market",
-                            ))
+            # Compute correlations between market prices
+            prices = {m.market_id: (m.yes_ask + m.no_ask) / 2 for m in group}
+            df = pd.DataFrame(list(prices.items()), columns=['market', 'price'])
+            if len(df) < 2:
+                continue
+
+            # Simple correlation matrix
+            corr_matrix = df.set_index('market').T.corr()
+            high_corr_pairs = []
+            for i in range(len(corr_matrix)):
+                for j in range(i+1, len(corr_matrix)):
+                    corr = corr_matrix.iloc[i, j]
+                    if abs(corr) > 0.5:  # High correlation threshold
+                        market1 = corr_matrix.index[i]
+                        market2 = corr_matrix.index[j]
+                        high_corr_pairs.append((market1, market2, corr))
+
+            logger.info(f"Found {len(high_corr_pairs)} highly correlated market pairs in topic {topic}")
+            for market1_id, market2_id, corr in high_corr_pairs:
+                market1 = markets[market1_id]
+                market2 = markets[market2_id]
+
+                # Check for arbitrage: if correlated markets have opposing mispricings
+                # Simplified: if one is overpriced and other underpriced
+                avg_price1 = (market1.yes_ask + market1.no_ask) / 2
+                avg_price2 = (market2.yes_ask + market2.no_ask) / 2
+                if abs(avg_price1 - avg_price2) > 0.1:  # Significant difference
+                    combined_cost = avg_price1 + avg_price2
+                    if combined_cost < 1.0:
+                        logger.info(f"Cross-asset arbitrage opportunity detected: {market1_id} + {market2_id} with correlation {corr:.2f}")
+                        opportunities.append(ArbitrageOpportunity(
+                            market_id=f"{market1_id}+{market2_id}",
+                            topic=topic,
+                            yes_ask=market1.yes_ask,
+                            no_ask=market1.no_ask,
+                            total_cost=combined_cost,
+                            gross_edge=1.0 - combined_cost,
+                            liquidity_usd=min(market1.liquidity_usd, market2.liquidity_usd),
+                            reason=f"cross-asset arbitrage with correlation {corr:.2f}",
+                            net_edge=1.0 - combined_cost,
+                            annualized_return=0.0,
+                            min_profitable_position=5.0,
+                            safe_position_size=10.0,
+                            quality_score=0.6,
+                            liquidity_score=0.5,
+                            speed_score=0.5,
+                            confidence_score=0.5,
+                            gas_cost_percentage=0.0,
+                            resolution_risk="MEDIUM",
+                            estimated_slippage=0.001,
+                            best_execution_path="multi-market",
+                        ))
         return opportunities
 
     def _evaluate_market(self, market: MarketSnapshot) -> ArbitrageOpportunity | None:

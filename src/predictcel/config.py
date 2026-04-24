@@ -20,6 +20,7 @@ class BasketRule:
     topic: str
     wallets: list[str]
     quorum_ratio: float
+    target_allocation: float = 0.0  # Target percentage of total capital or wallets
 
 
 @dataclass(frozen=True)

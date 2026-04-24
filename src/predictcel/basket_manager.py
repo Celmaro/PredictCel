@@ -1,13 +1,111 @@
 from __future__ import annotations
 
+import logging
+
 from .config import AppConfig
 from .models import BasketAssignment, BasketManagerAction
+
+logger = logging.getLogger(__name__)
 
 
 class BasketManagerPlanner:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.current_by_topic = {basket.topic: {wallet.lower() for wallet in basket.wallets} for basket in config.baskets}
+
+    def plan(self, assignments: list[BasketAssignment]) -> list[BasketManagerAction]:
+        actions: list[BasketManagerAction] = []
+        added_by_basket: dict[str, int] = {topic: 0 for topic in self.current_by_topic}
+        planned_keys: set[tuple[str, str, str]] = set()
+
+        for assignment in sorted(assignments, key=lambda item: item.overall_score, reverse=True):
+            wallet_key = assignment.wallet_address.lower()
+            current_baskets = self._current_baskets(wallet_key)
+
+            for basket in current_baskets:
+                lifecycle_action = self._existing_wallet_action(basket, assignment)
+                if lifecycle_action is None:
+                    continue
+                action_key = (lifecycle_action.action, basket, wallet_key)
+                if action_key in planned_keys:
+                    continue
+                actions.append(lifecycle_action)
+                planned_keys.add(action_key)
+
+            if assignment.overall_score < self.config.wallet_discovery.min_assignment_score:
+                if not current_baskets:
+                    actions.append(self._action("observe", assignment.primary_topic, assignment, "below assignment score threshold"))
+                continue
+            if assignment.confidence == "LOW":
+                if not current_baskets:
+                    actions.append(self._action("observe", assignment.primary_topic, assignment, "low confidence assignment"))
+                continue
+
+            added = False
+            for basket in assignment.recommended_baskets:
+                current = self.current_by_topic.get(basket, set())
+                action_key = ("add", basket, wallet_key)
+                if wallet_key in current or action_key in planned_keys:
+                    continue
+                if len(current) + added_by_basket.get(basket, 0) >= self.config.wallet_discovery.max_wallets_per_basket:
+                    actions.append(self._action("observe", basket, assignment, "basket is at max wallet capacity"))
+                    continue
+                if added_by_basket.get(basket, 0) >= self.config.wallet_discovery.max_new_wallets_per_run:
+                    actions.append(self._action("observe", basket, assignment, "max new wallets per run reached"))
+                    continue
+                actions.append(self._action("add", basket, assignment, self._add_reason()))
+                planned_keys.add(action_key)
+                added_by_basket[basket] = added_by_basket.get(basket, 0) + 1
+                added = True
+            if not added and not assignment.recommended_baskets and not current_baskets:
+                actions.append(self._action("observe", assignment.primary_topic, assignment, "no configured basket matched topic profile"))
+
+        return actions
+
+    def rebalance(self, current_positions: list[dict]) -> list[BasketManagerAction]:
+        """Rebalance basket allocations to maintain target allocations, reducing concentration risk."""
+        actions: list[BasketManagerAction] = []
+        total_allocation = sum(basket.target_allocation for basket in self.config.baskets if basket.target_allocation > 0)
+        if total_allocation == 0:
+            logger.info("No target allocations set for baskets, skipping rebalancing")
+            return actions
+
+        # Calculate current allocations by topic (simplified as number of positions or exposure)
+        current_by_topic = {}
+        for pos in current_positions:
+            topic = pos.get('topic', 'unknown')
+            exposure = pos.get('exposure_usd', 0.0)
+            current_by_topic[topic] = current_by_topic.get(topic, 0.0) + exposure
+
+        total_exposure = sum(current_by_topic.values())
+        if total_exposure == 0:
+            logger.info("No current exposure, skipping rebalancing")
+            return actions
+
+        # Check for drift
+        drift_threshold = 0.05  # 5% drift
+        rebalance_needed = False
+        for basket in self.config.baskets:
+            if basket.target_allocation == 0:
+                continue
+            target_exposure = total_exposure * (basket.target_allocation / total_allocation)
+            current_exposure = current_by_topic.get(basket.topic, 0.0)
+            drift = abs(current_exposure - target_exposure) / target_exposure if target_exposure > 0 else 0
+            if drift > drift_threshold:
+                rebalance_needed = True
+                reason = f"Allocation drift {drift:.2%} exceeds threshold {drift_threshold:.2%}"
+                logger.warning(f"Rebalancing needed for basket {basket.topic}: {reason}")
+                actions.append(BasketManagerAction(
+                    action="rebalance",
+                    basket=basket.topic,
+                    wallet_address="",  # No specific wallet
+                    score=0.0,
+                    confidence="HIGH",
+                    reason=reason
+                ))
+        if not rebalance_needed:
+            logger.info("Portfolio allocations within acceptable drift thresholds")
+        return actions
 
     def plan(self, assignments: list[BasketAssignment]) -> list[BasketManagerAction]:
         actions: list[BasketManagerAction] = []
