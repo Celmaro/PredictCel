@@ -12,10 +12,10 @@
   },
   "filters": {
     "max_trade_age_seconds": 43200,
-    "max_price_drift": 0.15,
+    "max_price_drift": 0.25,
     "min_liquidity_usd": 500,
-    "min_minutes_to_resolution": 15,
-    "max_minutes_to_resolution": 10080,
+    "min_minutes_to_resolution": 5,
+    "max_minutes_to_resolution": 20160,
     "min_position_size_usd": 1
   },
   "arbitrage": {
@@ -37,7 +37,7 @@
   "execution": {
     "enabled": true,
     "dry_run": true,
-    "min_copyability_score": 0.45,
+    "min_copyability_score": 0.35,
     "max_orders_per_run": 1,
     "buy_amount_usd": 10,
     "min_signal_allocation_usd": 5,
@@ -59,10 +59,10 @@
   },
   "consensus": {
     "recency_half_life_seconds": 1800,
-    "min_weighted_consensus": 0.45,
-    "confidence_prior_strength": 2,
-    "min_confidence_score": 0.25,
-    "conflict_penalty_weight": 0.25,
+    "min_weighted_consensus": 0.35,
+    "confidence_prior_strength": 1,
+    "min_confidence_score": 0.15,
+    "conflict_penalty_weight": 0.15,
     "bankroll_usd": 100,
     "kelly_fraction": 0.25,
     "max_suggested_position_usd": 10
