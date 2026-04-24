@@ -7,10 +7,6 @@ import logging
 import pickle
 import os
 
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
-
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
@@ -32,11 +28,21 @@ class CopyEngine:
     def _load_ml_model(self) -> None:
         model_path = "position_sizing_model.pkl"
         if os.path.exists(model_path):
-            with open(model_path, "rb") as f:
-                self.ml_model = pickle.load(f)
+            try:
+                from sklearn.ensemble import RandomForestRegressor
+                from sklearn.metrics import mean_squared_error
+                from sklearn.model_selection import train_test_split
+                with open(model_path, "rb") as f:
+                    self.ml_model = pickle.load(f)
+            except Exception as exc:
+                logger.warning("ML model could not be loaded (%s). Position sizing will use Kelly formula.", exc)
 
     def train_position_sizing_model(self, backtest_data: list[dict]) -> None:
         """Train ML model on backtest data for position sizing."""
+        from sklearn.ensemble import RandomForestRegressor
+        from sklearn.metrics import mean_squared_error
+        from sklearn.model_selection import train_test_split
+
         features = []
         targets = []
         for record in backtest_data:
@@ -121,17 +127,17 @@ class CopyEngine:
             return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
 
         with ThreadPoolExecutor(max_workers=max(1, min(8, len(grouped)))) as executor:
-            futures = {executor.submit(process_market, market_id, market_trades): market_id for market_id, market_trades in grouped.items()}
+            futures = {executor.submit(process_market, market_id, market_trades): market_id
+                       for market_id, market_trades in grouped.items()}
             for future in as_completed(futures):
-                local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts = future.result()
+                local_candidates, lmn, lbn, lrc = future.result()
                 candidates.extend(local_candidates)
-                market_not_found += local_market_not_found
-                basket_not_found += local_basket_not_found
-                rejection_counts.update(local_rejection_counts)
+                market_not_found += lmn
+                basket_not_found += lbn
+                rejection_counts.update(lrc)
 
         filtered_at_evaluate = sum(
-            count
-            for reason, count in rejection_counts.items()
+            count for reason, count in rejection_counts.items()
             if reason not in {"market_not_found", "basket_not_found"}
         )
         self.last_diagnostics = {
@@ -163,8 +169,7 @@ class CopyEngine:
         max_age = self.config.filters.max_trade_age_seconds
         min_size = self.config.filters.min_position_size_usd
         valid_trades = [
-            trade
-            for trade in trades
+            trade for trade in trades
             if trade.topic == topic
             and trade.wallet in wallet_set
             and trade.age_seconds <= max_age
@@ -279,10 +284,10 @@ class CopyEngine:
         size_weight = min(max(trade.size_usd / max(self.config.filters.min_position_size_usd, 1.0), 0.25), 3.0)
         return max(quality_weight * recency_weight * size_weight, 0.0001)
 
-    def _weighted_reference_price(self, trades: list[WalletTrade], trade_weights: list[tuple[WalletTrade, float, str]] | None = None) -> float:
+    def _weighted_reference_price(self, trades: list[WalletTrade], trade_weights: list[tuple[WalletTrade, float, str]]) -> float:
         weighted_sum = 0.0
         total_weight = 0.0
-        if trade_weights is not None:
+        if trade_weights:
             for trade, weight, _ in trade_weights:
                 weighted_sum += trade.price * weight
                 total_weight += weight
@@ -291,11 +296,11 @@ class CopyEngine:
                 weight = self._trade_weight(trade, {})
                 weighted_sum += trade.price * weight
                 total_weight += weight
-        return weighted_sum / total_weight if total_weight else sum(trade.price for trade in trades) / len(trades)
+        return weighted_sum / total_weight if total_weight else sum(t.price for t in trades) / len(trades)
 
     def _confidence_score(self, aligned_weight: float, total_weight: float) -> float:
         prior = self.config.consensus.confidence_prior_strength
-        posterior_mean = (aligned_weight + prior * 0.5) / (total_weight + prior) if total_weight + prior else 0.0
+        posterior_mean = (aligned_weight + prior * 0.5) / (total_weight + prior)
         sample_strength = min(total_weight / (total_weight + prior), 1.0) if total_weight + prior else 0.0
         return round(max(0.0, min(1.0, posterior_mean * sample_strength)), 4)
 
@@ -311,35 +316,42 @@ class CopyEngine:
         weights = [0.5 ** (trade.age_seconds / self.config.consensus.recency_half_life_seconds) for trade in trades]
         return round(sum(weights) / len(weights), 4)
 
-    def _classify_market_regime(self, market: MarketSnapshot, side: str, current_price: float, side_spread: float, side_depth_usd: float) -> MarketRegime:
-        config = self.config.market_regime
-        if not config.enabled:
+    def _classify_market_regime(
+        self,
+        market: MarketSnapshot,
+        side: str,
+        current_price: float,
+        side_spread: float,
+        side_depth_usd: float,
+    ) -> MarketRegime:
+        cfg = self.config.market_regime
+        if not cfg.enabled:
             return MarketRegime("DISABLED", 0.5, "market regime scoring disabled")
 
         volatility_score = min(side_spread / 0.05, 1.0)
         depth_score = min(side_depth_usd / 1000, 1.0)
 
-        if side_spread > config.max_stable_spread or side_depth_usd < config.min_depth_usd:
-            score = max(0.0, 0.5 - config.unstable_penalty - 0.1 * volatility_score)
+        if side_spread > cfg.max_stable_spread or side_depth_usd < cfg.min_depth_usd:
+            score = max(0.0, 0.5 - cfg.unstable_penalty - 0.1 * volatility_score)
             return MarketRegime("UNSTABLE", round(score, 4), f"spread={side_spread:.4f}, depth=${side_depth_usd:.0f}, volatility={volatility_score:.2f}")
 
         skew = abs(current_price - 0.5)
-        if skew >= config.trend_price_skew:
+        if skew >= cfg.trend_price_skew:
             directional_match = (side == "YES" and current_price > 0.5) or (side == "NO" and current_price < 0.5)
-            score = 0.75 + config.trend_bonus if directional_match else 0.60
+            score = 0.75 + cfg.trend_bonus if directional_match else 0.60
             score += 0.05 * (1 - volatility_score)
             return MarketRegime("TREND", round(min(score, 1.0), 4), f"price skew={skew:.3f}, directional_match={directional_match}, volatility={volatility_score:.2f}")
 
-        if skew <= config.range_price_skew:
-            score = round(min(0.65 + config.range_bonus + 0.1 * depth_score, 1.0), 4)
+        if skew <= cfg.range_price_skew:
+            score = round(min(0.65 + cfg.range_bonus + 0.1 * depth_score, 1.0), 4)
             return MarketRegime("RANGE", score, f"price near midpoint, depth_score={depth_score:.2f}")
 
         score = 0.55 + 0.05 * (1 - volatility_score)
         return MarketRegime("TRANSITION", round(min(score, 1.0), 4), f"between range/trend thresholds, volatility={volatility_score:.2f}")
 
-    def _portfolio_summary(self, store: Any = None) -> dict[str, float | int]:
+    def _portfolio_summary(self, store: Any = None) -> dict[str, float | int] | None:
         if store is None:
-            return {}
+            return None
         return store.get_portfolio_summary(starting_bankroll_usd=self.config.consensus.bankroll_usd)
 
     def _suggested_position_size(
@@ -374,12 +386,12 @@ class CopyEngine:
             ]
             ml_prediction = self.ml_model.predict([features])[0]
             raw_size = self.config.consensus.bankroll_usd * max(0.0, min(1.0, ml_prediction)) * kelly_multiplier
-            logger.debug(f"ML position sizing: predicted fraction {ml_prediction:.4f}, size {raw_size:.2f}")
+            logger.debug(f"ML position sizing: predicted fraction {ml_prediction:.4f}, size ${raw_size:.2f}")
         else:
             adjusted_kelly = self.config.consensus.kelly_fraction * kelly_multiplier
             q = 1.0 - p
             kelly_fraction = max(0.0, ((b * p) - q) / b) if b > 0 else 0.0
             raw_size = self.config.consensus.bankroll_usd * kelly_fraction * adjusted_kelly
-            logger.debug(f"Kelly position sizing: fraction {kelly_fraction:.4f}, size {raw_size:.2f}")
+            logger.debug(f"Kelly position sizing: fraction={kelly_fraction:.4f}, size=${raw_size:.2f}")
 
         return round(min(max(raw_size, 0.0), self.config.consensus.max_suggested_position_usd), 4)
