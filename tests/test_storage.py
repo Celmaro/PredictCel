@@ -99,3 +99,17 @@ def test_signal_fingerprints_prevent_recent_duplicates() -> None:
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)
+
+
+def test_portfolio_var_falls_back_to_analytical_when_monte_carlo_unavailable() -> None:
+    store, db_path = make_store()
+    try:
+        store.save_position(make_position("m1", "open", 25.0))
+        store._monte_carlo_var = lambda *args, **kwargs: (_ for _ in ()).throw(ModuleNotFoundError("numpy"))
+
+        var = store.get_portfolio_var(use_monte_carlo=True)
+
+        assert var > 0.0
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
