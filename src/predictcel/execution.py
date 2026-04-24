@@ -15,7 +15,6 @@ from .models import (
     MarketSnapshot,
     Position,
 )
-
 MIN_ENTRY_MINUTES_TO_RESOLUTION = 30
 MAX_ENTRY_PRICE = 0.95
 
@@ -169,7 +168,7 @@ class LiveOrderExecutor:
                 status = str(response.get("status") or "submitted") if isinstance(response, dict) else "submitted"
                 error = str(response.get("errorMsg") or "") if isinstance(response, dict) else ""
 
-                if isinstance(response, dict) and str(response.get("status")) == "429":
+                if isinstance(response, dict) and str(response.get("status") or "") == "429":
                     raise RuntimeError("Rate limited (429)")
 
                 return ExecutionResult(
