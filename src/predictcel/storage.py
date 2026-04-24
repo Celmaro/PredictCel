@@ -335,18 +335,21 @@ class SignalStore:
                 SUM(CASE WHEN status IN ('open', 'closing') THEN 1 ELSE 0 END),
                 SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END),
                 SUM(CASE WHEN status = 'closed' AND unrealized_pnl > 0 THEN 1 ELSE 0 END),
-                SUM(CASE WHEN status = 'closed' AND unrealized_pnl <= 0 THEN 1 ELSE 0 END)
+                SUM(CASE WHEN status = 'closed' AND unrealized_pnl < 0 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN status = 'closed' AND unrealized_pnl = 0 THEN 1 ELSE 0 END)
             FROM positions
             """
         )
-        row = cursor.fetchone() or (0, 0, 0, 0, 0, 0, 0)
+        row = cursor.fetchone() or (0, 0, 0, 0, 0, 0, 0, 0)
         open_count = int(row[3] or 0)
         closed_count = int(row[4] or 0)
         wins = int(row[5] or 0)
         losses = int(row[6] or 0)
+        breakeven = int(row[7] or 0)
         realized_pnl = round(float(row[2] or 0.0), 4)
         unrealized_pnl = round(float(row[1] or 0.0), 4)
-        win_rate = round(wins / closed_count, 4) if closed_count else 0.0
+        decisive_closed_count = wins + losses
+        win_rate = round(wins / decisive_closed_count, 4) if decisive_closed_count else 0.0
 
         return {
             "starting_bankroll_usd": round(starting_bankroll_usd, 4),
@@ -355,6 +358,7 @@ class SignalStore:
             "closed_position_count": closed_count,
             "wins": wins,
             "losses": losses,
+            "breakeven_count": breakeven,
             "win_rate": win_rate,
             "realized_pnl_usd": realized_pnl,
             "unrealized_pnl_usd": unrealized_pnl,
