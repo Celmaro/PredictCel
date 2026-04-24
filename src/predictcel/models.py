@@ -67,6 +67,7 @@ class CopyCandidate:
     wallet_quality_score: float
     copyability_score: float
     reason: str
+    market_title: str = ""
     weighted_consensus: float = 0.0
     confidence_score: float = 0.0
     conflict_penalty: float = 0.0
@@ -153,6 +154,7 @@ class ExecutionIntent:
     copyability_score: float
     order_type: str
     reason: str
+    market_title: str = ""
 
 
 @dataclass(frozen=True)
@@ -168,6 +170,7 @@ class ExecutionResult:
     error: str
     copyability_score: float
     reason: str
+    market_title: str = ""
 
 
 @dataclass(frozen=True)
@@ -186,3 +189,4 @@ class Position:
     stop_loss_pct: float
     max_hold_minutes: int
     status: str
+    market_title: str = ""
