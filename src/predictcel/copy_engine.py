@@ -38,7 +38,6 @@ class CopyEngine:
         features = []
         targets = []
         for record in backtest_data:
-            # Features: confidence_score, copyability_score, price, volatility, win_rate, etc.
             feat = [
                 record.get("confidence_score", 0.5),
                 record.get("copyability_score", 0.5),
@@ -47,7 +46,7 @@ class CopyEngine:
                 record.get("win_rate", 0.5),
                 record.get("liquidity_usd", 1000),
             ]
-            target = record.get("actual_pnl", 0.0)  # Or optimal size
+            target = record.get("actual_pnl", 0.0)
             features.append(feat)
             targets.append(target)
 
@@ -88,6 +87,7 @@ class CopyEngine:
             }
             return []
 
+        portfolio_summary = self._portfolio_summary(store)
         candidates: list[CopyCandidate] = []
         market_not_found = 0
         basket_not_found = 0
@@ -111,7 +111,7 @@ class CopyEngine:
                 local_rejection_counts["basket_not_found"] += 1
                 return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
 
-            candidate, rejection_reason = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities, store)
+            candidate, rejection_reason = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities, portfolio_summary)
             if candidate is not None:
                 local_candidates.append(candidate)
             elif rejection_reason is not None:
@@ -155,7 +155,7 @@ class CopyEngine:
         market: MarketSnapshot,
         trades: list[WalletTrade],
         wallet_qualities: dict[str, WalletQuality],
-        store: Any = None,
+        portfolio_summary: dict[str, float | int] | None = None,
     ) -> tuple[CopyCandidate | None, str | None]:
         wallet_set = self.basket_wallets_by_topic.get(topic, set())
         max_age = self.config.filters.max_trade_age_seconds
@@ -235,7 +235,7 @@ class CopyEngine:
             recency_half_life_seconds=self.config.consensus.recency_half_life_seconds,
         )
         copyability_score = round(max(0.0, min(1.0, (base_score * 0.70) + (confidence_score * 0.15) + (recency_score * 0.10) + (regime.score * 0.05) - conflict_penalty)), 4)
-        suggested_position_usd = self._suggested_position_size(current_price, confidence_score, copyability_score, store)
+        suggested_position_usd = self._suggested_position_size(current_price, confidence_score, copyability_score, portfolio_summary)
 
         return CopyCandidate(
             topic=topic,
@@ -311,9 +311,8 @@ class CopyEngine:
         if not config.enabled:
             return MarketRegime("DISABLED", 0.5, "market regime scoring disabled")
 
-        # Volatility-based clustering
-        volatility_score = min(side_spread / 0.05, 1.0)  # Normalize spread as volatility proxy
-        depth_score = min(side_depth_usd / 1000, 1.0)    # Depth stability proxy
+        volatility_score = min(side_spread / 0.05, 1.0)
+        depth_score = min(side_depth_usd / 1000, 1.0)
 
         if side_spread > config.max_stable_spread or side_depth_usd < config.min_depth_usd:
             score = max(0.0, 0.5 - config.unstable_penalty - 0.1 * volatility_score)
@@ -323,7 +322,7 @@ class CopyEngine:
         if skew >= config.trend_price_skew:
             directional_match = (side == "YES" and current_price > 0.5) or (side == "NO" and current_price < 0.5)
             score = 0.75 + config.trend_bonus if directional_match else 0.60
-            score += 0.05 * (1 - volatility_score)  # Bonus for low volatility in trend
+            score += 0.05 * (1 - volatility_score)
             return MarketRegime("TREND", round(min(score, 1.0), 4), f"price skew={skew:.3f}, directional_match={directional_match}, volatility={volatility_score:.2f}")
 
         if skew <= config.range_price_skew:
@@ -333,35 +332,42 @@ class CopyEngine:
         score = 0.55 + 0.05 * (1 - volatility_score)
         return MarketRegime("TRANSITION", round(min(score, 1.0), 4), f"between range/trend thresholds, volatility={volatility_score:.2f}")
 
-    def _suggested_position_size(self, price: float, confidence_score: float, copyability_score: float, store: Any = None) -> float:
+    def _portfolio_summary(self, store: Any = None) -> dict[str, float | int]:
+        if store is None:
+            return {}
+        return store.get_portfolio_summary(starting_bankroll_usd=self.config.consensus.bankroll_usd)
+
+    def _suggested_position_size(
+        self,
+        price: float,
+        confidence_score: float,
+        copyability_score: float,
+        portfolio_summary: dict[str, float | int] | None = None,
+    ) -> float:
         if price <= 0 or price >= 1:
             return 0.0
         b = (1.0 - price) / price
         p = max(0.0, min(1.0, (confidence_score + copyability_score) / 2.0))
 
-        # Dynamic Kelly adjustment based on recent performance
         kelly_multiplier = 1.0
         win_rate = 0.5
-        if store:
-            summary = store.get_portfolio_summary(starting_bankroll_usd=self.config.consensus.bankroll_usd)
-            win_rate = summary.get("win_rate", 0.5)
+        if portfolio_summary:
+            win_rate = float(portfolio_summary.get("win_rate", 0.5) or 0.5)
             if win_rate < 0.4:
-                kelly_multiplier = 0.5  # Reduce risk if losing
+                kelly_multiplier = 0.5
             elif win_rate > 0.6:
-                kelly_multiplier = 1.2  # Increase if winning
+                kelly_multiplier = 1.2
 
-        # Use ML model if available
         if self.ml_model:
             features = [
                 confidence_score,
                 copyability_score,
                 price,
-                0.02,  # placeholder volatility
+                0.02,
                 win_rate,
-                1000,  # placeholder liquidity
+                1000,
             ]
             ml_prediction = self.ml_model.predict([features])[0]
-            # Assume model predicts optimal fraction of bankroll
             raw_size = self.config.consensus.bankroll_usd * max(0.0, min(1.0, ml_prediction)) * kelly_multiplier
             logger.debug(f"ML position sizing: predicted fraction {ml_prediction:.4f}, size {raw_size:.2f}")
         else:
