@@ -8,14 +8,16 @@ import pickle
 import os
 
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
 
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
 
 logger = logging.getLogger(__name__)
+
+LATE_ENTRY_PRICE_THRESHOLD = 0.95
 
 
 class CopyEngine:
@@ -210,6 +212,8 @@ class CopyEngine:
 
         reference_price = self._weighted_reference_price(aligned, trade_weights)
         current_price = market.yes_ask if side == "YES" else market.no_ask
+        if current_price >= LATE_ENTRY_PRICE_THRESHOLD:
+            return None, "too_late_price"
         drift = abs(current_price - reference_price)
         if drift > self.config.filters.max_price_drift:
             return None, "too_much_drift"
@@ -249,6 +253,7 @@ class CopyEngine:
             wallet_quality_score=wallet_quality_score,
             copyability_score=copyability_score,
             reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and orderbook filters passed",
+            market_title=market.title,
             weighted_consensus=weighted_consensus,
             confidence_score=confidence_score,
             conflict_penalty=conflict_penalty,
