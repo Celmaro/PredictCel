@@ -222,3 +222,12 @@ def test_records_low_liquidity_rejection() -> None:
 
     assert candidates == []
     assert engine.last_diagnostics["low_liquidity"] == 1
+
+
+def test_evaluate_with_no_trades_returns_empty_diagnostics() -> None:
+    engine = CopyEngine(make_config())
+    candidates = engine.evaluate([], {}, {})
+
+    assert candidates == []
+    assert engine.last_diagnostics["markets_evaluated"] == 0
+    assert engine.last_diagnostics["candidates_returned"] == 0

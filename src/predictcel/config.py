@@ -160,6 +160,7 @@ def load_config(path: str | Path) -> AppConfig:
             topic=item["topic"],
             wallets=item["wallets"],
             quorum_ratio=float(item["quorum_ratio"]),
+            target_allocation=float(item.get("target_allocation", 0.0)),
         )
         for item in payload["baskets"]
     ]

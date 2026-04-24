@@ -10,3 +10,4 @@ def test_example_config_loads() -> None:
     assert config.filters.min_liquidity_usd > 0
     assert config.arbitrage.min_gross_edge > 0
     assert config.execution is not None
+    assert all(basket.target_allocation > 0 for basket in config.baskets)

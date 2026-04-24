@@ -106,7 +106,8 @@
         "0xead152b855effa6b5b5837f53b24c0756830c76a",
         "0x5ccf62ac8155e49bc7d021a1a66e9ef18f5579d7"
       ],
-      "quorum_ratio": 0.33
+      "quorum_ratio": 0.33,
+      "target_allocation": 0.33
     },
     {
       "topic": "sports",
@@ -115,7 +116,8 @@
         "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
         "0x6211f97a76ed5c4b1d658f637041ac5f293db89e"
       ],
-      "quorum_ratio": 0.33
+      "quorum_ratio": 0.33,
+      "target_allocation": 0.33
     },
     {
       "topic": "crypto",
@@ -124,7 +126,8 @@
         "0xeebde7a0e019a63e6b476eb425505b7b3e6eba30",
         "0x674887d1ac838099a48b629dff53f25b7b87ee08"
       ],
-      "quorum_ratio": 0.33
+      "quorum_ratio": 0.33,
+      "target_allocation": 0.34
     }
   ]
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 import logging
 import pickle
 import os
@@ -77,6 +78,16 @@ class CopyEngine:
         for trade in trades:
             grouped.setdefault(trade.market_id, []).append(trade)
 
+        if not grouped:
+            self.last_diagnostics = {
+                "markets_evaluated": 0,
+                "market_not_found": 0,
+                "basket_not_found": 0,
+                "filtered_at_evaluate": 0,
+                "candidates_returned": 0,
+            }
+            return []
+
         candidates: list[CopyCandidate] = []
         market_not_found = 0
         basket_not_found = 0
@@ -107,7 +118,7 @@ class CopyEngine:
                 local_rejection_counts[rejection_reason] += 1
             return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
 
-        with ThreadPoolExecutor(max_workers=min(8, len(grouped))) as executor:
+        with ThreadPoolExecutor(max_workers=max(1, min(8, len(grouped)))) as executor:
             futures = {executor.submit(process_market, market_id, market_trades): market_id for market_id, market_trades in grouped.items()}
             for future in as_completed(futures):
                 local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts = future.result()
