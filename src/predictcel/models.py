@@ -13,6 +13,7 @@ class WalletTrade:
     price: float
     size_usd: float
     age_seconds: int
+    timestamp: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,9 @@ class MarketSnapshot:
     yes_spread: float = 0.0
     no_spread: float = 0.0
     orderbook_ready: bool = False
+    snapshot_time: datetime | None = None
+    resolved_outcome: str | None = None
+    resolution_price: float | None = None
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,7 @@ from pathlib import Path
 from .config import load_config
 from .copy_engine import CopyEngine
 from .markets import load_market_snapshots
-from .models import ExecutionResult
+from .models import ExecutionResult, MarketSnapshot
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallets import load_wallet_trades
@@ -45,7 +45,26 @@ class Backtester:
         markets = load_market_snapshots(market_snapshots_path)
 
         if start_date or end_date:
-            pass
+            if start_date:
+                trades = [
+                    trade for trade in trades
+                    if trade.timestamp is not None and trade.timestamp >= start_date
+                ]
+                markets = {
+                    market_id: market
+                    for market_id, market in markets.items()
+                    if market.snapshot_time is not None and market.snapshot_time >= start_date
+                }
+            if end_date:
+                trades = [
+                    trade for trade in trades
+                    if trade.timestamp is not None and trade.timestamp <= end_date
+                ]
+                markets = {
+                    market_id: market
+                    for market_id, market in markets.items()
+                    if market.snapshot_time is not None and market.snapshot_time <= end_date
+                }
 
         wallet_qualities = self.scorer.score(trades, markets)
         candidates = self.copy_engine.evaluate(trades, markets, wallet_qualities)
@@ -61,11 +80,12 @@ class Backtester:
                 continue
 
             entry_price = candidate.current_price
-            import random
-            outcome = random.random() < candidate.consensus_ratio
-            resolution_price = 1.0 if outcome else 0.0
+            actual_price = self._payout_for_side(market, candidate.side)
+            if actual_price is None:
+                import random
+                actual_price = 1.0 if random.random() < candidate.consensus_ratio else 0.0
 
-            pnl = candidate.suggested_position_usd * (resolution_price - entry_price) / entry_price
+            pnl = candidate.suggested_position_usd * (actual_price - entry_price) / entry_price
             pnls.append(pnl)
             total_pnl += pnl
 
@@ -107,6 +127,13 @@ class Backtester:
             avg_trade_pnl=avg_trade_pnl,
             attribution=attribution,
         )
+
+    def _payout_for_side(self, market: MarketSnapshot, side: str) -> float | None:
+        if market.resolved_outcome is not None:
+            return 1.0 if market.resolved_outcome == side else 0.0
+        if market.resolution_price is not None:
+            return market.resolution_price if side == "YES" else 1.0 - market.resolution_price
+        return None
 
     def _calculate_max_drawdown(self, pnls: list[float]) -> float:
         if not pnls:

@@ -14,9 +14,16 @@ class ArbitrageSidecar:
     def __init__(self, config: ArbitrageConfig) -> None:
         self.config = config
 
+    def _unique_markets(self, markets: dict[str, MarketSnapshot]) -> dict[str, MarketSnapshot]:
+        unique: dict[str, MarketSnapshot] = {}
+        for market in markets.values():
+            if market.market_id not in unique:
+                unique[market.market_id] = market
+        return unique
+
     def scan(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
         opportunities: list[ArbitrageOpportunity] = []
-        for market in markets.values():
+        for market in self._unique_markets(markets).values():
             opportunity = self._evaluate_market(market)
             if opportunity is not None:
                 opportunities.append(opportunity)
@@ -25,9 +32,8 @@ class ArbitrageSidecar:
     def scan_multi_market(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
         """Detect arbitrage opportunities across correlated markets using statistical analysis."""
         import pandas as pd
-        import statsmodels.api as sm
         opportunities = []
-        market_list = list(markets.values())
+        market_list = list(self._unique_markets(markets).values())
 
         # Group by topic for potential correlation
         topic_groups = {}
@@ -38,14 +44,19 @@ class ArbitrageSidecar:
             if len(group) < 2:
                 continue
 
-            # Compute correlations between market prices
-            prices = {m.market_id: (m.yes_ask + m.no_ask) / 2 for m in group}
-            df = pd.DataFrame(list(prices.items()), columns=['market', 'price'])
-            if len(df) < 2:
+            # Compute correlations between market price profiles using both sides
+            prices = {
+                m.market_id: {
+                    "yes_ask": m.yes_ask,
+                    "no_ask": m.no_ask,
+                }
+                for m in group
+            }
+            df = pd.DataFrame.from_dict(prices, orient="index")
+            if df.shape[0] < 2 or df.shape[1] < 2:
                 continue
 
-            # Simple correlation matrix
-            corr_matrix = df.set_index('market').T.corr()
+            corr_matrix = df.T.corr()
             high_corr_pairs = []
             for i in range(len(corr_matrix)):
                 for j in range(i+1, len(corr_matrix)):

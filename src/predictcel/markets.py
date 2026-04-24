@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from .models import MarketSnapshot
@@ -28,6 +29,56 @@ def load_market_snapshots(path: str) -> dict[str, MarketSnapshot]:
             yes_spread=float(item.get("yes_spread", 0.0)),
             no_spread=float(item.get("no_spread", 0.0)),
             orderbook_ready=bool(item.get("orderbook_ready", False)),
+            snapshot_time=_parse_datetime(item.get("snapshot_time") or item.get("timestamp") or item.get("created_at")),
+            resolved_outcome=_parse_outcome(item),
+            resolution_price=_parse_resolution_price(item),
         )
         snapshots[snapshot.market_id] = snapshot
     return snapshots
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _parse_outcome(item: dict[str, object]) -> str | None:
+    value = (
+        item.get("resolved_outcome")
+        or item.get("outcome")
+        or item.get("resolution")
+        or item.get("result")
+        or item.get("outcomeIndex")
+        or item.get("outcome_index")
+    )
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip().upper()
+        if value in {"YES", "NO"}:
+            return value
+        if value in {"0", "FALSE", "NO_OUTCOME", "INVALID"}:
+            return "NO"
+        if value in {"1", "TRUE", "YES_OUTCOME"}:
+            return "YES"
+    if isinstance(value, (int, float)):
+        return "YES" if float(value) >= 1.0 else "NO"
+    return None
+
+
+def _parse_resolution_price(item: dict[str, object]) -> float | None:
+    if item.get("resolution_price") is not None:
+        try:
+            return float(item["resolution_price"])
+        except (TypeError, ValueError):
+            return None
+    outcome = _parse_outcome(item)
+    if outcome == "YES":
+        return 1.0
+    if outcome == "NO":
+        return 0.0
+    return None
