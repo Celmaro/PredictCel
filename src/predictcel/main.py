@@ -102,7 +102,7 @@ def main() -> None:
         if open_positions:
             close_intents, updated_positions = ExitRunner(config.execution, config.live_data).evaluate_and_close(open_positions, markets)
             close_results = LiveOrderExecutor(config.execution, config.live_data).execute(close_intents) if close_intents else []
-            closed_market_ids = {result.market_id for result in close_results if _is_trusted_execution_result(result)}
+            closed_market_ids = {result.market_id for result in close_results if _creates_or_updates_paper_position(result)}
             for pos in updated_positions:
                 store.update_position(pos.market_id, pos.current_price, pos.unrealized_pnl, "closed" if pos.market_id in closed_market_ids else pos.status)
             current_exposure_usd = store.get_total_exposure()
@@ -177,11 +177,9 @@ def _persist_execution_side_effects(store: SignalStore, config: Any, execution_r
     now = datetime.now(UTC)
     position_config = config.execution.position
     for result in execution_results:
-        if result.status == "dry_run" or _is_trusted_execution_result(result):
+        if _creates_or_updates_paper_position(result):
             store.mark_signal_seen(result.market_id, result.topic, result.side)
-        if not _is_trusted_execution_result(result):
-            continue
-        store.save_position(Position(result.market_id, result.topic, result.side, result.token_id, result.worst_price, result.amount_usd, result.worst_price, 0.0, now, now, position_config.take_profit_pct, position_config.stop_loss_pct, position_config.max_hold_minutes, "open"))
+            store.save_position(Position(result.market_id, result.topic, result.side, result.token_id, result.worst_price, result.amount_usd, result.worst_price, 0.0, now, now, position_config.take_profit_pct, position_config.stop_loss_pct, position_config.max_hold_minutes, "open"))
 
 
 def _portfolio_summary(store: SignalStore, config: Any) -> dict:
@@ -268,6 +266,10 @@ def _filter_duplicate_candidates(store: SignalStore, candidates: list) -> tuple[
 
 def _is_trusted_execution_result(result) -> bool:
     return str(result.status).strip().lower() in TRUSTED_POSITION_STATUSES and bool(str(result.order_id).strip())
+
+
+def _creates_or_updates_paper_position(result) -> bool:
+    return str(result.status).strip().lower() == "dry_run" or _is_trusted_execution_result(result)
 
 
 def _is_evm_address(value: str) -> bool:
