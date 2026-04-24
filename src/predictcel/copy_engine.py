@@ -11,6 +11,7 @@ class CopyEngine:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.baskets_by_topic = {basket.topic: basket for basket in config.baskets}
+        self.basket_wallets_by_topic = {basket.topic: set(basket.wallets) for basket in config.baskets}
         self.last_diagnostics: dict[str, int] = {}
 
     def evaluate(
@@ -64,7 +65,10 @@ class CopyEngine:
         return candidates
 
     def _resolve_topic(self, trades: list[WalletTrade]) -> str:
-        return Counter(trade.topic for trade in trades).most_common(1)[0][0]
+        counts: dict[str, int] = {}
+        for trade in trades:
+            counts[trade.topic] = counts.get(trade.topic, 0) + 1
+        return max(counts, key=counts.get)
 
     def _evaluate_market(
         self,
@@ -74,13 +78,16 @@ class CopyEngine:
         trades: list[WalletTrade],
         wallet_qualities: dict[str, WalletQuality],
     ) -> tuple[CopyCandidate | None, str | None]:
+        wallet_set = self.basket_wallets_by_topic.get(topic, set())
+        max_age = self.config.filters.max_trade_age_seconds
+        min_size = self.config.filters.min_position_size_usd
         valid_trades = [
             trade
             for trade in trades
             if trade.topic == topic
-            and trade.wallet in basket.wallets
-            and trade.age_seconds <= self.config.filters.max_trade_age_seconds
-            and trade.size_usd >= self.config.filters.min_position_size_usd
+            and trade.wallet in wallet_set
+            and trade.age_seconds <= max_age
+            and trade.size_usd >= min_size
         ]
         if not valid_trades:
             return None, "no_valid_trades"
@@ -94,21 +101,22 @@ class CopyEngine:
 
         wallet_votes = self._latest_wallet_votes(valid_trades)
         weighted_by_side: dict[str, float] = defaultdict(float)
-        raw_by_side: Counter = Counter()
+        trade_weights: list[tuple[WalletTrade, float, str]] = []
         for trade in wallet_votes.values():
             side = trade.side.upper()
-            weighted_by_side[side] += self._trade_weight(trade, wallet_qualities)
-            raw_by_side[side] += 1
+            weight = self._trade_weight(trade, wallet_qualities)
+            weighted_by_side[side] += weight
+            trade_weights.append((trade, weight, side))
 
         if not weighted_by_side:
             return None, "no_weighted_votes"
         side = max(weighted_by_side, key=weighted_by_side.get)
-        aligned = [trade for trade in wallet_votes.values() if trade.side.upper() == side]
+        aligned = [trade for trade, _, trade_side in trade_weights if trade_side == side]
         if not aligned:
             return None, "no_aligned_trades"
 
         aligned_wallets = sorted({trade.wallet for trade in aligned})
-        consensus_ratio = len(aligned_wallets) / len(basket.wallets)
+        consensus_ratio = len(aligned_wallets) / len(basket.wallets) if basket.wallets else 0.0
         total_weight = sum(weighted_by_side.values())
         aligned_weight = weighted_by_side[side]
         weighted_consensus = round(aligned_weight / total_weight, 4) if total_weight else 0.0
@@ -121,7 +129,7 @@ class CopyEngine:
         if confidence_score < self.config.consensus.min_confidence_score:
             return None, "below_confidence"
 
-        reference_price = self._weighted_reference_price(aligned, wallet_qualities)
+        reference_price = self._weighted_reference_price(aligned, trade_weights)
         current_price = market.yes_ask if side == "YES" else market.no_ask
         drift = abs(current_price - reference_price)
         if drift > self.config.filters.max_price_drift:
@@ -187,13 +195,18 @@ class CopyEngine:
         size_weight = min(max(trade.size_usd / max(self.config.filters.min_position_size_usd, 1.0), 0.25), 3.0)
         return max(quality_weight * recency_weight * size_weight, 0.0001)
 
-    def _weighted_reference_price(self, trades: list[WalletTrade], wallet_qualities: dict[str, WalletQuality]) -> float:
+    def _weighted_reference_price(self, trades: list[WalletTrade], trade_weights: list[tuple[WalletTrade, float, str]] | None = None) -> float:
         weighted_sum = 0.0
         total_weight = 0.0
-        for trade in trades:
-            weight = self._trade_weight(trade, wallet_qualities)
-            weighted_sum += trade.price * weight
-            total_weight += weight
+        if trade_weights is not None:
+            for trade, weight, _ in trade_weights:
+                weighted_sum += trade.price * weight
+                total_weight += weight
+        else:
+            for trade in trades:
+                weight = self._trade_weight(trade, {})
+                weighted_sum += trade.price * weight
+                total_weight += weight
         return weighted_sum / total_weight if total_weight else sum(trade.price for trade in trades) / len(trades)
 
     def _confidence_score(self, aligned_weight: float, total_weight: float) -> float:

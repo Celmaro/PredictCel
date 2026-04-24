@@ -297,7 +297,9 @@ def _fetch_wallet_payloads(client: PolymarketPublicClient, wallets: list[str], l
 
 
 def _filter_duplicate_candidates(store: SignalStore, candidates: list) -> tuple[list, int]:
-    fresh = [candidate for candidate in candidates if not store.has_recent_signal(candidate.market_id, candidate.topic, candidate.side)]
+    fingerprints = [store.make_signal_fingerprint(candidate.market_id, candidate.topic, candidate.side) for candidate in candidates]
+    recent_fingerprints = store.has_recent_signals([(candidate.market_id, candidate.topic, candidate.side) for candidate in candidates])
+    fresh = [candidate for candidate, fingerprint in zip(candidates, fingerprints) if fingerprint not in recent_fingerprints]
     return fresh, len(candidates) - len(fresh)
 
 

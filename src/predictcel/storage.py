@@ -348,6 +348,24 @@ class SignalStore:
             return False
         return _parse_dt(row[0]) >= cutoff
 
+    def has_recent_signals(self, signals: Iterable[tuple[str, str, str]], ttl_minutes: int = 1440) -> set[str]:
+        signals = list(signals)
+        if not signals:
+            return set()
+        cutoff = datetime.now(UTC) - timedelta(minutes=ttl_minutes)
+        fingerprints = [self.make_signal_fingerprint(market_id, topic, side) for market_id, topic, side in signals]
+        placeholders = ",".join("?" for _ in fingerprints)
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"SELECT fingerprint, created_at FROM signal_fingerprints WHERE fingerprint IN ({placeholders})",
+            tuple(fingerprints),
+        )
+        recent: set[str] = set()
+        for fingerprint, created_at in cursor.fetchall():
+            if _parse_dt(created_at) >= cutoff:
+                recent.add(fingerprint)
+        return recent
+
     def mark_signal_seen(self, market_id: str, topic: str, side: str) -> None:
         cursor = self.connection.cursor()
         fingerprint = self.make_signal_fingerprint(market_id, topic, side)
