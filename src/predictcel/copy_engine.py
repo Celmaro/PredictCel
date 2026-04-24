@@ -332,7 +332,7 @@ class CopyEngine:
         kelly_multiplier = 1.0
         win_rate = 0.5
         if store:
-            summary = store.get_portfolio_summary()
+            summary = store.get_portfolio_summary(starting_bankroll_usd=self.config.consensus.bankroll_usd)
             win_rate = summary.get("win_rate", 0.5)
             if win_rate < 0.4:
                 kelly_multiplier = 0.5  # Reduce risk if losing

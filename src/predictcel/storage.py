@@ -309,7 +309,7 @@ class SignalStore:
         logger.debug(f"Monte Carlo VaR simulation completed with {simulations} runs")
         return var
 
-    def get_portfolio_summary(self, starting_bankroll_usd: float) -> dict[str, float | int]:
+    def get_portfolio_summary(self, starting_bankroll_usd: float = 0.0) -> dict[str, float | int]:
         cursor = self.connection.cursor()
         cursor.execute(
             """
