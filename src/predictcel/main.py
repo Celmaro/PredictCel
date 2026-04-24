@@ -216,6 +216,7 @@ def main() -> None:
         "close_intents": intents_as_dicts(close_intents),
         "close_results": [result.__dict__ for result in close_results],
         "open_positions": [pos.__dict__ for pos in open_positions],
+        "open_position_pnl": _open_position_pnl(open_positions),
     }
     _log_event(
         "predictcel_cycle_latency",
@@ -428,6 +429,8 @@ def _compact_cycle_output(output: dict[str, Any]) -> dict[str, Any]:
     top_wallet_qualities = _top_wallet_qualities(output.get("wallet_qualities", {}))
     if top_wallet_qualities:
         compact["wallet_qualities"] = top_wallet_qualities
+    if output.get("open_position_pnl"):
+        compact["open_position_pnl"] = output["open_position_pnl"]
     for key in (
         "copy_candidates",
         "arbitrage_opportunities",
@@ -501,6 +504,23 @@ def _top_wallet_qualities(wallet_qualities: dict[str, dict[str, Any]], limit: in
         reverse=True,
     )[:limit]
     return {wallet: quality for wallet, quality in ranked}
+
+
+def _open_position_pnl(positions: list[Position]) -> list[dict[str, Any]]:
+    return [
+        {
+            "market_id": pos.market_id,
+            "market_title": pos.market_title,
+            "topic": pos.topic,
+            "side": pos.side,
+            "entry_amount_usd": pos.entry_amount_usd,
+            "entry_price": pos.entry_price,
+            "current_price": pos.current_price,
+            "unrealized_pnl_usd": pos.unrealized_pnl,
+            "status": pos.status,
+        }
+        for pos in positions
+    ]
 
 
 def _elapsed_ms(started: float) -> int:
