@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-from .config import AppConfig
+from .config import load_config
 from .copy_engine import CopyEngine
 from .markets import load_market_snapshots
-from .models import CopyCandidate, ExecutionResult, Position
+from .models import ExecutionResult
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallets import load_wallet_trades
@@ -29,7 +28,7 @@ class BacktestResult:
 
 
 class Backtester:
-    def __init__(self, config: AppConfig, db_path: str = ":memory:"):
+    def __init__(self, config, db_path: str = ":memory:"):
         self.config = config
         self.store = SignalStore(db_path)
         self.scorer = WalletQualityScorer(config.filters, config.consensus.recency_half_life_seconds)
@@ -45,18 +44,12 @@ class Backtester:
         trades = load_wallet_trades(wallet_trades_path)
         markets = load_market_snapshots(market_snapshots_path)
 
-        # Filter trades by date if specified
         if start_date or end_date:
-            # Assume trades have timestamps, but since example data may not, skip filtering
             pass
 
-        # Score wallets
         wallet_qualities = self.scorer.score(trades, markets)
-
-        # Generate candidates
         candidates = self.copy_engine.evaluate(trades, markets, wallet_qualities)
 
-        # Simulate execution (simplified: assume all candidates execute and resolve at current price)
         simulated_results = []
         attribution = {}
         total_pnl = 0.0
@@ -67,9 +60,7 @@ class Backtester:
             if not market:
                 continue
 
-            # Simulate position
             entry_price = candidate.current_price
-            # Assume resolution: for simplicity, random outcome, but bias towards consensus
             import random
             outcome = random.random() < candidate.consensus_ratio
             resolution_price = 1.0 if outcome else 0.0
@@ -78,7 +69,6 @@ class Backtester:
             pnls.append(pnl)
             total_pnl += pnl
 
-            # Attribution
             topic = candidate.topic
             attribution[topic] = attribution.get(topic, 0.0) + pnl
 
@@ -95,10 +85,10 @@ class Backtester:
                     error="",
                     copyability_score=candidate.copyability_score,
                     reason="backtest simulation",
+                    market_title=candidate.market_title,
                 )
             )
 
-        # Calculate metrics
         winning_trades = sum(1 for pnl in pnls if pnl > 0)
         losing_trades = sum(1 for pnl in pnls if pnl < 0)
         max_drawdown = self._calculate_max_drawdown(pnls)
@@ -140,21 +130,13 @@ class Backtester:
         return (avg_return - risk_free_rate) / std_dev if std_dev > 0 else 0.0
 
 
-def run_backtest_example():
-    # Example usage
-    config = AppConfig(
-        baskets=[],
-        filters=None,  # Load from file in real usage
-        arbitrage=None,
-        wallet_trades_path="data/wallet_trades.example.json",
-        market_snapshots_path="data/market_snapshots.example.json",
-        live_data=None,
-        execution=None,
-    )
+def run_backtest_example() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    config = load_config(project_root / "config" / "predictcel.example.json")
     backtester = Backtester(config)
     result = backtester.run_backtest(
-        "data/wallet_trades.example.json",
-        "data/market_snapshots.example.json"
+        str(project_root / config.wallet_trades_path),
+        str(project_root / config.market_snapshots_path),
     )
     print(json.dumps({
         "total_trades": result.total_trades,
