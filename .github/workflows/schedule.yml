@@ -1,0 +1,53 @@
+name: Scheduled Cycle
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Cycle mode"
+        required: false
+        default: "paper"
+        type: choice
+        options:
+          - paper
+          - live-data
+          - dry-run-trading
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore DB cache
+        uses: actions/cache@v4
+        with:
+          path: predictcel.db
+          key: predictcel-db-${{ github.run_id }}
+          restore-keys: |
+            predictcel-db-
+      - run: pip install -e "."
+      - name: Run cycle
+        env:
+          MODE: ${{ github.event.inputs.mode || 'paper' }}
+        run: |
+          ARGS="--config config/predictcel.example.json --db predictcel.db"
+          if [ "$MODE" = "live-data" ]; then
+            ARGS="$ARGS --live-data"
+          fi
+          if [ "$MODE" = "dry-run-trading" ]; then
+            ARGS="$ARGS --live-data --live-trading"
+          fi
+          python -m predictcel.main $ARGS
+      - name: Upload cycle output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycle-output-${{ github.run_number }}
+          path: predictcel.db
+          retention-days: 7
