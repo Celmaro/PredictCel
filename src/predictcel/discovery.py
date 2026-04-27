@@ -85,7 +85,7 @@ def _candidate_score(
     volume: float,
 ) -> float:
     focus_component = focus_ratio * 0.45
-    activity_component = min(trade_count / 25, 1.0) * 0.2
+    activity_component = min(trade_count / 25 if trade_count > 0 else 0.0, 1.0) * 0.2
     size_component = min(average_trade_size / 500, 1.0) * 0.15
     pnl_component = min(max(pnl, 0.0) / 100_000, 1.0) * 0.15
     efficiency_component = min(max(pnl / volume if volume else 0.0, 0.0), 1.0) * 0.05
