@@ -1,3 +1,9 @@
+"""Main entry point for PredictCel.
+
+Provides the CLI interface and orchestrates the full trading cycle:
+discovery, scoring, basket assignment, market evaluation, and execution.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -28,6 +34,9 @@ from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallet_discovery import WalletDiscoveryPipeline
 from .wallets import load_wallet_trades
+
+__all__ = ["main", "run_cycle"]
+
 
 TRUSTED_POSITION_STATUSES = {"filled", "matched", "success"}
 HEX_CHARS = set("0123456789abcdefABCDEF")
