@@ -1,4 +1,6 @@
+import builtins
 from dataclasses import replace
+from io import BytesIO
 
 from predictcel.config import (
     ArbitrageConfig,
@@ -11,6 +13,7 @@ from predictcel.config import (
     LiveDataConfig,
     PositionConfig,
 )
+from predictcel import copy_engine as copy_engine_module
 from predictcel.copy_engine import CopyEngine
 from predictcel.models import MarketSnapshot, WalletQuality, WalletTrade
 
@@ -280,3 +283,25 @@ def test_evaluate_with_no_trades_returns_empty_diagnostics() -> None:
     assert candidates == []
     assert engine.last_diagnostics["markets_evaluated"] == 0
     assert engine.last_diagnostics["candidates_returned"] == 0
+
+
+def test_copy_engine_ignores_cwd_pickle_fallback(monkeypatch) -> None:
+    cwd_model = copy_engine_module.os.path.abspath("position_sizing_model.pkl")
+    loaded = {"called": False}
+
+    def fake_exists(path: str) -> bool:
+        return path == cwd_model
+
+    def fake_load(handle):
+        loaded["called"] = True
+        return object()
+
+    monkeypatch.setattr(copy_engine_module.os.path, "exists", fake_exists)
+    monkeypatch.setattr(copy_engine_module.os.path, "abspath", lambda path: cwd_model)
+    monkeypatch.setattr(copy_engine_module.pickle, "load", fake_load)
+    monkeypatch.setattr(builtins, "open", lambda *args, **kwargs: BytesIO(b"pickle-bytes"))
+
+    engine = CopyEngine(make_config())
+
+    assert engine._ml_model is None
+    assert loaded["called"] is False

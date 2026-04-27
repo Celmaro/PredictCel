@@ -285,3 +285,12 @@ def test_extract_list_handles_leaderboard_shapes() -> None:
 
     assert _extract_list(payload) == [{"address": "0x1"}]
     assert _extract_list({"users": [{"address": "0x2"}]}) == [{"address": "0x2"}]
+
+
+def test_validate_response_accepts_outcome_prices_market_payload() -> None:
+    client = PolymarketPublicClient()
+
+    client._validate_response(
+        {"data": [{"conditionId": "cond_1", "outcomePrices": "[0.61, 0.35]"}]},
+        "https://gamma-api.polymarket.com/markets?limit=1",
+    )
