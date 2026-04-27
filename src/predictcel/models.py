@@ -1,15 +1,38 @@
-from __future__ import annotations
+"""
+PredictCel data models.
 
+This module defines all data structures used throughout the PredictCel system,
+including wallet trades, market snapshots, quality scores, and execution results.
+"""
+from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
+
+__all__ = [
+    "WalletTrade",
+    "MarketSnapshot",
+    "WalletQuality",
+    "MarketRegime",
+    "CopyCandidate",
+    "WalletTopicProfile",
+    "WalletDiscoveryCandidate",
+    "BasketAssignment",
+    "BasketManagerAction",
+    "ArbitrageOpportunity",
+    "ExecutionIntent",
+    "ExecutionResult",
+    "Position",
+]
 
 
 @dataclass(frozen=True)
 class WalletTrade:
+    """Represents a single trade made by a wallet."""
     wallet: str
     topic: str
     market_id: str
-    side: str
+    side: Literal["YES", "NO"]
     price: float
     size_usd: float
     age_seconds: int
@@ -18,6 +41,7 @@ class WalletTrade:
 
 @dataclass(frozen=True)
 class MarketSnapshot:
+    """Snapshot of market state at a point in time."""
     market_id: str
     topic: str
     title: str
@@ -42,6 +66,7 @@ class MarketSnapshot:
 
 @dataclass(frozen=True)
 class WalletQuality:
+    """Quality assessment for a wallet's trading activity."""
     wallet: str
     topic: str
     score: float
@@ -53,6 +78,7 @@ class WalletQuality:
 
 @dataclass(frozen=True)
 class MarketRegime:
+    """Classification of current market conditions."""
     label: str
     score: float
     reason: str
@@ -60,9 +86,10 @@ class MarketRegime:
 
 @dataclass(frozen=True)
 class CopyCandidate:
+    """A trade candidate identified for copying."""
     topic: str
     market_id: str
-    side: str
+    side: Literal["YES", "NO"]
     consensus_ratio: float
     reference_price: float
     current_price: float
@@ -84,6 +111,7 @@ class CopyCandidate:
 
 @dataclass(frozen=True)
 class WalletTopicProfile:
+    """Profile of a wallet's trading preferences across topics."""
     topic_affinities: dict[str, float]
     primary_topic: str
     specialization_score: float
@@ -91,6 +119,7 @@ class WalletTopicProfile:
 
 @dataclass(frozen=True)
 class WalletDiscoveryCandidate:
+    """A wallet discovered as a potential signal source."""
     wallet_address: str
     source: str
     total_trades: int
@@ -98,33 +127,36 @@ class WalletDiscoveryCandidate:
     avg_trade_size_usd: float
     topic_profile: WalletTopicProfile
     score: float
-    confidence: str
+    confidence: Literal["HIGH", "MEDIUM", "LOW"]
     rejected_reasons: list[str]
 
 
 @dataclass(frozen=True)
 class BasketAssignment:
+    """Assignment of a wallet to topic baskets."""
     wallet_address: str
     primary_topic: str
     recommended_baskets: list[str]
     topic_affinities: dict[str, float]
     overall_score: float
-    confidence: str
+    confidence: Literal["HIGH", "MEDIUM", "LOW"]
     reasons: list[str]
 
 
 @dataclass(frozen=True)
 class BasketManagerAction:
-    action: str
+    """Action recommended by the basket manager."""
+    action: Literal["ADD", "REMOVE", "REVIEW"]
     basket: str
     wallet_address: str
     score: float
-    confidence: str
+    confidence: Literal["HIGH", "MEDIUM", "LOW"]
     reason: str
 
 
 @dataclass(frozen=True)
 class ArbitrageOpportunity:
+    """An identified arbitrage opportunity."""
     market_id: str
     topic: str
     yes_ask: float
@@ -142,34 +174,36 @@ class ArbitrageOpportunity:
     speed_score: float = 0.0
     confidence_score: float = 0.0
     gas_cost_percentage: float = 0.0
-    resolution_risk: str = "UNKNOWN"
+    resolution_risk: Literal["LOW", "MEDIUM", "HIGH", "UNKNOWN"] = "UNKNOWN"
     estimated_slippage: float = 0.0
     best_execution_path: str = "direct"
 
 
 @dataclass(frozen=True)
 class ExecutionIntent:
+    """Intent to execute a trade."""
     market_id: str
     topic: str
-    side: str
+    side: Literal["YES", "NO"]
     token_id: str
     amount_usd: float
     worst_price: float
     copyability_score: float
-    order_type: str
+    order_type: Literal["FOK", "FAK"]
     reason: str
     market_title: str = ""
 
 
 @dataclass(frozen=True)
 class ExecutionResult:
+    """Result of a trade execution attempt."""
     market_id: str
     topic: str
-    side: str
+    side: Literal["YES", "NO"]
     token_id: str
     amount_usd: float
     worst_price: float
-    status: str
+    status: Literal["SUCCESS", "FAILED", "PENDING"]
     order_id: str
     error: str
     copyability_score: float
@@ -179,9 +213,10 @@ class ExecutionResult:
 
 @dataclass(frozen=True)
 class Position:
+    """An open trading position."""
     market_id: str
     topic: str
-    side: str
+    side: Literal["YES", "NO"]
     token_id: str
     entry_price: float
     entry_amount_usd: float
@@ -192,5 +227,5 @@ class Position:
     take_profit_pct: float
     stop_loss_pct: float
     max_hold_minutes: int
-    status: str
+    status: Literal["OPEN", "CLOSED", "LIQUIDATED"]
     market_title: str = ""
