@@ -1,0 +1,17 @@
+{
+  "name": "PredictCel Dev",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {},
+  "extensions": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "github.vscode-github-actions"
+  ],
+  "postCreateCommand": "pip install -e '.[dev]'",
+  "settings": {
+    "python.defaultInterpreterPath": "/usr/local/bin/python",
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  }
+}
