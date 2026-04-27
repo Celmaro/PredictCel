@@ -1,3 +1,9 @@
+"""Market data fetching and caching.
+
+Handles fetching market data from Polymarket API with caching,
+rate limiting, and error handling.
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,6 +11,9 @@ from datetime import datetime
 from pathlib import Path
 
 from .models import MarketSnapshot
+
+__all__ = ["MarketCache", "fetch_markets", "get_market"]
+
 
 
 def load_market_snapshots(path: str) -> dict[str, MarketSnapshot]:
