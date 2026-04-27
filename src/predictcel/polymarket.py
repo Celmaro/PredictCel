@@ -314,11 +314,12 @@ class PolymarketPublicClient:
             data = payload.get("data", payload)
             if isinstance(data, list) and data:
                 sample = data[0]
-                required_fields = ["conditionId", "yes", "no"]
-                for field in required_fields:
-                    if field not in sample:
-                        logger.error(f"Missing required field '{field}' in market data from {url}")
-                        raise ValueError(f"Missing required field '{field}' in market data")
+                has_market_identifier = any(field in sample for field in ("conditionId", "condition_id", "id"))
+                has_direct_prices = all(field in sample for field in ("yes", "no"))
+                has_outcome_prices = any(field in sample for field in ("outcomePrices", "outcomes"))
+                if not has_market_identifier or not (has_direct_prices or has_outcome_prices):
+                    logger.error(f"Unexpected market data shape from {url}")
+                    raise ValueError("Unexpected market data shape")
 
 
 def build_market_snapshots(items: list[dict[str, Any]]) -> dict[str, MarketSnapshot]:

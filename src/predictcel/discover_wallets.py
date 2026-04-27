@@ -13,7 +13,7 @@ def main() -> None:
         joined = ", ".join(sorted(set(legacy_flags)))
         raise SystemExit(
             "Legacy discover_wallets.py flags are no longer supported ("
-            f"{joined}"). Use the canonical config-driven command instead: "
+            f"{joined}). Use the canonical config-driven command instead: "
             "python -m predictcel.main discover-wallets --config config/predictcel.example.json"
         )
 

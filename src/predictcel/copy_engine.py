@@ -31,16 +31,9 @@ class CopyEngine:
             return self._ml_model
         model_path = os.path.join(os.path.dirname(__file__), "position_sizing_model.pkl")
         if not os.path.exists(model_path):
-            fallback_path = os.path.abspath("position_sizing_model.pkl")
-            if os.path.exists(fallback_path):
-                model_path = fallback_path
-            else:
-                self._ml_model_loaded = True
-                return None
+            self._ml_model_loaded = True
+            return None
         try:
-            from sklearn.ensemble import RandomForestRegressor
-            from sklearn.metrics import mean_squared_error
-            from sklearn.model_selection import train_test_split
             with open(model_path, "rb") as f:
                 self._ml_model = pickle.load(f)
         except Exception:
