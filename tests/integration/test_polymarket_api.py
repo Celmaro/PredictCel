@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any

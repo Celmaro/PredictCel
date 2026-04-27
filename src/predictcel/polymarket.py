@@ -249,7 +249,8 @@ class PolymarketPublicClient:
             
             normalized = [_flatten_trade_payload(item) for item in rows]
             matching_rows = [item for item in normalized if _trade_matches_wallet(item, wallet_key)]
-            candidate_rows = matching_rows or normalized
+            rows_with_owner = [item for item in normalized if _trade_wallet_address(item)]
+            candidate_rows = matching_rows if rows_with_owner else normalized
             
             if _score_trade_rows(candidate_rows) > _score_trade_rows(best_scored_rows):
                 best_scored_rows = candidate_rows
