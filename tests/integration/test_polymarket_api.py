@@ -6,6 +6,7 @@ Run with: pytest tests/integration/ -v
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -181,9 +182,8 @@ class TestCircuitBreakerIntegration:
         cb = client._circuit_breaker
         cb.state = "OPEN"
         cb.recovery_timeout = 3600
-        # Set last_failure_time to 0 so recovery_timeout (3600s) is not yet elapsed
-        # and the breaker stays OPEN instead of transitioning to HALF_OPEN.
-        cb.last_failure_time = 0
+        # Keep the breaker inside its recovery window so it rejects immediately.
+        cb.last_failure_time = time.time()
 
         with pytest.raises(Exception, match="Circuit breaker is OPEN"):
             client._get_json("https://gamma-api.polymarket.com/test")
