@@ -1,9 +1,18 @@
+"""Basket management and persistence.
+
+Manages basket definitions, wallet assignments, and basket-level
+configuration.
+"""
+
 from __future__ import annotations
 
 import logging
 
 from .config import AppConfig
 from .models import BasketAssignment, BasketManagerAction
+
+__all__ = ["BasketManager", "load_baskets", "save_baskets"]
+
 
 logger = logging.getLogger(__name__)
 
