@@ -11,10 +11,10 @@
     "request_timeout_seconds": 15
   },
   "filters": {
-    "max_trade_age_seconds": 43200,
+    "max_trade_age_seconds": 86400,
     "max_price_drift": 0.65,
     "min_liquidity_usd": 500,
-    "min_minutes_to_resolution": 30,
+    "min_minutes_to_resolution": 15,
     "max_minutes_to_resolution": 43200,
     "min_position_size_usd": 1
   },
@@ -58,7 +58,7 @@
     "retry_base_delay_seconds": 1
   },
   "consensus": {
-    "recency_half_life_seconds": 1800,
+    "recency_half_life_seconds": 21600,
     "min_weighted_consensus": 0.3,
     "confidence_prior_strength": 1,
     "min_confidence_score": 0.05,
