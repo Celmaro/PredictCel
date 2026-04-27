@@ -1,9 +1,3 @@
-"""Integration test fixtures for Polymarket API responses.
-
-These fixtures provide realistic mock data that mirrors actual
-Polymarket API responses for testing without network calls.
-"""
-
 {
   "markets": [
     {
@@ -19,46 +13,58 @@ Polymarket API responses for testing without network calls.
       "endDate": "2026-04-30T23:59:59Z",
       "startDate": "2026-04-01T00:00:00Z",
       "category": "Crypto",
-      "clobTokenIds": "[\"0x1234yes\", \"0x1234no\"]",
-      "icon": "https://polymarket.com/icons/btc.svg",
+      "tokenId": "0x123token",
+      "marketSlug": "test-btc-market",
+      "description": "Test market for BTC price prediction",
+      "icon": "https://example.com/icon.png",
       "active": true,
-      "closed": false
+      "closed": false,
+      "archived": false
     },
     {
       "conditionId": "0xdef789abc012",
-      "question": "Will it rain in New York City on May 1, 2026?",
-      "slug": "will-it-rain-in-nyc-may-1-2026",
+      "question": "Will ETH break $4000 before June 1, 2026?",
+      "slug": "will-eth-break-4000-before-june-1-2026",
       "outcomePrices": "[0.45, 0.55]",
       "bestBid": "0.43",
-      "bestAsk": "0.47",
-      "liquidityNum": "8000.00",
-      "volumeNum": "25000.00",
-      "volume24Hr": "3000.00",
-      "endDate": "2026-05-01T23:59:59Z",
-      "startDate": "2026-04-20T00:00:00Z",
-      "category": "Weather",
-      "clobTokenIds": "[\"0x5678yes\", \"0x5678no\"]",
-      "icon": "https://polymarket.com/icons/weather.svg",
+      "bestAsk": "0.46",
+      "liquidityNum": "32000.00",
+      "volumeNum": "85000.00",
+      "volume24Hr": "8000.00",
+      "endDate": "2026-05-31T23:59:59Z",
+      "startDate": "2026-04-01T00:00:00Z",
+      "category": "Crypto",
+      "tokenId": "0x456token",
+      "marketSlug": "test-eth-market",
+      "description": "Test market for ETH price prediction",
+      "icon": "https://example.com/icon2.png",
       "active": true,
-      "closed": false
+      "closed": false,
+      "archived": false
     },
     {
-      "conditionId": "0xghi345xyz",
-      "question": "Will Trump win the 2026 US Presidential Election?",
-      "slug": "will-trump-win-2026-presidential-election",
-      "outcomePrices": "[0.52, 0.48]",
-      "bestBid": "0.50",
-      "bestAsk": "0.54",
-      "liquidityNum": "150000.00",
-      "volumeNum": "500000.00",
-      "volume24Hr": "45000.00",
-      "endDate": "2026-11-03T00:00:00Z",
-      "startDate": "2026-01-01T00:00:00Z",
-      "category": "Politics",
-      "clobTokenIds": "[\"0x9012yes\", \"0x9012no\"]",
-      "icon": "https://polymarket.com/icons/politics.svg",
+      "conditionId": "0x789ghi345jkl",
+      "question": "Will SOL reach $200 by May 15, 2026?",
+      "slug": "will-sol-reach-200-by-may-15-2026",
+      "outcomePrices": "[0.30, 0.70]",
+      "bestBid": "0.28",
+      "bestAsk": "0.32",
+      "liquidityNum": "18000.00",
+      "volumeNum": "45000.00",
+      "volume24Hr": "3000.00",
+      "endDate": "2026-05-15T23:59:59Z",
+      "startDate": "2026-04-01T00:00:00Z",
+      "category": "Crypto",
+      "tokenId": "0x789token",
+      "marketSlug": "test-sol-market",
+      "description": "Test market for SOL price prediction",
+      "icon": "https://example.com/icon3.png",
       "active": true,
-      "closed": false
+      "closed": false,
+      "archived": false
     }
-  ]
+  ],
+  "total": 3,
+  "offset": 0,
+  "count": 3
 }
