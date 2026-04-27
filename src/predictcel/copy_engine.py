@@ -96,7 +96,8 @@ class CopyEngine:
         wallet_qualities = wallet_qualities or {}
         grouped: dict[str, list[WalletTrade]] = {}
         for trade in trades:
-            grouped.setdefault(trade.market_id, []).append(trade)
+            canonical_market_id = self._canonical_market_id(trade.market_id, markets)
+            grouped.setdefault(canonical_market_id, []).append(trade)
 
         if not grouped:
             self.last_diagnostics = {
@@ -162,6 +163,12 @@ class CopyEngine:
             **dict(sorted(rejection_counts.items())),
         }
         return candidates
+
+    def _canonical_market_id(self, market_id: str, markets: dict[str, MarketSnapshot]) -> str:
+        market = markets.get(market_id)
+        if market is None:
+            return market_id
+        return market.market_id
 
     def _resolve_topic(self, trades: list[WalletTrade]) -> str:
         counts: dict[str, int] = {}
