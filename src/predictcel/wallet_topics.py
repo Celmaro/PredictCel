@@ -1,9 +1,18 @@
+"""Wallet topic analysis.
+
+Analyzes wallet trading patterns by topic/category to enable
+topic-based basket assignment.
+"""
+
 from __future__ import annotations
 
 from collections import Counter
 from typing import Any
 
 from .models import WalletTopicProfile
+
+__all__ = ["analyze_wallet_topics", "get_topic_preferences"]
+
 
 UNKNOWN_TOPIC = "other"
 
