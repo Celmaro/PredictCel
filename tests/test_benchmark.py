@@ -1,9 +1,10 @@
-import pytest
 from pathlib import Path
-from src.predictcel.copy_engine import CopyEngine
-from src.predictcel.config import load_config
-from src.predictcel.models import MarketSnapshot, WalletTrade, WalletQuality
-from datetime import datetime, UTC
+
+import pytest
+
+from predictcel.config import load_config
+from predictcel.copy_engine import CopyEngine
+from predictcel.models import MarketSnapshot, WalletQuality, WalletTrade
 
 
 @pytest.fixture
@@ -29,7 +30,6 @@ def sample_markets():
 
 @pytest.fixture
 def sample_trades():
-    now = datetime.now(UTC)
     return [
         WalletTrade(
             wallet="wallet1",
