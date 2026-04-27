@@ -1,8 +1,17 @@
+"""Wallet discovery orchestration.
+
+Coordinates wallet discovery from multiple sources and manages
+the discovery pipeline.
+"""
+
 from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any
+
+__all__ = ["DiscoveryRunner", "discover_wallets"]
+
 
 
 @dataclass(frozen=True)
