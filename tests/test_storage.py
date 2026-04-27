@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from predictcel.models import Position
+from predictcel.models import CopyCandidate, Position
 from predictcel.storage import SignalStore
 
 
@@ -23,6 +23,22 @@ def make_position(market_id: str, status: str, amount: float = 25.0, token_id: s
         stop_loss_pct=0.1,
         max_hold_minutes=1440,
         status=status,
+    )
+
+
+def make_candidate(market_id: str, side: str = "YES") -> CopyCandidate:
+    return CopyCandidate(
+        topic="geopolitics",
+        market_id=market_id,
+        side=side,
+        consensus_ratio=0.8,
+        reference_price=0.55,
+        current_price=0.56,
+        liquidity_usd=10000.0,
+        source_wallets=["w1", "w2"],
+        wallet_quality_score=0.75,
+        copyability_score=0.81,
+        reason="ok",
     )
 
 
@@ -135,6 +151,30 @@ def test_signal_fingerprints_prevent_recent_duplicates() -> None:
 
         assert store.has_recent_signal("m1", "geopolitics", "YES") is True
         assert store.has_recent_signal("m1", "geopolitics", "NO") is False
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_filter_and_mark_candidates_atomically_skips_recent_and_same_batch_duplicates() -> None:
+    store, db_path = make_store()
+    try:
+        store.mark_signal_seen("m1", "geopolitics", "YES")
+
+        fresh, skipped = store.filter_and_mark_candidates_atomically(
+            [
+                make_candidate("m1", "YES"),
+                make_candidate("m2", "YES"),
+                make_candidate("m2", "YES"),
+                make_candidate("m3", "NO"),
+            ]
+        )
+
+        assert [candidate.market_id for candidate in fresh] == ["m2", "m3"]
+        assert [candidate.side for candidate in fresh] == ["YES", "NO"]
+        assert skipped == 2
+        assert store.has_recent_signal("m2", "geopolitics", "YES") is True
+        assert store.has_recent_signal("m3", "geopolitics", "NO") is True
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)
