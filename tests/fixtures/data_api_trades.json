@@ -1,0 +1,69 @@
+{
+  "trades": [
+    {
+      "id": "trade_001",
+      "asset": "0x1234yes",
+      "side": "BUY_YES",
+      "price": "0.61",
+      "sizeUsd": "500.00",
+      "size": "8.20",
+      "createdAt": "2026-04-27T10:00:00Z",
+      "user": "0xwallet1abcdef",
+      "conditionId": "0xabc123def456",
+      "title": "Will BTC close above $70k on April 30, 2026?",
+      "slug": "will-btc-close-above-70k-on-april-30-2026"
+    },
+    {
+      "id": "trade_002",
+      "asset": "0x1234no",
+      "side": "BUY_NO",
+      "price": "0.37",
+      "sizeUsd": "300.00",
+      "size": "8.11",
+      "createdAt": "2026-04-27T09:30:00Z",
+      "user": "0xwallet1abcdef",
+      "conditionId": "0xabc123def456",
+      "title": "Will BTC close above $70k on April 30, 2026?",
+      "slug": "will-btc-close-above-70k-on-april-30-2026"
+    },
+    {
+      "id": "trade_003",
+      "asset": "0x5678yes",
+      "side": "BUY_YES",
+      "price": "0.46",
+      "sizeUsd": "100.00",
+      "size": "2.17",
+      "createdAt": "2026-04-27T08:00:00Z",
+      "user": "0xwallet2ghijkl",
+      "conditionId": "0xdef789abc012",
+      "title": "Will it rain in New York City on May 1, 2026?",
+      "slug": "will-it-rain-in-nyc-may-1-2026"
+    },
+    {
+      "id": "trade_004",
+      "asset": "0x9012yes",
+      "side": "BUY_YES",
+      "price": "0.51",
+      "sizeUsd": "1000.00",
+      "size": "19.61",
+      "createdAt": "2026-04-26T15:00:00Z",
+      "user": "0xwallet3mnopqr",
+      "conditionId": "0xghi345xyz",
+      "title": "Will Trump win the 2026 US Presidential Election?",
+      "slug": "will-trump-win-2026-presidential-election"
+    },
+    {
+      "id": "trade_005",
+      "asset": "0x9012no",
+      "side": "BUY_NO",
+      "price": "0.49",
+      "sizeUsd": "750.00",
+      "size": "15.31",
+      "createdAt": "2026-04-26T14:30:00Z",
+      "user": "0xwallet3mnopqr",
+      "conditionId": "0xghi345xyz",
+      "title": "Will Trump win the 2026 US Presidential Election?",
+      "slug": "will-trump-win-2026-presidential-election"
+    }
+  ]
+}

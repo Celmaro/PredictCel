@@ -1,0 +1,34 @@
+{
+  "leaderboard": [
+    {
+      "rank": 1,
+      "proxyWallet": "0xwallet1abcdef",
+      "userName": "CryptoWhale",
+      "pnl": "150000.00",
+      "vol": "500000.00",
+      "tradeCount": 120,
+      "winRate": "0.65",
+      "avgTradeSize": "2500.00"
+    },
+    {
+      "rank": 2,
+      "proxyWallet": "0xwallet2ghijkl",
+      "userName": "WeatherWatcher",
+      "pnl": "25000.00",
+      "vol": "80000.00",
+      "tradeCount": 45,
+      "winRate": "0.58",
+      "avgTradeSize": "500.00"
+    },
+    {
+      "rank": 3,
+      "proxyWallet": "0xwallet3mnopqr",
+      "userName": "PoliticalPundit",
+      "pnl": "85000.00",
+      "vol": "350000.00",
+      "tradeCount": 89,
+      "winRate": "0.61",
+      "avgTradeSize": "1800.00"
+    }
+  ]
+}

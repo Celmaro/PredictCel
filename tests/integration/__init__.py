@@ -1,0 +1,1 @@
+"""PredictCel integration tests package."""

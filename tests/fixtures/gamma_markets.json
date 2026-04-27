@@ -1,0 +1,64 @@
+"""Integration test fixtures for Polymarket API responses.
+
+These fixtures provide realistic mock data that mirrors actual
+Polymarket API responses for testing without network calls.
+"""
+
+{
+  "markets": [
+    {
+      "conditionId": "0xabc123def456",
+      "question": "Will BTC close above $70k on April 30, 2026?",
+      "slug": "will-btc-close-above-70k-on-april-30-2026",
+      "outcomePrices": "[0.62, 0.38]",
+      "bestBid": "0.60",
+      "bestAsk": "0.63",
+      "liquidityNum": "45000.00",
+      "volumeNum": "120000.00",
+      "volume24Hr": "15000.00",
+      "endDate": "2026-04-30T23:59:59Z",
+      "startDate": "2026-04-01T00:00:00Z",
+      "category": "Crypto",
+      "clobTokenIds": "[\"0x1234yes\", \"0x1234no\"]",
+      "icon": "https://polymarket.com/icons/btc.svg",
+      "active": true,
+      "closed": false
+    },
+    {
+      "conditionId": "0xdef789abc012",
+      "question": "Will it rain in New York City on May 1, 2026?",
+      "slug": "will-it-rain-in-nyc-may-1-2026",
+      "outcomePrices": "[0.45, 0.55]",
+      "bestBid": "0.43",
+      "bestAsk": "0.47",
+      "liquidityNum": "8000.00",
+      "volumeNum": "25000.00",
+      "volume24Hr": "3000.00",
+      "endDate": "2026-05-01T23:59:59Z",
+      "startDate": "2026-04-20T00:00:00Z",
+      "category": "Weather",
+      "clobTokenIds": "[\"0x5678yes\", \"0x5678no\"]",
+      "icon": "https://polymarket.com/icons/weather.svg",
+      "active": true,
+      "closed": false
+    },
+    {
+      "conditionId": "0xghi345xyz",
+      "question": "Will Trump win the 2026 US Presidential Election?",
+      "slug": "will-trump-win-2026-presidential-election",
+      "outcomePrices": "[0.52, 0.48]",
+      "bestBid": "0.50",
+      "bestAsk": "0.54",
+      "liquidityNum": "150000.00",
+      "volumeNum": "500000.00",
+      "volume24Hr": "45000.00",
+      "endDate": "2026-11-03T00:00:00Z",
+      "startDate": "2026-01-01T00:00:00Z",
+      "category": "Politics",
+      "clobTokenIds": "[\"0x9012yes\", \"0x9012no\"]",
+      "icon": "https://polymarket.com/icons/politics.svg",
+      "active": true,
+      "closed": false
+    }
+  ]
+}

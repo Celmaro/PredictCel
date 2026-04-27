@@ -1,0 +1,1 @@
+"""PredictCel test fixtures package."""

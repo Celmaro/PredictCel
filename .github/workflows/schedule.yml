@@ -31,11 +31,16 @@ jobs:
           key: predictcel-db-${{ github.run_id }}
           restore-keys: |
             predictcel-db-
-      - run: pip install -e "."
+      - run: pip install -e ".[dev]"
       - name: Run cycle
+        id: run_cycle
         env:
           MODE: ${{ github.event.inputs.mode || 'paper' }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
         run: |
+          set +e  # Don't exit on error
           ARGS="--config config/predictcel.example.json --db predictcel.db"
           if [ "$MODE" = "live-data" ]; then
             ARGS="$ARGS --live-data"
@@ -44,6 +49,54 @@ jobs:
             ARGS="$ARGS --live-data --live-trading"
           fi
           python -m predictcel.main $ARGS
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          echo "cycle_id=$(date +%Y%m%d%H%M%S)" >> $GITHUB_OUTPUT
+          exit $EXIT_CODE
+      - name: Alert on failure
+        if: failure() && (env.SLACK_WEBHOOK != '' || env.DISCORD_WEBHOOK != '' || env.ALERT_WEBHOOK_URL != '')
+        run: |
+          python -c "
+          import os, json, sys
+          from urllib.request import Request, urlopen
+          
+          webhook = os.environ.get('SLACK_WEBHOOK') or os.environ.get('DISCORD_WEBHOOK') or os.environ.get('ALERT_WEBHOOK_URL')
+          if not webhook:
+              sys.exit(0)
+          
+          exit_code = os.environ.get('exit_code', '1')
+          cycle_id = os.environ.get('cycle_id', 'unknown')
+          mode = os.environ.get('MODE', 'paper')
+          
+          severity = 'critical' if exit_code != '0' else 'info'
+          title = f'PredictCel Cycle Failed (exit {exit_code})' if exit_code != '0' else 'PredictCel Cycle Complete'
+          color = '#FF0000' if exit_code != '0' else '#36A64F'
+          
+          payload = {
+              'attachments': [{
+                  'color': color,
+                  'blocks': [
+                      {'type': 'header', 'text': {'type': 'plain_text', 'text': f'🔔 {title}', 'emoji': True}},
+                      {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*Cycle ID:* `{cycle_id}`\\n*Mode:* `{mode}`\\n*Exit Code:* `{exit_code}`\\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>'}}
+                  ]
+              }]
+          }
+          
+          body = json.dumps(payload).encode()
+          request = Request(webhook, data=body, headers={'Content-Type': 'application/json'}, method='POST')
+          try:
+              with urlopen(request, timeout=10) as resp:
+                  print(f'Alert sent, status: {resp.status}')
+          except Exception as e:
+              print(f'Alert failed: {e}', file=sys.stderr)
+          "
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          exit_code: ${{ steps.run_cycle.outputs.exit_code }}
+          cycle_id: ${{ steps.run_cycle.outputs.cycle_id }}
+          MODE: ${{ github.event.inputs.mode || 'paper' }}
       - name: Upload cycle output
         if: always()
         uses: actions/upload-artifact@v4
