@@ -1,11 +1,18 @@
-from __future__ import annotations
+"""
+Configuration loading and validation for PredictCel.
 
+This module handles loading configuration from JSON files and
+validating all parameters to ensure they meet requirements.
+"""
+from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 def _default_topic_keywords() -> dict[str, list[str]]:
+    """Default topic keywords for wallet discovery."""
     return {
         "geopolitics": ["election", "trump", "biden", "war", "federal", "senate", "president"],
         "sports": ["nba", "nfl", "mlb", "nhl", "ufc", "soccer", "football", "tennis"],
@@ -20,7 +27,7 @@ class BasketRule:
     topic: str
     wallets: list[str]
     quorum_ratio: float
-    target_allocation: float = 0.0  # Target percentage of total capital or wallets
+    target_allocation: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -149,173 +156,172 @@ class AppConfig:
 
 
 class ConfigError(ValueError):
+    """Raised when configuration validation fails."""
     pass
 
 
-def load_config(path: str | Path) -> AppConfig:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+def _validate_range(
+    value: float,
+    min_val: float,
+    max_val: float,
+    name: str
+) -> None:
+    """Validate that a value is within a range."""
+    if not min_val <= value <= max_val:
+        raise ConfigError(f"{name} must be between {min_val} and {max_val}.")
 
-    baskets = [
-        BasketRule(
-            topic=item["topic"],
-            wallets=item["wallets"],
-            quorum_ratio=float(item["quorum_ratio"]),
-            target_allocation=float(item.get("target_allocation", 0.0)),
-        )
-        for item in payload["baskets"]
-    ]
-    filters = FilterConfig(**payload["filters"])
-    arbitrage = ArbitrageConfig(**payload["arbitrage"])
-    consensus = ConsensusConfig(**payload.get("consensus", {}))
-    market_regime = MarketRegimeConfig(**payload.get("market_regime", {}))
-    wallet_discovery = WalletDiscoveryConfig(**payload.get("wallet_discovery", {}))
-    live_data_payload = payload.get("live_data")
-    live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
-    execution_payload = payload.get("execution")
-    execution = _build_execution_config(execution_payload) if execution_payload else None
 
+def _validate_positive(
+    value: float,
+    name: str,
+    allow_zero: bool = False
+) -> None:
+    """Validate that a value is positive (or non-negative)."""
+    if allow_zero:
+        if value < 0:
+            raise ConfigError(f"{name} must be non-negative.")
+    else:
+        if value <= 0:
+            raise ConfigError(f"{name} must be positive.")
+
+
+def _validate_baskets(baskets: list[BasketRule]) -> None:
+    """Validate basket configuration."""
     if not baskets:
         raise ConfigError("At least one basket is required.")
-
+    
     for basket in baskets:
         if not 0 < basket.quorum_ratio <= 1:
             raise ConfigError(f"Invalid quorum_ratio for topic {basket.topic}.")
         if not basket.wallets:
             raise ConfigError(f"Basket {basket.topic} has no wallets.")
 
-    if filters.max_trade_age_seconds <= 0:
-        raise ConfigError("max_trade_age_seconds must be positive.")
-    if not 0 <= filters.max_price_drift <= 1:
-        raise ConfigError("max_price_drift must be between 0 and 1.")
+
+def _validate_filters(filters: FilterConfig) -> None:
+    """Validate filter configuration."""
+    _validate_positive(filters.max_trade_age_seconds, "max_trade_age_seconds")
+    _validate_range(filters.max_price_drift, 0, 1, "max_price_drift")
+    
     if filters.min_minutes_to_resolution >= filters.max_minutes_to_resolution:
         raise ConfigError("Resolution window is invalid.")
-    if consensus.recency_half_life_seconds <= 0:
-        raise ConfigError("consensus recency_half_life_seconds must be positive.")
-    if not 0 <= consensus.min_weighted_consensus <= 1:
-        raise ConfigError("consensus min_weighted_consensus must be between 0 and 1.")
-    if consensus.confidence_prior_strength < 0:
-        raise ConfigError("consensus confidence_prior_strength must be non-negative.")
-    if not 0 <= consensus.min_confidence_score <= 1:
-        raise ConfigError("consensus min_confidence_score must be between 0 and 1.")
-    if not 0 <= consensus.conflict_penalty_weight <= 1:
-        raise ConfigError("consensus conflict_penalty_weight must be between 0 and 1.")
-    if consensus.bankroll_usd <= 0:
-        raise ConfigError("consensus bankroll_usd must be positive.")
-    if not 0 <= consensus.kelly_fraction <= 1:
-        raise ConfigError("consensus kelly_fraction must be between 0 and 1.")
-    if consensus.max_suggested_position_usd <= 0:
-        raise ConfigError("consensus max_suggested_position_usd must be positive.")
-    if not 0 <= market_regime.trend_price_skew <= 0.5:
-        raise ConfigError("market_regime trend_price_skew must be between 0 and 0.5.")
-    if not 0 <= market_regime.range_price_skew <= 0.5:
-        raise ConfigError("market_regime range_price_skew must be between 0 and 0.5.")
-    if market_regime.range_price_skew > market_regime.trend_price_skew:
-        raise ConfigError("market_regime range_price_skew cannot exceed trend_price_skew.")
-    if market_regime.max_stable_spread < 0 or market_regime.min_depth_usd < 0:
-        raise ConfigError("market_regime spread and depth thresholds must be non-negative.")
-    if market_regime.unstable_penalty < 0:
-        raise ConfigError("market_regime unstable_penalty must be non-negative.")
-    if wallet_discovery.mode not in {"report_only", "propose_config", "auto_update"}:
-        raise ConfigError("wallet_discovery mode must be report_only, propose_config, or auto_update.")
-    if wallet_discovery.candidate_limit <= 0 or wallet_discovery.trade_limit_per_wallet <= 0:
-        raise ConfigError("wallet_discovery candidate and trade limits must be positive.")
-    if wallet_discovery.min_trades < 0 or wallet_discovery.min_recent_trades < 0:
-        raise ConfigError("wallet_discovery trade filters must be non-negative.")
-    if wallet_discovery.recent_window_seconds <= 0:
-        raise ConfigError("wallet_discovery recent_window_seconds must be positive.")
-    if wallet_discovery.min_avg_trade_size_usd < 0:
-        raise ConfigError("wallet_discovery min_avg_trade_size_usd must be non-negative.")
-    if not 0 <= wallet_discovery.min_assignment_score <= 1:
-        raise ConfigError("wallet_discovery min_assignment_score must be between 0 and 1.")
-    if wallet_discovery.max_wallets_per_basket <= 0 or wallet_discovery.max_new_wallets_per_run <= 0:
-        raise ConfigError("wallet_discovery basket limits must be positive.")
-    if arbitrage.min_gross_edge <= 0:
-        raise ConfigError("min_gross_edge must be positive.")
-    if arbitrage.min_liquidity_usd < 0:
-        raise ConfigError("min_liquidity_usd must be non-negative.")
-    if not 0 <= arbitrage.variable_cost_rate <= 1:
-        raise ConfigError("arbitrage variable_cost_rate must be between 0 and 1.")
-    if arbitrage.gas_cost_per_tx_usd < 0:
-        raise ConfigError("arbitrage gas_cost_per_tx_usd must be non-negative.")
-    if arbitrage.settlement_tx_count < 0:
-        raise ConfigError("arbitrage settlement_tx_count must be non-negative.")
-    if not 0 <= arbitrage.slippage_rate <= 1:
-        raise ConfigError("arbitrage slippage_rate must be between 0 and 1.")
-    if arbitrage.min_profitable_position_usd < 0:
-        raise ConfigError("arbitrage min_profitable_position_usd must be non-negative.")
-    if arbitrage.max_position_usd <= 0:
-        raise ConfigError("arbitrage max_position_usd must be positive.")
-    if arbitrage.target_annualized_return < 0:
-        raise ConfigError("arbitrage target_annualized_return must be non-negative.")
-    if arbitrage.max_annualized_return <= 0:
-        raise ConfigError("arbitrage max_annualized_return must be positive.")
-
-    if live_data is not None:
-        if live_data.market_limit <= 0 or live_data.trade_limit <= 0:
-            raise ConfigError("Live market and trade limits must be positive.")
-        if live_data.request_timeout_seconds <= 0:
-            raise ConfigError("request_timeout_seconds must be positive.")
-
-    if execution is not None:
-        if not 0 <= execution.min_copyability_score <= 1:
-            raise ConfigError("min_copyability_score must be between 0 and 1.")
-        if execution.max_orders_per_run <= 0:
-            raise ConfigError("max_orders_per_run must be positive.")
-        if execution.buy_amount_usd <= 0:
-            raise ConfigError("buy_amount_usd must be positive.")
-        if execution.min_signal_allocation_usd <= 0:
-            raise ConfigError("min_signal_allocation_usd must be positive.")
-        if execution.min_signal_allocation_usd > execution.buy_amount_usd:
-            raise ConfigError("min_signal_allocation_usd cannot exceed buy_amount_usd.")
-        if not 0 <= execution.worst_price_buffer <= 1:
-            raise ConfigError("worst_price_buffer must be between 0 and 1.")
-        if execution.order_type.upper() not in {"FOK", "FAK"}:
-            raise ConfigError("execution order_type must be FOK or FAK.")
-        if execution.signature_type not in {0, 1, 2}:
-            raise ConfigError("signature_type must be 0, 1, or 2.")
-        pc = execution.position
-        if pc.take_profit_pct < 0:
-            raise ConfigError("take_profit_pct must be non-negative.")
-        if pc.stop_loss_pct < 0:
-            raise ConfigError("stop_loss_pct must be non-negative.")
-        if pc.max_hold_minutes < 0:
-            raise ConfigError("max_hold_minutes must be non-negative.")
-        if execution.max_retries < 0:
-            raise ConfigError("max_retries must be non-negative.")
-        if execution.retry_base_delay_seconds <= 0:
-            raise ConfigError("retry_base_delay_seconds must be positive.")
-        if execution.exposure is not None:
-            if execution.exposure.max_total_exposure_usd < 0:
-                raise ConfigError("max_total_exposure_usd must be non-negative.")
-            if execution.exposure.max_single_position_usd < 0:
-                raise ConfigError("max_single_position_usd must be non-negative.")
-
-    return AppConfig(
-        baskets=baskets,
-        filters=filters,
-        arbitrage=arbitrage,
-        wallet_trades_path=payload["wallet_trades_path"],
-        market_snapshots_path=payload["market_snapshots_path"],
-        live_data=live_data,
-        execution=execution,
-        consensus=consensus,
-        market_regime=market_regime,
-        wallet_discovery=wallet_discovery,
-    )
 
 
-def _build_execution_config(payload: dict) -> ExecutionConfig:
+def _validate_consensus(config: ConsensusConfig) -> None:
+    """Validate consensus configuration."""
+    _validate_positive(config.recency_half_life_seconds, "recency_half_life_seconds")
+    _validate_range(config.min_weighted_consensus, 0, 1, "min_weighted_consensus")
+    _validate_positive(config.confidence_prior_strength, "confidence_prior_strength", True)
+    _validate_range(config.min_confidence_score, 0, 1, "min_confidence_score")
+    _validate_range(config.conflict_penalty_weight, 0, 1, "conflict_penalty_weight")
+    _validate_positive(config.bankroll_usd, "bankroll_usd")
+    _validate_range(config.kelly_fraction, 0, 1, "kelly_fraction")
+    _validate_positive(config.max_suggested_position_usd, "max_suggested_position_usd")
+
+
+def _validate_market_regime(config: MarketRegimeConfig) -> None:
+    """Validate market regime configuration."""
+    _validate_range(config.trend_price_skew, 0, 0.5, "trend_price_skew")
+    _validate_range(config.range_price_skew, 0, 0.5, "range_price_skew")
+    
+    if config.range_price_skew > config.trend_price_skew:
+        raise ConfigError("range_price_skew cannot exceed trend_price_skew.")
+    if config.max_stable_spread < 0 or config.min_depth_usd < 0:
+        raise ConfigError("Spread and depth thresholds must be non-negative.")
+    if config.unstable_penalty < 0:
+        raise ConfigError("unstable_penalty must be non-negative.")
+
+
+def _validate_wallet_discovery(config: WalletDiscoveryConfig) -> None:
+    """Validate wallet discovery configuration."""
+    valid_modes = {"report_only", "propose_config", "auto_update"}
+    if config.mode not in valid_modes:
+        raise ConfigError(f"mode must be one of: {', '.join(valid_modes)}.")
+    
+    _validate_positive(config.candidate_limit, "candidate_limit")
+    _validate_positive(config.trade_limit_per_wallet, "trade_limit_per_wallet")
+    _validate_positive(config.min_trades, "min_trades", True)
+    _validate_positive(config.min_recent_trades, "min_recent_trades", True)
+    _validate_positive(config.recent_window_seconds, "recent_window_seconds")
+    _validate_positive(config.min_avg_trade_size_usd, "min_avg_trade_size_usd", True)
+    _validate_range(config.min_assignment_score, 0, 1, "min_assignment_score")
+    _validate_positive(config.max_wallets_per_basket, "max_wallets_per_basket")
+    _validate_positive(config.max_new_wallets_per_run, "max_new_wallets_per_run")
+
+
+def _validate_arbitrage(config: ArbitrageConfig) -> None:
+    """Validate arbitrage configuration."""
+    _validate_positive(config.min_gross_edge, "min_gross_edge")
+    _validate_positive(config.min_liquidity_usd, "min_liquidity_usd", True)
+    _validate_range(config.variable_cost_rate, 0, 1, "variable_cost_rate")
+    _validate_positive(config.gas_cost_per_tx_usd, "gas_cost_per_tx_usd", True)
+    _validate_positive(config.settlement_tx_count, "settlement_tx_count", True)
+    _validate_range(config.slippage_rate, 0, 1, "slippage_rate")
+    _validate_positive(config.min_profitable_position_usd, "min_profitable_position_usd", True)
+    _validate_positive(config.max_position_usd, "max_position_usd")
+    _validate_positive(config.target_annualized_return, "target_annualized_return", True)
+    _validate_positive(config.max_annualized_return, "max_annualized_return")
+
+
+def _validate_live_data(config: LiveDataConfig | None) -> None:
+    """Validate live data configuration."""
+    if config is None:
+        return
+    
+    _validate_positive(config.market_limit, "market_limit")
+    _validate_positive(config.trade_limit, "trade_limit")
+    _validate_positive(config.request_timeout_seconds, "request_timeout_seconds")
+
+
+def _validate_execution(config: ExecutionConfig | None) -> None:
+    """Validate execution configuration."""
+    if config is None:
+        return
+    
+    _validate_range(config.min_copyability_score, 0, 1, "min_copyability_score")
+    _validate_positive(config.max_orders_per_run, "max_orders_per_run")
+    _validate_positive(config.buy_amount_usd, "buy_amount_usd")
+    _validate_positive(config.min_signal_allocation_usd, "min_signal_allocation_usd")
+    
+    if config.min_signal_allocation_usd > config.buy_amount_usd:
+        raise ConfigError("min_signal_allocation_usd cannot exceed buy_amount_usd.")
+    
+    _validate_range(config.worst_price_buffer, 0, 1, "worst_price_buffer")
+    
+    if config.order_type.upper() not in {"FOK", "FAK"}:
+        raise ConfigError("order_type must be FOK or FAK.")
+    if config.signature_type not in {0, 1, 2}:
+        raise ConfigError("signature_type must be 0, 1, or 2.")
+    
+    _validate_positive(config.position.take_profit_pct, "take_profit_pct", True)
+    _validate_positive(config.position.stop_loss_pct, "stop_loss_pct", True)
+    _validate_positive(config.position.max_hold_minutes, "max_hold_minutes", True)
+    _validate_positive(config.max_retries, "max_retries", True)
+    _validate_positive(config.retry_base_delay_seconds, "retry_base_delay_seconds")
+    
+    if config.exposure is not None:
+        _validate_positive(config.exposure.max_total_exposure_usd, "max_total_exposure_usd", True)
+        _validate_positive(config.exposure.max_single_position_usd, "max_single_position_usd", True)
+
+
+def _build_execution_config(payload: dict[str, Any]) -> ExecutionConfig:
+    """Build ExecutionConfig from payload dictionary."""
     position_payload = payload.get("position", {})
     position_config = PositionConfig(
         take_profit_pct=float(position_payload.get("take_profit_pct", 0.0)),
         stop_loss_pct=float(position_payload.get("stop_loss_pct", 0.0)),
         max_hold_minutes=int(position_payload.get("max_hold_minutes", 0)),
     )
+    
     exposure_payload = payload.get("exposure")
-    exposure_config = ExposureConfig(
-        max_total_exposure_usd=float(exposure_payload.get("max_total_exposure_usd", 0.0)) if exposure_payload else 0.0,
-        max_single_position_usd=float(exposure_payload.get("max_single_position_usd", 0.0)) if exposure_payload else 0.0,
-    ) if exposure_payload else None
+    exposure_config = (
+        ExposureConfig(
+            max_total_exposure_usd=float(exposure_payload.get("max_total_exposure_usd", 0.0)),
+            max_single_position_usd=float(exposure_payload.get("max_single_position_usd", 0.0)),
+        )
+        if exposure_payload
+        else None
+    )
+    
     return ExecutionConfig(
         enabled=payload["enabled"],
         dry_run=payload["dry_run"],
@@ -330,5 +336,71 @@ def _build_execution_config(payload: dict) -> ExecutionConfig:
         exposure=exposure_config,
         max_retries=int(payload.get("max_retries", 3)),
         retry_base_delay_seconds=float(payload.get("retry_base_delay_seconds", 1.0)),
-        min_signal_allocation_usd=float(payload.get("min_signal_allocation_usd", min(float(payload["buy_amount_usd"]), 5.0))),
+        min_signal_allocation_usd=float(
+            payload.get("min_signal_allocation_usd", min(float(payload["buy_amount_usd"]), 5.0))
+        ),
+    )
+
+
+def load_config(path: str | Path) -> AppConfig:
+    """Load and validate configuration from a JSON file.
+    
+    Args:
+        path: Path to the JSON configuration file
+        
+    Returns:
+        Validated AppConfig instance
+        
+    Raises:
+        ConfigError: If configuration is invalid
+        FileNotFoundError: If the configuration file doesn't exist
+        json.JSONDecodeError: If the file contains invalid JSON
+    """
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    
+    # Build basket rules
+    baskets = [
+        BasketRule(
+            topic=item["topic"],
+            wallets=item["wallets"],
+            quorum_ratio=float(item["quorum_ratio"]),
+            target_allocation=float(item.get("target_allocation", 0.0)),
+        )
+        for item in payload["baskets"]
+    ]
+    
+    # Build configuration objects
+    filters = FilterConfig(**payload["filters"])
+    arbitrage = ArbitrageConfig(**payload["arbitrage"])
+    consensus = ConsensusConfig(**payload.get("consensus", {}))
+    market_regime = MarketRegimeConfig(**payload.get("market_regime", {}))
+    wallet_discovery = WalletDiscoveryConfig(**payload.get("wallet_discovery", {}))
+    
+    live_data_payload = payload.get("live_data")
+    live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
+    
+    execution_payload = payload.get("execution")
+    execution = _build_execution_config(execution_payload) if execution_payload else None
+    
+    # Validate all configurations
+    _validate_baskets(baskets)
+    _validate_filters(filters)
+    _validate_consensus(consensus)
+    _validate_market_regime(market_regime)
+    _validate_wallet_discovery(wallet_discovery)
+    _validate_arbitrage(arbitrage)
+    _validate_live_data(live_data)
+    _validate_execution(execution)
+    
+    return AppConfig(
+        baskets=baskets,
+        filters=filters,
+        arbitrage=arbitrage,
+        wallet_trades_path=payload["wallet_trades_path"],
+        market_snapshots_path=payload["market_snapshots_path"],
+        live_data=live_data,
+        execution=execution,
+        consensus=consensus,
+        market_regime=market_regime,
+        wallet_discovery=wallet_discovery,
     )
