@@ -263,7 +263,7 @@ def compute_copyability_score(
         recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1)
     )
     drift_score = (
-        max(0.0, 1.0 - (drift / filters.max_price_drift))
+        max(0.0, 1.0 - (drift / filters.max_price_drift)) if filters.max_price_drift > 0 else 1.0
         if filters.max_price_drift
         else 0.0
     )
