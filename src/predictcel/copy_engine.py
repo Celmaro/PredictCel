@@ -1,3 +1,9 @@
+"""Copy trading engine.
+
+Evaluates markets and generates copy trading signals based on
+wallet baskets and market conditions.
+"""
+
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -10,6 +16,9 @@ import os
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
+
+__all__ = ["CopyEngine", "evaluate_markets"]
+
 
 logger = logging.getLogger(__name__)
 
