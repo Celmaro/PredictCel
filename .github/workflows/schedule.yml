@@ -99,7 +99,7 @@ jobs:
           MODE: ${{ github.event.inputs.mode || 'paper' }}
       - name: Upload cycle output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cycle-output-${{ github.run_number }}
           path: predictcel.db
