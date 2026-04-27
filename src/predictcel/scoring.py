@@ -105,7 +105,7 @@ class WalletQualityScorer:
                 average_age, self.recency_half_life_seconds
             )
             drift_score = (
-                max(0.0, 1.0 - (average_drift / self.filters.max_price_drift))
+                max(0.0, 1.0 - (average_drift / self.filters.max_price_drift)) if self.filters.max_price_drift > 0 else 1.0
                 if self.filters.max_price_drift
                 else 0.0
             )
