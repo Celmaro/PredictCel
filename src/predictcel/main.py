@@ -29,7 +29,7 @@ from .storage import SignalStore
 from .wallet_discovery import WalletDiscoveryPipeline
 from .wallets import load_wallet_trades
 
-TRUSTED_POSITION_STATUSES = {"filled", "matched", "success", "submitted"}
+TRUSTED_POSITION_STATUSES = {"filled", "matched", "success"}
 HEX_CHARS = set("0123456789abcdefABCDEF")
 
 
@@ -174,7 +174,7 @@ def main() -> None:
                 store.update_position(pos.market_id, pos.current_price, pos.unrealized_pnl, status, token_id=pos.token_id)
             current_exposure_usd = store.get_total_exposure()
 
-        fresh_candidates, skipped_duplicate_signals = _filter_duplicate_candidates(store, copy_candidates)
+        fresh_candidates, skipped_duplicate_signals = store.filter_and_mark_candidates_atomically(copy_candidates)
         execution_intents = ExecutionPlanner(config.execution, config.execution.position).plan(fresh_candidates, markets, store.get_held_market_ids(), current_exposure_usd)
         execution_results = LiveOrderExecutor(config.execution, config.live_data).execute(execution_intents)
         _persist_execution_side_effects(store, config, execution_results)
