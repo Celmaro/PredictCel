@@ -1,3 +1,9 @@
+"""Wallet discovery from external sources.
+
+Discovers high-performing wallets from various sources including
+Polymarket leaderboards and external analytics.
+"""
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -14,6 +20,9 @@ from .models import BasketAssignment, BasketManagerAction, WalletDiscoveryCandid
 from .polymarket import PolymarketPublicClient
 from .wallet_sources import DataApiWalletSource
 from .wallet_topics import classify_wallet_topics
+
+__all__ = ["discover_from_leaderboard", "discover_from_sources"]
+
 
 
 class WalletDiscoveryPipeline:
