@@ -1,3 +1,9 @@
+"""Wallet data models and utilities.
+
+Provides wallet data structures and helper functions for
+wallet management.
+"""
+
 from __future__ import annotations
 
 import json
@@ -6,6 +12,9 @@ from datetime import datetime
 from pathlib import Path
 
 from .models import WalletTrade
+
+__all__ = ["Wallet", "WalletStats", "filter_wallets"]
+
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
