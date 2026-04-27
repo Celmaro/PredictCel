@@ -1,7 +1,16 @@
+"""Basket assignment logic for wallet categorization.
+
+Assigns wallets to baskets based on their trading characteristics,
+performance metrics, and topic preferences.
+"""
+
 from __future__ import annotations
 
 from .config import WalletDiscoveryConfig
 from .models import BasketAssignment, WalletDiscoveryCandidate
+
+__all__ = ["assign_baskets", "BasketAssigner"]
+
 
 
 class BasketAssignmentEngine:
