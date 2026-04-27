@@ -474,6 +474,63 @@ class SignalStore:
             rows,
         )
         self.connection.commit()
+
+    def filter_and_mark_candidates_atomically(
+        self,
+        candidates: Iterable[CopyCandidate],
+        ttl_minutes: int = 1440,
+    ) -> tuple[list[CopyCandidate], int]:
+        """Return only fresh candidates and mark them seen in one transaction."""
+        candidates = list(candidates)
+        if not candidates:
+            return [], 0
+
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(minutes=ttl_minutes)
+        fingerprints = [
+            self.make_signal_fingerprint(candidate.market_id, candidate.topic, candidate.side)
+            for candidate in candidates
+        ]
+
+        cursor = self.connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        try:
+            existing_recent: set[str] = set()
+            chunk_size = 500
+            for i in range(0, len(fingerprints), chunk_size):
+                chunk = fingerprints[i : i + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    f"SELECT fingerprint, created_at FROM signal_fingerprints WHERE fingerprint IN ({placeholders})",
+                    tuple(chunk),
+                )
+                for fingerprint, created_at in cursor.fetchall():
+                    if _parse_dt(created_at) >= cutoff:
+                        existing_recent.add(fingerprint)
+
+            fresh: list[CopyCandidate] = []
+            seen_in_batch: set[str] = set()
+            rows_to_mark: list[tuple[str, str, str, str, str]] = []
+            created_at = now.isoformat()
+            for candidate, fingerprint in zip(candidates, fingerprints):
+                if fingerprint in existing_recent or fingerprint in seen_in_batch:
+                    continue
+                fresh.append(candidate)
+                seen_in_batch.add(fingerprint)
+                rows_to_mark.append((fingerprint, candidate.market_id, candidate.topic, candidate.side, created_at))
+
+            if rows_to_mark:
+                cursor.executemany(
+                    "INSERT OR REPLACE INTO signal_fingerprints (fingerprint, market_id, topic, side, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    rows_to_mark,
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return fresh, len(candidates) - len(fresh)
     
     def mark_signals_seen(self, signals: Iterable[tuple[str, str, str]]) -> None:
         """Mark signals as seen to prevent duplicates."""
