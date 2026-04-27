@@ -1,8 +1,16 @@
+"""Wallet source definitions.
+
+Defines sources for wallet discovery and their configurations.
+"""
+
 from __future__ import annotations
 
 from typing import Any
 
 from .polymarket import PolymarketPublicClient
+
+__all__ = ["WALLET_SOURCES", "get_source_config"]
+
 
 
 class DataApiWalletSource:
