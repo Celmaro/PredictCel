@@ -183,8 +183,14 @@ def main() -> None:
                 store.update_position(pos.market_id, pos.current_price, pos.unrealized_pnl, status, token_id=pos.token_id)
             current_exposure_usd = store.get_total_exposure()
 
-        fresh_candidates, skipped_duplicate_signals = store.filter_and_mark_candidates_atomically(copy_candidates)
-        execution_intents = ExecutionPlanner(config.execution, config.execution.position).plan(fresh_candidates, markets, store.get_held_market_ids(), current_exposure_usd)
+        fresh_candidates, skipped_duplicate_signals = _filter_duplicate_candidates(store, copy_candidates)
+        execution_intents = ExecutionPlanner(config.execution, config.execution.position).plan(
+            fresh_candidates,
+            markets,
+            store.get_held_market_ids(),
+            current_exposure_usd,
+        )
+        _mark_execution_intents_seen(store, execution_intents)
         execution_results = LiveOrderExecutor(config.execution, config.live_data).execute(execution_intents)
         _persist_execution_side_effects(store, config, execution_results)
     timings["execution_ms"] = _elapsed_ms(started)
@@ -252,14 +258,17 @@ def _run_wallet_discovery(argv: list[str]) -> None:
     print(json.dumps({"mode": "wallet_discovery", "reports": files, "latency_ms": {"total_cycle_ms": _elapsed_ms(started)}}, indent=2))
 
 
+def _mark_execution_intents_seen(store: SignalStore, execution_intents: list) -> None:
+    if execution_intents:
+        store.mark_signals_seen((intent.market_id, intent.topic, intent.side) for intent in execution_intents)
+
+
 def _persist_execution_side_effects(store: SignalStore, config: Any, execution_results: list) -> None:
     now = datetime.now(UTC)
     position_config = config.execution.position
-    signals: list[tuple[str, str, str]] = []
     positions: list[Position] = []
     for result in execution_results:
         if _creates_or_updates_paper_position(result):
-            signals.append((result.market_id, result.topic, result.side))
             positions.append(
                 Position(
                     result.market_id,
@@ -279,8 +288,6 @@ def _persist_execution_side_effects(store: SignalStore, config: Any, execution_r
                     result.market_title,
                 )
             )
-    if signals:
-        store.mark_signals_seen(signals)
     if positions:
         store.save_positions(positions)
 
@@ -378,9 +385,20 @@ def _fetch_wallet_payloads(client: PolymarketPublicClient, wallets: list[str], l
 
 
 def _filter_duplicate_candidates(store: SignalStore, candidates: list) -> tuple[list, int]:
-    fingerprints = [store.make_signal_fingerprint(candidate.market_id, candidate.topic, candidate.side) for candidate in candidates]
-    recent_fingerprints = store.has_recent_signals([(candidate.market_id, candidate.topic, candidate.side) for candidate in candidates])
-    fresh = [candidate for candidate, fingerprint in zip(candidates, fingerprints) if fingerprint not in recent_fingerprints]
+    fingerprints = [
+        store.make_signal_fingerprint(candidate.market_id, candidate.topic, candidate.side)
+        for candidate in candidates
+    ]
+    recent_fingerprints = store.has_recent_signals(
+        [(candidate.market_id, candidate.topic, candidate.side) for candidate in candidates]
+    )
+    fresh = []
+    seen_in_batch: set[str] = set()
+    for candidate, fingerprint in zip(candidates, fingerprints):
+        if fingerprint in recent_fingerprints or fingerprint in seen_in_batch:
+            continue
+        fresh.append(candidate)
+        seen_in_batch.add(fingerprint)
     return fresh, len(candidates) - len(fresh)
 
 
