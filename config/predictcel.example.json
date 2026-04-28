@@ -120,11 +120,26 @@
     "max_wallets_per_basket": 20,
     "max_new_wallets_per_run": 5,
     "topics": {
-      "geopolitics": ["war", "ukraine", "russia", "iran", "israel"],
-      "sports": ["nba", "nfl", "mlb", "soccer", "ufc"],
-      "crypto": ["bitcoin", "btc", "ethereum", "eth", "crypto"],
-      "weather": ["weather", "rain", "snow", "hurricane"],
-      "macro": ["inflation", "fed", "gdp", "economy"]
+      "geopolitics": ["war", "ukraine", "russia", "iran", "israel", "election", "sanctions"],
+      "politics": ["election", "president", "senate", "congress", "vote", "campaign"],
+      "sport": ["sport", "championship", "tournament", "playoff", "final", "medal", "athlete"],
+      "basketball": ["basketball", "nba", "wnba", "ncaa", "euroleague"],
+      "soccer": ["soccer", "football", "premier league", "la liga", "bundesliga", "serie a", "world cup", "champions league", "europa league", "mls"],
+      "tennis": ["tennis", "atp", "wta", "grand slam", "wimbledon", "us open", "french open"],
+      "golf": ["golf", "pga", "masters", "open championship", "us open", "ryder cup"],
+      "formula-1": ["formula 1", "f1", "grand prix", "monaco", "qualifying", "pole position"],
+      "nfl": ["nfl", "football", "super bowl", "playoffs", "draft"],
+      "baseball": ["baseball", "mlb", "world series", "playoffs"],
+      "hockey": ["hockey", "nhl", "stanley cup", "playoffs"],
+      "olympics": ["olympics", "olympic", "summer games", "winter games", "paris", "los angeles"],
+      "crypto": ["bitcoin", "ethereum", "crypto", "blockchain", "defi", "nft", "solana"],
+      "ai": ["ai", "openai", "chatgpt", "nvidia", "google", "microsoft", "llm"],
+      "tech": ["apple", "tesla", "meta", "amazon", "semiconductor", "ipo", "startup"],
+      "medicine": ["fda", "clinical trial", "biotech", "pharma", "vaccine", "oncology"],
+      "weather": ["weather", "hurricane", "storm", "flood", "drought", "temperature"],
+      "macro": ["inflation", "fed", "gdp", "recession", "interest rate", "unemployment"],
+      "energy": ["oil", "gas", "renewable", "solar", "nuclear", "opec", "carbon"],
+      "entertainment": ["oscar", "movie", "netflix", "disney", "music", "box office"]
     }
   },
   "baskets": [
