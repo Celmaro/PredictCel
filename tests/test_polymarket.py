@@ -1,4 +1,8 @@
+import json
 from datetime import UTC, datetime
+from urllib.error import URLError
+
+import pytest
 
 from predictcel.polymarket import (
     PolymarketPublicClient,
@@ -66,6 +70,20 @@ class FakeFilteredTradeClient(PolymarketPublicClient):
                 {"asset": "token_right", "side": "BUY_NO", "price": "0.44", "sizeUsd": "30", "createdAt": "2025-12-31T23:52:00Z", "user": "0xabc"},
             ]
         }
+
+
+class FakeHTTPResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
 
 
 def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None:
@@ -208,6 +226,33 @@ def test_enrich_market_snapshots_requires_tradable_ask_depth() -> None:
     assert enriched["cond_1"].yes_ask_size == 0
     assert enriched["cond_1"].no_ask_size == 0
     assert enriched["cond_1"].orderbook_ready is False
+
+
+def test_gamma_circuit_breaker_does_not_block_clob_requests(monkeypatch) -> None:
+    client = PolymarketPublicClient(max_retries=1)
+    client._gamma_circuit_breaker.failure_threshold = 1
+
+    def fake_urlopen(request, timeout=15):
+        if request.full_url.startswith(client.gamma_base_url):
+            raise URLError("gamma down")
+        if request.full_url.startswith(client.clob_base_url):
+            return FakeHTTPResponse({
+                "bids": [{"price": "0.48", "size": "10"}],
+                "asks": [{"price": "0.52", "size": "12"}],
+            })
+        raise AssertionError(f"Unexpected URL: {request.full_url}")
+
+    monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
+
+    with pytest.raises(URLError):
+        client.fetch_active_markets(1)
+
+    book = client.fetch_order_book("token_yes")
+
+    assert book["asks"][0]["price"] == "0.52"
+
+    with pytest.raises(Exception, match="Circuit breaker is OPEN"):
+        client.fetch_active_markets(1)
 
 
 def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:
