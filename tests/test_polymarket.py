@@ -180,6 +180,36 @@ def test_enrich_market_snapshots_with_orderbooks_adds_spread_and_depth() -> None
     assert enriched["yes_token"].orderbook_ready is True
 
 
+def test_enrich_market_snapshots_requires_tradable_ask_depth() -> None:
+    item = {
+        "conditionId": "cond_1",
+        "question": "Will event X happen?",
+        "outcomePrices": "[0.61, 0.35]",
+        "bestBid": "0.58",
+        "liquidityNum": "12000",
+        "endDate": "2030-01-01T00:00:00Z",
+        "category": "geopolitics",
+        "clobTokenIds": "[\"yes_token\", \"no_token\"]",
+    }
+    snapshot = market_snapshot_from_gamma(item)
+    assert snapshot is not None
+
+    client = FakeClient(
+        {
+            "yes_token": {"bids": [{"price": "0.59", "size": "200"}], "asks": []},
+            "no_token": {"bids": [{"price": "0.33", "size": "180"}], "asks": []},
+        }
+    )
+
+    enriched = enrich_market_snapshots_with_orderbooks({"cond_1": snapshot}, client)
+
+    assert enriched["cond_1"].yes_ask == snapshot.yes_ask
+    assert enriched["cond_1"].no_ask == snapshot.no_ask
+    assert enriched["cond_1"].yes_ask_size == 0
+    assert enriched["cond_1"].no_ask_size == 0
+    assert enriched["cond_1"].orderbook_ready is False
+
+
 def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     item = {
