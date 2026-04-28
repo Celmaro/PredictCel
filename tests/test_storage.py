@@ -2,11 +2,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from predictcel.models import BasketHealth, BasketMembership, CopyCandidate, Position, WalletRegistryEntry
+from predictcel.models import (
+    BasketHealth,
+    BasketMembership,
+    CopyCandidate,
+    Position,
+    WalletRegistryEntry,
+)
 from predictcel.storage import SignalStore
 
 
-def make_position(market_id: str, status: str, amount: float = 25.0, token_id: str = "yes_token") -> Position:
+def make_position(
+    market_id: str,
+    status: str,
+    amount: float = 25.0,
+    token_id: str = "yes_token",
+) -> Position:
     now = datetime.now(UTC)
     return Position(
         market_id=market_id,
@@ -57,7 +68,12 @@ def make_registry_entry(wallet: str, status: str = "active") -> WalletRegistryEn
     )
 
 
-def make_membership(topic: str, wallet: str, tier: str = "core", rank: int = 1) -> BasketMembership:
+def make_membership(
+    topic: str,
+    wallet: str,
+    tier: str = "core",
+    rank: int = 1,
+) -> BasketMembership:
     return BasketMembership(
         topic=topic,
         wallet=wallet,
@@ -100,7 +116,10 @@ def test_active_positions_count_as_held_and_exposed() -> None:
 
         assert store.get_held_market_ids() == {"open_market", "closing_market"}
         assert store.get_total_exposure() == 55.0
-        assert [position.market_id for position in store.get_open_positions()] == ["open_market", "closing_market"]
+        assert [position.market_id for position in store.get_open_positions()] == [
+            "open_market",
+            "closing_market",
+        ]
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)
@@ -127,7 +146,13 @@ def test_update_position_by_token_id_preserves_same_market_positions() -> None:
         store.save_position(make_position("m1", "open", 25.0, token_id="yes_token"))
         store.save_position(make_position("m1", "open", 30.0, token_id="no_token"))
 
-        store.update_position("m1", current_price=0.6, unrealized_pnl=5.0, status="closed", token_id="yes_token")
+        store.update_position(
+            "m1",
+            current_price=0.6,
+            unrealized_pnl=5.0,
+            status="closed",
+            token_id="yes_token",
+        )
 
         open_positions = store.get_open_positions()
         assert len(open_positions) == 1
@@ -228,7 +253,9 @@ def test_portfolio_var_falls_back_to_analytical_when_monte_carlo_unavailable() -
     store, db_path = make_store()
     try:
         store.save_position(make_position("m1", "open", 25.0))
-        store._monte_carlo_var = lambda *args, **kwargs: (_ for _ in ()).throw(ModuleNotFoundError("numpy"))
+        store._monte_carlo_var = lambda *args, **kwargs: (_ for _ in ()).throw(
+            ModuleNotFoundError("numpy")
+        )
 
         var = store.get_portfolio_var(use_monte_carlo=True)
 
@@ -241,23 +268,29 @@ def test_portfolio_var_falls_back_to_analytical_when_monte_carlo_unavailable() -
 def test_wallet_registry_tables_round_trip_latest_state() -> None:
     store, db_path = make_store()
     try:
-        store.upsert_wallet_registry_entries([
-            make_registry_entry("w1", status="active"),
-            make_registry_entry("w2", status="probation"),
-        ])
+        store.upsert_wallet_registry_entries(
+            [
+                make_registry_entry("w1", status="active"),
+                make_registry_entry("w2", status="probation"),
+            ]
+        )
         store.upsert_wallet_registry_entries([make_registry_entry("w1", status="suspended")])
-        store.upsert_basket_memberships([
-            make_membership("geopolitics", "w1", tier="core", rank=1),
-            make_membership("geopolitics", "w2", tier="rotating", rank=2),
-            make_membership("sports", "w3", tier="backup", rank=1),
-        ])
-        store.save_basket_health([
-            make_health("geopolitics", "stale", datetime(2026, 1, 1, tzinfo=UTC)),
-            make_health("sports", "healthy", datetime(2026, 1, 1, tzinfo=UTC)),
-        ])
-        store.save_basket_health([
-            make_health("geopolitics", "thin", datetime(2026, 1, 2, tzinfo=UTC)),
-        ])
+        store.upsert_basket_memberships(
+            [
+                make_membership("geopolitics", "w1", tier="core", rank=1),
+                make_membership("geopolitics", "w2", tier="rotating", rank=2),
+                make_membership("sports", "w3", tier="backup", rank=1),
+            ]
+        )
+        store.save_basket_health(
+            [
+                make_health("geopolitics", "stale", datetime(2026, 1, 1, tzinfo=UTC)),
+                make_health("sports", "healthy", datetime(2026, 1, 1, tzinfo=UTC)),
+            ]
+        )
+        store.save_basket_health(
+            [make_health("geopolitics", "thin", datetime(2026, 1, 2, tzinfo=UTC))]
+        )
 
         entries = store.load_wallet_registry_entries()
         memberships = store.load_basket_memberships()
@@ -267,7 +300,10 @@ def test_wallet_registry_tables_round_trip_latest_state() -> None:
             "w1": "suspended",
             "w2": "probation",
         }
-        assert {(membership.topic, membership.wallet, membership.tier) for membership in memberships} == {
+        assert {
+            (membership.topic, membership.wallet, membership.tier)
+            for membership in memberships
+        } == {
             ("geopolitics", "w1", "core"),
             ("geopolitics", "w2", "rotating"),
             ("sports", "w3", "backup"),

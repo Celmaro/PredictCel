@@ -10,7 +10,12 @@ from predictcel.main import (
     _probe_token_orderbook,
     _propagate_canonical_market_updates,
 )
-from predictcel.models import CopyCandidate, ExecutionIntent, ExecutionResult, MarketSnapshot
+from predictcel.models import (
+    CopyCandidate,
+    ExecutionIntent,
+    ExecutionResult,
+    MarketSnapshot,
+)
 
 
 class FakeStore:
@@ -25,7 +30,8 @@ class FakeStore:
         return {
             self.make_signal_fingerprint(market_id, topic, side)
             for market_id, topic, side in signals
-            if self.make_signal_fingerprint(market_id, topic, side) in self.recent_fingerprints
+            if self.make_signal_fingerprint(market_id, topic, side)
+            in self.recent_fingerprints
         }
 
     def mark_signals_seen(self, signals) -> None:
@@ -88,7 +94,12 @@ def make_intent(market_id: str, side: str = "YES") -> ExecutionIntent:
     )
 
 
-def make_snapshot(market_id: str, orderbook_ready: bool = False, yes_ask_size: float = 0.0, no_ask_size: float = 0.0) -> MarketSnapshot:
+def make_snapshot(
+    market_id: str,
+    orderbook_ready: bool = False,
+    yes_ask_size: float = 0.0,
+    no_ask_size: float = 0.0,
+) -> MarketSnapshot:
     return MarketSnapshot(
         market_id=market_id,
         topic="geopolitics",
@@ -130,7 +141,10 @@ def test_filter_duplicate_candidates_skips_recent_and_same_batch_duplicates() ->
         ],
     )
 
-    assert [(candidate.market_id, candidate.side) for candidate in fresh] == [("m2", "YES"), ("m3", "NO")]
+    assert [(candidate.market_id, candidate.side) for candidate in fresh] == [
+        ("m2", "YES"),
+        ("m3", "NO"),
+    ]
     assert skipped == 2
 
 
@@ -152,7 +166,11 @@ def test_discover_wallets_delegates_to_main(monkeypatch) -> None:
         observed["argv"] = list(sys.argv)
 
     monkeypatch.setattr(discover_wallets, "run_main", fake_run_main)
-    monkeypatch.setattr(sys, "argv", ["discover_wallets.py", "--config", "config/predictcel.example.json"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["discover_wallets.py", "--config", "config/predictcel.example.json"],
+    )
 
     discover_wallets.main()
 
@@ -200,8 +218,20 @@ def test_compact_cycle_output_includes_wallet_registry_summary() -> None:
             "wallet_registry": {
                 "enabled": True,
                 "registry_wallet_count": 9,
-                "memberships_by_topic": {"geopolitics": {"core": 3, "rotating": 0, "backup": 0, "explorer": 0}},
-                "basket_health": {"geopolitics": {"tracked_wallet_count": 3, "health_state": "thin"}},
+                "memberships_by_topic": {
+                    "geopolitics": {
+                        "core": 3,
+                        "rotating": 0,
+                        "backup": 0,
+                        "explorer": 0,
+                    }
+                },
+                "basket_health": {
+                    "geopolitics": {
+                        "tracked_wallet_count": 3,
+                        "health_state": "thin",
+                    }
+                },
             },
         }
     )
@@ -209,8 +239,20 @@ def test_compact_cycle_output_includes_wallet_registry_summary() -> None:
     assert compact["wallet_registry"] == {
         "enabled": True,
         "registry_wallet_count": 9,
-        "memberships_by_topic": {"geopolitics": {"core": 3, "rotating": 0, "backup": 0, "explorer": 0}},
-        "basket_health": {"geopolitics": {"tracked_wallet_count": 3, "health_state": "thin"}},
+        "memberships_by_topic": {
+            "geopolitics": {
+                "core": 3,
+                "rotating": 0,
+                "backup": 0,
+                "explorer": 0,
+            }
+        },
+        "basket_health": {
+            "geopolitics": {
+                "tracked_wallet_count": 3,
+                "health_state": "thin",
+            }
+        },
     }
 
 
@@ -218,7 +260,15 @@ def test_probe_token_orderbook_uses_fresh_client(monkeypatch) -> None:
     observed = {}
 
     class FreshProbeClient:
-        def __init__(self, gamma_base_url, data_base_url, clob_base_url, timeout_seconds, max_retries, retry_base_delay_seconds):
+        def __init__(
+            self,
+            gamma_base_url,
+            data_base_url,
+            clob_base_url,
+            timeout_seconds,
+            max_retries,
+            retry_base_delay_seconds,
+        ):
             observed["args"] = (
                 gamma_base_url,
                 data_base_url,
@@ -235,7 +285,10 @@ def test_probe_token_orderbook_uses_fresh_client(monkeypatch) -> None:
 
     result = _probe_token_orderbook(ProbeSourceClient(), "token_yes")
 
-    assert result == {"token_id": "token_yes", "error": "RuntimeError: root cause for token_yes"}
+    assert result == {
+        "token_id": "token_yes",
+        "error": "RuntimeError: root cause for token_yes",
+    }
     assert observed["args"] == (
         "https://gamma-api.polymarket.com",
         "https://data-api.polymarket.com",
@@ -251,10 +304,20 @@ def test_probe_token_lookup_uses_fresh_client(monkeypatch) -> None:
         def __init__(self, *args):
             pass
 
-        def fetch_markets_by_clob_token_ids(self, token_ids: list[str], chunk_size: int = 25):
+        def fetch_markets_by_clob_token_ids(
+            self,
+            token_ids: list[str],
+            chunk_size: int = 25,
+        ):
             assert token_ids == ["token_yes"]
             assert chunk_size == 1
-            return [{"conditionId": "cond_1", "question": "Question", "clobTokenIds": ["token_yes", "token_no"]}]
+            return [
+                {
+                    "conditionId": "cond_1",
+                    "question": "Question",
+                    "clobTokenIds": ["token_yes", "token_no"],
+                }
+            ]
 
     monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FreshProbeClient)
 
@@ -272,7 +335,12 @@ def test_probe_token_lookup_uses_fresh_client(monkeypatch) -> None:
 
 def test_propagate_canonical_market_updates_rebinds_stale_aliases() -> None:
     stale_snapshot = make_snapshot("m1", orderbook_ready=False)
-    enriched_snapshot = make_snapshot("m1", orderbook_ready=True, yes_ask_size=10.0, no_ask_size=20.0)
+    enriched_snapshot = make_snapshot(
+        "m1",
+        orderbook_ready=True,
+        yes_ask_size=10.0,
+        no_ask_size=20.0,
+    )
     markets = {
         "m1": stale_snapshot,
         "slug-1": stale_snapshot,

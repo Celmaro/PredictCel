@@ -77,9 +77,33 @@ def test_compute_basket_health_from_static_memberships() -> None:
         ),
     ]
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.5, size_usd=10.0, age_seconds=3600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m2", side="NO", price=0.4, size_usd=15.0, age_seconds=172800),
-        WalletTrade(wallet="w3", topic="geopolitics", market_id="m3", side="YES", price=0.6, size_usd=12.0, age_seconds=691200),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.5,
+            size_usd=10.0,
+            age_seconds=3600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m2",
+            side="NO",
+            price=0.4,
+            size_usd=15.0,
+            age_seconds=172800,
+        ),
+        WalletTrade(
+            wallet="w3",
+            topic="geopolitics",
+            market_id="m3",
+            side="YES",
+            price=0.6,
+            size_usd=12.0,
+            age_seconds=691200,
+        ),
     ]
 
     health = compute_basket_health_from_static_memberships(
