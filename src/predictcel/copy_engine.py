@@ -13,6 +13,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from .basket_controller import evaluate_basket_consensus_gate
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
@@ -279,11 +280,13 @@ class CopyEngine:
 
         wallet_votes = self._latest_wallet_votes(valid_trades)
         weighted_by_side: dict[str, float] = defaultdict(float)
+        wallet_weights: dict[str, float] = {}
         trade_weights: list[tuple[WalletTrade, float, str]] = []
         for trade in wallet_votes.values():
             side = trade.side.upper()
             weight = self._trade_weight(trade, wallet_qualities)
             weighted_by_side[side] += weight
+            wallet_weights[trade.wallet] = weight
             trade_weights.append((trade, weight, side))
 
         if not weighted_by_side:
@@ -294,10 +297,30 @@ class CopyEngine:
             return None, "no_aligned_trades", Counter()
 
         aligned_wallets = sorted({trade.wallet for trade in aligned})
-        consensus_ratio = len(aligned_wallets) / len(basket.wallets) if basket.wallets else 0.0
+        controller_gate = None
+        if self.config.basket_controller.enabled:
+            controller_gate, controller_rejection = evaluate_basket_consensus_gate(
+                self.config,
+                topic,
+                basket,
+                wallet_votes,
+                aligned,
+                wallet_weights,
+                store=portfolio_summary.get("_store") if portfolio_summary else None,
+            )
+            if controller_rejection is not None:
+                return None, controller_rejection, Counter()
+            tracked_wallet_count = len(controller_gate.tracked_wallets)
+        else:
+            tracked_wallet_count = len(basket.wallets)
+
+        consensus_ratio = len(aligned_wallets) / tracked_wallet_count if tracked_wallet_count else 0.0
         total_weight = sum(weighted_by_side.values())
         aligned_weight = weighted_by_side[side]
-        weighted_consensus = round(aligned_weight / total_weight, 4) if total_weight else 0.0
+        if controller_gate is not None:
+            weighted_consensus = controller_gate.weighted_participation_ratio
+        else:
+            weighted_consensus = round(aligned_weight / total_weight, 4) if total_weight else 0.0
         if consensus_ratio < basket.quorum_ratio:
             return None, "below_quorum", Counter()
         if weighted_consensus < self.config.consensus.min_weighted_consensus:
@@ -547,9 +570,13 @@ class CopyEngine:
     def _portfolio_summary(self, store: Any = None) -> dict[str, float | int]:
         if store is None:
             return {}
-        return store.get_portfolio_summary(
+        summary = store.get_portfolio_summary(
             starting_bankroll_usd=self.config.consensus.bankroll_usd,
         )
+        if isinstance(summary, dict):
+            summary = dict(summary)
+            summary["_store"] = store
+        return summary
 
     def _suggested_position_size(
         self,

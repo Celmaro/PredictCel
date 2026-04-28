@@ -5,6 +5,7 @@ This module defines all data structures used throughout the PredictCel system,
 including wallet trades, market snapshots, quality scores, and execution results.
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -13,6 +14,9 @@ __all__ = [
     "WalletTrade",
     "MarketSnapshot",
     "WalletQuality",
+    "WalletRegistryEntry",
+    "BasketMembership",
+    "BasketHealth",
     "MarketRegime",
     "CopyCandidate",
     "WalletTopicProfile",
@@ -29,6 +33,7 @@ __all__ = [
 @dataclass(frozen=True)
 class WalletTrade:
     """Represents a single trade made by a wallet."""
+
     wallet: str
     topic: str
     market_id: str
@@ -42,6 +47,7 @@ class WalletTrade:
 @dataclass(frozen=True)
 class MarketSnapshot:
     """Snapshot of market state at a point in time."""
+
     market_id: str
     topic: str
     title: str
@@ -67,6 +73,7 @@ class MarketSnapshot:
 @dataclass(frozen=True)
 class WalletQuality:
     """Quality assessment for a wallet's trading activity."""
+
     wallet: str
     topic: str
     score: float
@@ -77,8 +84,55 @@ class WalletQuality:
 
 
 @dataclass(frozen=True)
+class WalletRegistryEntry:
+    """Persistent registry metadata for a tracked wallet."""
+
+    wallet: str
+    source_type: str
+    source_ref: str
+    trust_seed: float
+    status: str
+    first_seen_at: datetime
+    last_seen_trade_at: datetime | None = None
+    last_scored_at: datetime | None = None
+    notes: str = ""
+
+
+@dataclass(frozen=True)
+class BasketMembership:
+    """Tracked membership of a wallet within a topic basket."""
+
+    topic: str
+    wallet: str
+    tier: str
+    rank: int
+    active: bool
+    joined_at: datetime
+    effective_until: datetime | None = None
+    promotion_reason: str = ""
+    demotion_reason: str = ""
+
+
+@dataclass(frozen=True)
+class BasketHealth:
+    """Snapshot of current basket health diagnostics."""
+
+    topic: str
+    tracked_wallet_count: int
+    fresh_core_wallets_24h: int
+    fresh_active_wallets_7d: int
+    active_eligible_wallet_count: int
+    eligible_trades_7d: int
+    stale_ratio: float
+    clustered_ratio: float
+    health_state: str
+    captured_at: datetime
+
+
+@dataclass(frozen=True)
 class MarketRegime:
     """Classification of current market conditions."""
+
     label: str
     score: float
     reason: str
@@ -87,6 +141,7 @@ class MarketRegime:
 @dataclass(frozen=True)
 class CopyCandidate:
     """A trade candidate identified for copying."""
+
     topic: str
     market_id: str
     side: Literal["YES", "NO"]
@@ -112,6 +167,7 @@ class CopyCandidate:
 @dataclass(frozen=True)
 class WalletTopicProfile:
     """Profile of a wallet's trading preferences across topics."""
+
     topic_affinities: dict[str, float]
     primary_topic: str
     specialization_score: float
@@ -120,6 +176,7 @@ class WalletTopicProfile:
 @dataclass(frozen=True)
 class WalletDiscoveryCandidate:
     """A wallet discovered as a potential signal source."""
+
     wallet_address: str
     source: str
     total_trades: int
@@ -134,6 +191,7 @@ class WalletDiscoveryCandidate:
 @dataclass(frozen=True)
 class BasketAssignment:
     """Assignment of a wallet to topic baskets."""
+
     wallet_address: str
     primary_topic: str
     recommended_baskets: list[str]
@@ -146,6 +204,7 @@ class BasketAssignment:
 @dataclass(frozen=True)
 class BasketManagerAction:
     """Action recommended by the basket manager."""
+
     action: Literal["ADD", "REMOVE", "REVIEW"]
     basket: str
     wallet_address: str
@@ -157,6 +216,7 @@ class BasketManagerAction:
 @dataclass(frozen=True)
 class ArbitrageOpportunity:
     """An identified arbitrage opportunity."""
+
     market_id: str
     topic: str
     yes_ask: float
@@ -182,6 +242,7 @@ class ArbitrageOpportunity:
 @dataclass(frozen=True)
 class ExecutionIntent:
     """Intent to execute a trade."""
+
     market_id: str
     topic: str
     side: Literal["YES", "NO"]
@@ -197,6 +258,7 @@ class ExecutionIntent:
 @dataclass(frozen=True)
 class ExecutionResult:
     """Result of a trade execution attempt."""
+
     market_id: str
     topic: str
     side: Literal["YES", "NO"]
@@ -214,6 +276,7 @@ class ExecutionResult:
 @dataclass(frozen=True)
 class Position:
     """An open trading position."""
+
     market_id: str
     topic: str
     side: Literal["YES", "NO"]
