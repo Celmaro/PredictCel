@@ -336,6 +336,9 @@ class PolymarketPublicClient:
             return self._clob_circuit_breaker
         return self._default_circuit_breaker
 
+    def _is_missing_clob_order_book(self, url: str, error: HTTPError) -> bool:
+        return error.code == 404 and url.startswith(f"{self.clob_base_url}/book?")
+
     def _get_json(self, url: str) -> Any:
         """Make HTTP GET request with caching and retries."""
         def _fetch_url():
@@ -355,7 +358,15 @@ class PolymarketPublicClient:
                         self._validate_response(payload, url)
                         self._set_cached(url, payload)
                         return payload
-                except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
+                except HTTPError as error:
+                    if self._is_missing_clob_order_book(url, error):
+                        return {}
+                    metrics["errors"] += 1
+                    if attempt >= self.max_retries - 1:
+                        raise
+                    delay = _retry_delay(self.retry_base_delay_seconds, attempt)
+                    time.sleep(delay)
+                except (URLError, TimeoutError, OSError, json.JSONDecodeError):
                     metrics["errors"] += 1
                     if attempt >= self.max_retries - 1:
                         raise

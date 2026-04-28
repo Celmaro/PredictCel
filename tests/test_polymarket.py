@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -226,6 +226,41 @@ def test_enrich_market_snapshots_requires_tradable_ask_depth() -> None:
     assert enriched["cond_1"].yes_ask_size == 0
     assert enriched["cond_1"].no_ask_size == 0
     assert enriched["cond_1"].orderbook_ready is False
+
+
+def test_fetch_order_book_treats_missing_clob_book_as_empty_payload(monkeypatch) -> None:
+    client = PolymarketPublicClient(max_retries=1)
+
+    def fake_urlopen(request, timeout=15):
+        raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
+
+    monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
+
+    book = client.fetch_order_book("missing_token")
+
+    assert book == {}
+    assert client._clob_circuit_breaker.state == "CLOSED"
+
+
+def test_missing_clob_book_does_not_block_later_valid_books(monkeypatch) -> None:
+    client = PolymarketPublicClient(max_retries=1)
+
+    def fake_urlopen(request, timeout=15):
+        if "missing_token" in request.full_url:
+            raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
+        return FakeHTTPResponse({
+            "bids": [{"price": "0.48", "size": "10"}],
+            "asks": [{"price": "0.52", "size": "12"}],
+        })
+
+    monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
+
+    missing_book = client.fetch_order_book("missing_token")
+    valid_book = client.fetch_order_book("valid_token")
+
+    assert missing_book == {}
+    assert valid_book["asks"][0]["price"] == "0.52"
+    assert client._clob_circuit_breaker.state == "CLOSED"
 
 
 def test_gamma_circuit_breaker_does_not_block_clob_requests(monkeypatch) -> None:
