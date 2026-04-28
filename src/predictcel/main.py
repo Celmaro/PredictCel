@@ -11,7 +11,9 @@ import json
 import logging
 import sys
 import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,7 +23,7 @@ from .config import load_config
 from .copy_engine import CopyEngine
 from .execution import ExecutionPlanner, ExitRunner, LiveOrderExecutor, intents_as_dicts
 from .markets import load_market_snapshots
-from .models import Position
+from .models import BasketHealth, Position
 from .polymarket import (
     PolymarketPublicClient,
     build_market_snapshots,
@@ -33,6 +35,11 @@ from .polymarket import (
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallet_discovery import WalletDiscoveryPipeline
+from .wallet_registry import (
+    compute_basket_health_from_static_memberships,
+    seed_memberships_from_config,
+    seed_registry_from_config,
+)
 from .wallets import load_wallet_trades
 
 __all__ = ["main"]
@@ -45,8 +52,8 @@ HEX_CHARS = set("0123456789abcdefABCDEF")
 def setup_logging():
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)]
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
     return logging.getLogger(__name__)
 
@@ -83,8 +90,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PredictCel V1 paper engine")
     parser.add_argument("--config", required=True, help="Path to config JSON file")
     parser.add_argument("--db", default="predictcel.db", help="SQLite database path")
-    parser.add_argument("--live-data", action="store_true", help="Fetch live public market and wallet data from Polymarket instead of local example files")
-    parser.add_argument("--live-trading", action="store_true", help="Submit live orders for planned copy trades when execution is enabled and credentials are configured")
+    parser.add_argument(
+        "--live-data",
+        action="store_true",
+        help="Fetch live public market and wallet data from Polymarket instead of local example files",
+    )
+    parser.add_argument(
+        "--live-trading",
+        action="store_true",
+        help="Submit live orders for planned copy trades when execution is enabled and credentials are configured",
+    )
     return parser
 
 
@@ -92,7 +107,11 @@ def build_discovery_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PredictCel wallet discovery reports")
     parser.add_argument("--config", required=True, help="Path to config JSON file")
     parser.add_argument("--output-dir", default="data", help="Directory for discovery JSON reports")
-    parser.add_argument("--config-output", default=None, help="Optional target for proposed or auto-updated config JSON")
+    parser.add_argument(
+        "--config-output",
+        default=None,
+        help="Optional target for proposed or auto-updated config JSON",
+    )
     return parser
 
 
@@ -107,7 +126,14 @@ def main() -> None:
     config = load_config(args.config)
     use_live_data = bool(args.live_data or (config.live_data and config.live_data.enabled))
 
-    logger.info("Starting PredictCel cycle", extra={"mode": "live" if use_live_data else "file", "config": args.config, "db_path": args.db})
+    logger.info(
+        "Starting PredictCel cycle",
+        extra={
+            "mode": "live" if use_live_data else "file",
+            "config": args.config,
+            "db_path": args.db,
+        },
+    )
     metrics.increment("cycles_total")
 
     started = time.perf_counter()
@@ -115,18 +141,31 @@ def main() -> None:
     if use_live_data:
         try:
             trades, markets, live_input_diagnostics = _load_live_inputs(config)
-        except Exception as e:
-            logger.warning("Live data fetch failed, falling back to file data", extra={"error": str(e)})
-            trades, markets = load_wallet_trades(config.wallet_trades_path), load_market_snapshots(config.market_snapshots_path)
-            live_input_diagnostics = {"fallback_reason": str(e)}
+        except Exception as exc:
+            logger.warning(
+                "Live data fetch failed, falling back to file data",
+                extra={"error": str(exc)},
+            )
+            trades = load_wallet_trades(config.wallet_trades_path)
+            markets = load_market_snapshots(config.market_snapshots_path)
+            live_input_diagnostics = {"fallback_reason": str(exc)}
     else:
-        trades, markets = load_wallet_trades(config.wallet_trades_path), load_market_snapshots(config.market_snapshots_path)
+        trades = load_wallet_trades(config.wallet_trades_path)
+        markets = load_market_snapshots(config.market_snapshots_path)
     timings["input_load_ms"] = _elapsed_ms(started)
-    logger.info("Input loading complete", extra={"markets_loaded": len(markets), "trades_loaded": len(trades), "latency_ms": timings["input_load_ms"]})
+    logger.info(
+        "Input loading complete",
+        extra={
+            "markets_loaded": len(markets),
+            "trades_loaded": len(trades),
+            "latency_ms": timings["input_load_ms"],
+        },
+    )
     metrics.set("markets_loaded", len(markets))
     metrics.set("trades_loaded", len(trades))
 
     store = SignalStore(args.db)
+    wallet_registry_summary = _build_wallet_registry_summary(config, store, trades)
     open_positions_at_start = store.get_open_positions()
     db_diagnostics = {
         "path": args.db,
@@ -136,14 +175,20 @@ def main() -> None:
     var_95 = store.get_portfolio_var(confidence_level=0.95)
     logger.info(f"Portfolio VaR (95%): {var_95:.2f} USD")
 
-    current_positions = [{"topic": pos.topic, "exposure_usd": pos.entry_amount_usd} for pos in open_positions_at_start]
+    current_positions = [
+        {"topic": pos.topic, "exposure_usd": pos.entry_amount_usd}
+        for pos in open_positions_at_start
+    ]
     basket_planner = BasketManagerPlanner(config)
     rebalance_actions = basket_planner.rebalance(current_positions)
     if rebalance_actions:
         logger.info(f"Rebalancing actions suggested: {len(rebalance_actions)}")
 
     started = time.perf_counter()
-    scorer = WalletQualityScorer(config.filters, config.consensus.recency_half_life_seconds)
+    scorer = WalletQualityScorer(
+        config.filters,
+        config.consensus.recency_half_life_seconds,
+    )
     wallet_qualities = scorer.score(trades, markets)
     scoring_diagnostics = {
         "rejection_counts": scorer.last_rejection_counts,
@@ -173,19 +218,45 @@ def main() -> None:
     started = time.perf_counter()
     if args.live_trading:
         if config.execution is None or not config.execution.enabled:
-            raise ValueError("--live-trading was requested but execution is not enabled in config.")
+            raise ValueError(
+                "--live-trading was requested but execution is not enabled in config."
+            )
         current_exposure_usd = store.get_total_exposure()
         open_positions = store.get_open_positions()
         if open_positions:
-            close_intents, updated_positions = ExitRunner(config.execution, config.live_data).evaluate_and_close(open_positions, markets)
-            close_results = LiveOrderExecutor(config.execution, config.live_data).execute(close_intents) if close_intents else []
-            closed_positions = {(result.market_id, result.token_id) for result in close_results if _creates_or_updates_paper_position(result)}
+            close_intents, updated_positions = ExitRunner(
+                config.execution,
+                config.live_data,
+            ).evaluate_and_close(open_positions, markets)
+            close_results = (
+                LiveOrderExecutor(config.execution, config.live_data).execute(close_intents)
+                if close_intents
+                else []
+            )
+            closed_positions = {
+                (result.market_id, result.token_id)
+                for result in close_results
+                if _creates_or_updates_paper_position(result)
+            }
             for pos in updated_positions:
-                status = "closed" if (pos.market_id, pos.token_id) in closed_positions else pos.status
-                store.update_position(pos.market_id, pos.current_price, pos.unrealized_pnl, status, token_id=pos.token_id)
+                status = (
+                    "closed"
+                    if (pos.market_id, pos.token_id) in closed_positions
+                    else pos.status
+                )
+                store.update_position(
+                    pos.market_id,
+                    pos.current_price,
+                    pos.unrealized_pnl,
+                    status,
+                    token_id=pos.token_id,
+                )
             current_exposure_usd = store.get_total_exposure()
 
-        fresh_candidates, skipped_duplicate_signals = _filter_duplicate_candidates(store, copy_candidates)
+        fresh_candidates, skipped_duplicate_signals = _filter_duplicate_candidates(
+            store,
+            copy_candidates,
+        )
         planner = ExecutionPlanner(config.execution, config.execution.position)
         execution_intents = planner.plan(
             fresh_candidates,
@@ -196,12 +267,19 @@ def main() -> None:
         execution_diagnostics = planner.last_diagnostics
         planner_ran = True
         _mark_execution_intents_seen(store, execution_intents)
-        execution_results = LiveOrderExecutor(config.execution, config.live_data).execute(execution_intents)
+        execution_results = LiveOrderExecutor(
+            config.execution,
+            config.live_data,
+        ).execute(execution_intents)
         _persist_execution_side_effects(store, config, execution_results)
     timings["execution_ms"] = _elapsed_ms(started)
 
     started = time.perf_counter()
-    store.save_cycle_payloads(copy_candidates, arbitrage_opportunities, execution_results + close_results)
+    store.save_cycle_payloads(
+        copy_candidates,
+        arbitrage_opportunities,
+        execution_results + close_results,
+    )
     open_positions = _decorate_positions_with_titles(store.get_open_positions(), markets)
     db_diagnostics["open_position_count_at_end"] = len(open_positions)
     timings["storage_ms"] = _elapsed_ms(started)
@@ -228,6 +306,7 @@ def main() -> None:
         "live_input_diagnostics": live_input_diagnostics,
         "scoring_diagnostics": scoring_diagnostics,
         "copy_engine_diagnostics": copy_engine_diagnostics,
+        "wallet_registry": wallet_registry_summary,
         "execution": {
             "live_trading_requested": bool(args.live_trading),
             "execution_enabled": bool(config.execution and config.execution.enabled),
@@ -235,9 +314,14 @@ def main() -> None:
             "diagnostics": execution_diagnostics,
         },
         "portfolio_summary": _portfolio_summary(store, config),
-        "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
+        "wallet_qualities": {
+            wallet: quality.__dict__
+            for wallet, quality in wallet_qualities.items()
+        },
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
-        "arbitrage_opportunities": [opportunity.__dict__ for opportunity in arbitrage_opportunities],
+        "arbitrage_opportunities": [
+            opportunity.__dict__ for opportunity in arbitrage_opportunities
+        ],
         "execution_intents": intents_as_dicts(execution_intents),
         "execution_results": [result.__dict__ for result in execution_results],
         "close_intents": intents_as_dicts(close_intents),
@@ -252,13 +336,25 @@ def main() -> None:
             "db": db_diagnostics,
             "latency_ms": timings,
             "summary": summary,
-            "live_input_diagnostics": _compact_live_input_diagnostics(live_input_diagnostics),
+            "live_input_diagnostics": _compact_live_input_diagnostics(
+                live_input_diagnostics
+            ),
             "scoring_diagnostics": _compact_scoring_diagnostics(scoring_diagnostics),
             "copy_engine_diagnostics": copy_engine_diagnostics,
+            "wallet_registry": wallet_registry_summary,
             "execution": output["execution"],
         },
     )
-    logger.info("Cycle complete", extra={"summary": summary, "timings": timings, "metrics": metrics.get_metrics(), "db": db_diagnostics})
+    logger.info(
+        "Cycle complete",
+        extra={
+            "summary": summary,
+            "timings": timings,
+            "metrics": metrics.get_metrics(),
+            "db": db_diagnostics,
+            "wallet_registry": wallet_registry_summary,
+        },
+    )
     print(json.dumps(_compact_cycle_output(output), sort_keys=True, default=str), flush=True)
 
 
@@ -266,16 +362,94 @@ def _run_wallet_discovery(argv: list[str]) -> None:
     started = time.perf_counter()
     args = build_discovery_parser().parse_args(argv)
     config = load_config(args.config)
-    files = WalletDiscoveryPipeline(config).write_reports(args.output_dir, args.config, args.config_output)
-    print(json.dumps({"mode": "wallet_discovery", "reports": files, "latency_ms": {"total_cycle_ms": _elapsed_ms(started)}}, indent=2))
+    files = WalletDiscoveryPipeline(config).write_reports(
+        args.output_dir,
+        args.config,
+        args.config_output,
+    )
+    print(
+        json.dumps(
+            {
+                "mode": "wallet_discovery",
+                "reports": files,
+                "latency_ms": {"total_cycle_ms": _elapsed_ms(started)},
+            },
+            indent=2,
+        )
+    )
+
+
+def _build_wallet_registry_summary(
+    config: Any,
+    store: SignalStore,
+    trades: list[Any],
+) -> dict[str, Any]:
+    """Build compact wallet registry diagnostics without changing trading behavior."""
+    if not getattr(config.wallet_registry, "enabled", False):
+        return {
+            "enabled": False,
+            "registry_wallet_count": 0,
+            "memberships_by_topic": {},
+            "basket_health": {},
+        }
+
+    captured_at = datetime.now(UTC)
+    if config.wallet_registry.seed_from_baskets:
+        seed_registry_from_config(config, store, captured_at=captured_at)
+        seed_memberships_from_config(config, store, captured_at=captured_at)
+
+    registry_entries = store.load_wallet_registry_entries()
+    memberships = store.load_basket_memberships()
+    basket_health = compute_basket_health_from_static_memberships(
+        config,
+        memberships,
+        trades,
+        captured_at=captured_at,
+    )
+    store.save_basket_health(basket_health)
+    latest_health = store.latest_basket_health()
+    return {
+        "enabled": True,
+        "registry_wallet_count": len(registry_entries),
+        "memberships_by_topic": _membership_counts_by_topic(memberships),
+        "basket_health": {
+            topic: _basket_health_as_dict(health)
+            for topic, health in latest_health.items()
+        },
+    }
+
+
+def _membership_counts_by_topic(memberships: list[Any]) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"core": 0, "rotating": 0, "backup": 0, "explorer": 0}
+    )
+    for membership in memberships:
+        tier = str(membership.tier)
+        if tier not in counts[membership.topic]:
+            counts[membership.topic][tier] = 0
+        counts[membership.topic][tier] += 1
+    return {topic: dict(values) for topic, values in counts.items()}
+
+
+def _basket_health_as_dict(health: BasketHealth) -> dict[str, Any]:
+    payload = asdict(health)
+    payload["captured_at"] = health.captured_at.isoformat()
+    return payload
 
 
 def _mark_execution_intents_seen(store: SignalStore, execution_intents: list) -> None:
     if execution_intents:
-        store.mark_signals_seen((intent.market_id, intent.topic, intent.side) for intent in execution_intents)
+        store.mark_signals_seen(
+            (intent.market_id, intent.topic, intent.side)
+            for intent in execution_intents
+        )
 
 
-def _persist_execution_side_effects(store: SignalStore, config: Any, execution_results: list) -> None:
+def _persist_execution_side_effects(
+    store: SignalStore,
+    config: Any,
+    execution_results: list,
+) -> None:
     now = datetime.now(UTC)
     position_config = config.execution.position
     positions: list[Position] = []
@@ -307,13 +481,20 @@ def _persist_execution_side_effects(store: SignalStore, config: Any, execution_r
 def _portfolio_summary(store: SignalStore, config: Any) -> dict:
     if config.execution is None or config.execution.exposure is None:
         return store.get_portfolio_summary(starting_bankroll_usd=0.0)
-    return store.get_portfolio_summary(starting_bankroll_usd=config.execution.exposure.max_total_exposure_usd)
+    return store.get_portfolio_summary(
+        starting_bankroll_usd=config.execution.exposure.max_total_exposure_usd
+    )
 
 
 def _load_live_inputs(config):
     if config.live_data is None:
         raise ValueError("--live-data was requested but live_data is not configured.")
-    client = PolymarketPublicClient(config.live_data.gamma_base_url, config.live_data.data_base_url, config.live_data.clob_base_url, config.live_data.request_timeout_seconds)
+    client = PolymarketPublicClient(
+        config.live_data.gamma_base_url,
+        config.live_data.data_base_url,
+        config.live_data.clob_base_url,
+        config.live_data.request_timeout_seconds,
+    )
 
     raw_topic_by_wallet: dict[str, list[str]] = {}
     invalid_wallets: list[str] = []
@@ -326,7 +507,11 @@ def _load_live_inputs(config):
             if basket.topic not in topics:
                 topics.append(basket.topic)
 
-    wallet_payloads = _fetch_wallet_payloads(client, list(raw_topic_by_wallet), config.live_data.trade_limit)
+    wallet_payloads = _fetch_wallet_payloads(
+        client,
+        list(raw_topic_by_wallet),
+        config.live_data.trade_limit,
+    )
     trades = build_wallet_trades(wallet_payloads, raw_topic_by_wallet)
     trade_market_ids = extract_trade_market_ids(wallet_payloads)
     trade_market_slugs = extract_trade_market_slugs(wallet_payloads)
@@ -334,36 +519,69 @@ def _load_live_inputs(config):
     active_market_rows = client.fetch_active_markets(config.live_data.market_limit)
     markets = build_market_snapshots(active_market_rows)
 
-    missing_trade_market_ids = [market_id for market_id in trade_market_ids if market_id not in markets]
+    missing_trade_market_ids = [
+        market_id for market_id in trade_market_ids if market_id not in markets
+    ]
     supplemental_rows = client.fetch_markets_by_identifiers(missing_trade_market_ids)
     if supplemental_rows:
         markets.update(build_market_snapshots(supplemental_rows))
 
-    missing_trade_market_slugs = [market_slug for market_slug in trade_market_slugs if market_slug not in markets]
+    missing_trade_market_slugs = [
+        market_slug for market_slug in trade_market_slugs if market_slug not in markets
+    ]
     supplemental_slug_rows = client.fetch_markets_by_slugs(missing_trade_market_slugs)
     if supplemental_slug_rows:
         markets.update(build_market_snapshots(supplemental_slug_rows))
 
-    relevant_market_keys = {market_key for market_key in (*trade_market_ids, *trade_market_slugs) if market_key in markets}
+    relevant_market_keys = {
+        market_key
+        for market_key in (*trade_market_ids, *trade_market_slugs)
+        if market_key in markets
+    }
     if relevant_market_keys:
-        relevant_snapshots = {market_id: markets[market_id] for market_id in relevant_market_keys}
-        enriched_relevant = enrich_market_snapshots_with_orderbooks(relevant_snapshots, client)
+        relevant_snapshots = {
+            market_id: markets[market_id] for market_id in relevant_market_keys
+        }
+        enriched_relevant = enrich_market_snapshots_with_orderbooks(
+            relevant_snapshots,
+            client,
+        )
         markets.update(enriched_relevant)
         _propagate_canonical_market_updates(markets, enriched_relevant.values())
 
     trade_market_keys = sorted(set(trade_market_ids + trade_market_slugs))
-    matched_trade_market_keys = [market_key for market_key in trade_market_keys if market_key in markets]
+    matched_trade_market_keys = [
+        market_key for market_key in trade_market_keys if market_key in markets
+    ]
     wallets_with_payloads = sum(1 for items in wallet_payloads.values() if items)
     wallets_with_parsed_trades = len({trade.wallet for trade in trades})
     unique_market_snapshots = {snapshot.market_id: snapshot for snapshot in markets.values()}
-    relevant_canonical_market_ids = {markets[market_key].market_id for market_key in relevant_market_keys}
-    relevant_snapshots = [unique_market_snapshots[market_id] for market_id in sorted(relevant_canonical_market_ids)]
-    orderbook_ready_markets = sum(1 for snapshot in relevant_snapshots if snapshot.orderbook_ready)
-    markets_with_yes_depth = sum(1 for snapshot in relevant_snapshots if snapshot.yes_ask > 0 and snapshot.yes_ask_size > 0)
-    markets_with_no_depth = sum(1 for snapshot in relevant_snapshots if snapshot.no_ask > 0 and snapshot.no_ask_size > 0)
+    relevant_canonical_market_ids = {
+        markets[market_key].market_id for market_key in relevant_market_keys
+    }
+    relevant_snapshots = [
+        unique_market_snapshots[market_id]
+        for market_id in sorted(relevant_canonical_market_ids)
+    ]
+    orderbook_ready_markets = sum(
+        1 for snapshot in relevant_snapshots if snapshot.orderbook_ready
+    )
+    markets_with_yes_depth = sum(
+        1
+        for snapshot in relevant_snapshots
+        if snapshot.yes_ask > 0 and snapshot.yes_ask_size > 0
+    )
+    markets_with_no_depth = sum(
+        1
+        for snapshot in relevant_snapshots
+        if snapshot.no_ask > 0 and snapshot.no_ask_size > 0
+    )
     orderbook_probe_samples = []
     if relevant_snapshots and orderbook_ready_markets == 0:
-        orderbook_probe_samples = _build_orderbook_probe_samples(client, relevant_snapshots)
+        orderbook_probe_samples = _build_orderbook_probe_samples(
+            client,
+            relevant_snapshots,
+        )
     diagnostics = {
         "requested_wallets": sum(len(basket.wallets) for basket in config.baskets),
         "valid_wallets": len(raw_topic_by_wallet),
@@ -381,7 +599,9 @@ def _load_live_inputs(config):
         "supplemental_market_slugs_requested": len(missing_trade_market_slugs),
         "supplemental_slug_rows_loaded": len(supplemental_slug_rows),
         "market_cache_entries": len(markets),
-        "multi_topic_wallets": sum(1 for topics in raw_topic_by_wallet.values() if len(topics) > 1),
+        "multi_topic_wallets": sum(
+            1 for topics in raw_topic_by_wallet.values() if len(topics) > 1
+        ),
         "relevant_markets_enriched": len(relevant_snapshots),
         "orderbook_ready_markets": orderbook_ready_markets,
         "markets_with_yes_depth": markets_with_yes_depth,
@@ -390,7 +610,12 @@ def _load_live_inputs(config):
         "market_crossref": {
             "unique_trade_market_keys": len(trade_market_keys),
             "matched_count": len(matched_trade_market_keys),
-            "match_rate_pct": round((len(matched_trade_market_keys) / len(trade_market_keys)) * 100, 1) if trade_market_keys else 0.0,
+            "match_rate_pct": round(
+                (len(matched_trade_market_keys) / len(trade_market_keys)) * 100,
+                1,
+            )
+            if trade_market_keys
+            else 0.0,
         },
     }
     return trades, markets, diagnostics
@@ -478,7 +703,9 @@ def _summarize_order_book_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "raw_keys": sorted(payload.keys())[:8] if isinstance(payload, dict) else [],
         "market": str(payload.get("market") or "") if isinstance(payload, dict) else "",
-        "asset_id": str(payload.get("asset_id") or payload.get("assetId") or "") if isinstance(payload, dict) else "",
+        "asset_id": str(payload.get("asset_id") or payload.get("assetId") or "")
+        if isinstance(payload, dict)
+        else "",
         "bid_levels": len(bids) if isinstance(bids, list) else 0,
         "ask_levels": len(asks) if isinstance(asks, list) else 0,
         "best_bid_price": _first_book_level_value(bids, "price"),
@@ -504,7 +731,9 @@ def _summarize_market_lookup_rows(rows: list[dict[str, Any]], token_id: str) -> 
     token_ids = _market_row_token_ids(row)
     return {
         "matched_rows": len(rows),
-        "condition_id": str(row.get("conditionId") or row.get("condition_id") or row.get("id") or ""),
+        "condition_id": str(
+            row.get("conditionId") or row.get("condition_id") or row.get("id") or ""
+        ),
         "slug": str(row.get("slug") or row.get("marketSlug") or ""),
         "question": str(row.get("question") or row.get("title") or ""),
         "token_ids": token_ids,
@@ -537,13 +766,20 @@ def _market_row_token_ids(row: dict[str, Any]) -> list[str]:
     return []
 
 
-def _fetch_wallet_payloads(client: PolymarketPublicClient, wallets: list[str], limit: int) -> dict[str, list[dict[str, Any]]]:
+def _fetch_wallet_payloads(
+    client: PolymarketPublicClient,
+    wallets: list[str],
+    limit: int,
+) -> dict[str, list[dict[str, Any]]]:
     if not wallets:
         return {}
     payloads: dict[str, list[dict[str, Any]]] = {}
     workers = max(1, min(16, len(wallets)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(client.fetch_wallet_trades, wallet, limit): wallet for wallet in wallets}
+        futures = {
+            executor.submit(client.fetch_wallet_trades, wallet, limit): wallet
+            for wallet in wallets
+        }
         for future in as_completed(futures):
             wallet = futures[future]
             try:
@@ -572,40 +808,51 @@ def _filter_duplicate_candidates(store: SignalStore, candidates: list) -> tuple[
 
 
 def _is_trusted_execution_result(result) -> bool:
-    return str(result.status).strip().lower() in TRUSTED_POSITION_STATUSES and bool(str(result.order_id).strip())
+    return str(result.status).strip().lower() in TRUSTED_POSITION_STATUSES and bool(
+        str(result.order_id).strip()
+    )
 
 
 def _creates_or_updates_paper_position(result) -> bool:
-    return str(result.status).strip().lower() == "dry_run" or _is_trusted_execution_result(result)
+    return str(result.status).strip().lower() == "dry_run" or _is_trusted_execution_result(
+        result
+    )
 
 
 def _is_evm_address(value: str) -> bool:
     value = str(value).strip()
-    return len(value) == 42 and value.startswith("0x") and all(char in HEX_CHARS for char in value[2:])
+    return len(value) == 42 and value.startswith("0x") and all(
+        char in HEX_CHARS for char in value[2:]
+    )
 
 
-def _decorate_positions_with_titles(positions: list[Position], markets: dict[str, Any]) -> list[Position]:
+def _decorate_positions_with_titles(
+    positions: list[Position],
+    markets: dict[str, Any],
+) -> list[Position]:
     decorated: list[Position] = []
     for pos in positions:
         market = markets.get(pos.market_id)
         title = pos.market_title or (market.title if market is not None else "")
-        decorated.append(Position(
-            pos.market_id,
-            pos.topic,
-            pos.side,
-            pos.token_id,
-            pos.entry_price,
-            pos.entry_amount_usd,
-            pos.current_price,
-            pos.unrealized_pnl,
-            pos.opened_at,
-            pos.last_updated,
-            pos.take_profit_pct,
-            pos.stop_loss_pct,
-            pos.max_hold_minutes,
-            pos.status,
-            title,
-        ))
+        decorated.append(
+            Position(
+                pos.market_id,
+                pos.topic,
+                pos.side,
+                pos.token_id,
+                pos.entry_price,
+                pos.entry_amount_usd,
+                pos.current_price,
+                pos.unrealized_pnl,
+                pos.opened_at,
+                pos.last_updated,
+                pos.take_profit_pct,
+                pos.stop_loss_pct,
+                pos.max_hold_minutes,
+                pos.status,
+                title,
+            )
+        )
     return decorated
 
 
@@ -618,11 +865,17 @@ def _compact_cycle_output(output: dict[str, Any]) -> dict[str, Any]:
         "portfolio_summary": output["portfolio_summary"],
     }
     if output.get("live_input_diagnostics"):
-        compact["live_input_diagnostics"] = _compact_live_input_diagnostics(output["live_input_diagnostics"])
+        compact["live_input_diagnostics"] = _compact_live_input_diagnostics(
+            output["live_input_diagnostics"]
+        )
     if output.get("scoring_diagnostics"):
-        compact["scoring_diagnostics"] = _compact_scoring_diagnostics(output["scoring_diagnostics"])
+        compact["scoring_diagnostics"] = _compact_scoring_diagnostics(
+            output["scoring_diagnostics"]
+        )
     if output.get("copy_engine_diagnostics"):
         compact["copy_engine_diagnostics"] = output["copy_engine_diagnostics"]
+    if output.get("wallet_registry"):
+        compact["wallet_registry"] = output["wallet_registry"]
     if output.get("execution"):
         compact["execution"] = output["execution"]
     top_wallet_qualities = _top_wallet_qualities(output.get("wallet_qualities", {}))
@@ -656,10 +909,22 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
         "active_market_rows_loaded": diagnostics.get("active_market_rows_loaded", 0),
         "trade_market_ids_seen": diagnostics.get("trade_market_ids_seen", 0),
         "trade_market_slugs_seen": diagnostics.get("trade_market_slugs_seen", 0),
-        "supplemental_market_ids_requested": diagnostics.get("supplemental_market_ids_requested", 0),
-        "supplemental_market_rows_loaded": diagnostics.get("supplemental_market_rows_loaded", 0),
-        "supplemental_market_slugs_requested": diagnostics.get("supplemental_market_slugs_requested", 0),
-        "supplemental_slug_rows_loaded": diagnostics.get("supplemental_slug_rows_loaded", 0),
+        "supplemental_market_ids_requested": diagnostics.get(
+            "supplemental_market_ids_requested",
+            0,
+        ),
+        "supplemental_market_rows_loaded": diagnostics.get(
+            "supplemental_market_rows_loaded",
+            0,
+        ),
+        "supplemental_market_slugs_requested": diagnostics.get(
+            "supplemental_market_slugs_requested",
+            0,
+        ),
+        "supplemental_slug_rows_loaded": diagnostics.get(
+            "supplemental_slug_rows_loaded",
+            0,
+        ),
         "market_cache_entries": diagnostics.get("market_cache_entries", 0),
         "relevant_markets_enriched": diagnostics.get("relevant_markets_enriched", 0),
         "orderbook_ready_markets": diagnostics.get("orderbook_ready_markets", 0),
@@ -672,7 +937,10 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
     skipped_invalid_wallets = diagnostics.get("skipped_invalid_wallets", 0)
     if skipped_invalid_wallets:
         compact["skipped_invalid_wallets"] = skipped_invalid_wallets
-        compact["sample_skipped_invalid_wallets"] = diagnostics.get("sample_skipped_invalid_wallets", [])[:3]
+        compact["sample_skipped_invalid_wallets"] = diagnostics.get(
+            "sample_skipped_invalid_wallets",
+            [],
+        )[:3]
     return compact
 
 
@@ -702,7 +970,10 @@ def _compact_scoring_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
-def _top_wallet_qualities(wallet_qualities: dict[str, dict[str, Any]], limit: int = 3) -> dict[str, dict[str, Any]]:
+def _top_wallet_qualities(
+    wallet_qualities: dict[str, dict[str, Any]],
+    limit: int = 3,
+) -> dict[str, dict[str, Any]]:
     ranked = sorted(
         wallet_qualities.items(),
         key=lambda item: float(item[1].get("score", 0.0)),
@@ -733,7 +1004,14 @@ def _elapsed_ms(started: float) -> int:
 
 
 def _log_event(event: str, payload: dict[str, Any]) -> None:
-    print(json.dumps({"event": event, "ts": datetime.now(UTC).isoformat(), **payload}, sort_keys=True, default=str), flush=True)
+    print(
+        json.dumps(
+            {"event": event, "ts": datetime.now(UTC).isoformat(), **payload},
+            sort_keys=True,
+            default=str,
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
