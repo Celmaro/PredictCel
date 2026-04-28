@@ -189,6 +189,31 @@ def test_compact_cycle_output_includes_execution_state() -> None:
     }
 
 
+def test_compact_cycle_output_includes_wallet_registry_summary() -> None:
+    compact = _compact_cycle_output(
+        {
+            "mode": "live",
+            "summary": {"copy_candidates": 0},
+            "latency_ms": {"total_cycle_ms": 10},
+            "db": {"path": "/data/predictcel.db"},
+            "portfolio_summary": {"current_exposure_usd": 0},
+            "wallet_registry": {
+                "enabled": True,
+                "registry_wallet_count": 9,
+                "memberships_by_topic": {"geopolitics": {"core": 3, "rotating": 0, "backup": 0, "explorer": 0}},
+                "basket_health": {"geopolitics": {"tracked_wallet_count": 3, "health_state": "thin"}},
+            },
+        }
+    )
+
+    assert compact["wallet_registry"] == {
+        "enabled": True,
+        "registry_wallet_count": 9,
+        "memberships_by_topic": {"geopolitics": {"core": 3, "rotating": 0, "backup": 0, "explorer": 0}},
+        "basket_health": {"geopolitics": {"tracked_wallet_count": 3, "health_state": "thin"}},
+    }
+
+
 def test_probe_token_orderbook_uses_fresh_client(monkeypatch) -> None:
     observed = {}
 

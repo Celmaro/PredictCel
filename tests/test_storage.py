@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from predictcel.models import CopyCandidate, Position
+from predictcel.models import BasketHealth, BasketMembership, CopyCandidate, Position, WalletRegistryEntry
 from predictcel.storage import SignalStore
 
 
@@ -39,6 +39,50 @@ def make_candidate(market_id: str, side: str = "YES") -> CopyCandidate:
         wallet_quality_score=0.75,
         copyability_score=0.81,
         reason="ok",
+    )
+
+
+def make_registry_entry(wallet: str, status: str = "active") -> WalletRegistryEntry:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    return WalletRegistryEntry(
+        wallet=wallet,
+        source_type="static_basket",
+        source_ref="config.baskets",
+        trust_seed=1.0,
+        status=status,
+        first_seen_at=now,
+        last_seen_trade_at=None,
+        last_scored_at=None,
+        notes="seeded",
+    )
+
+
+def make_membership(topic: str, wallet: str, tier: str = "core", rank: int = 1) -> BasketMembership:
+    return BasketMembership(
+        topic=topic,
+        wallet=wallet,
+        tier=tier,
+        rank=rank,
+        active=True,
+        joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+        effective_until=None,
+        promotion_reason="seeded",
+        demotion_reason="",
+    )
+
+
+def make_health(topic: str, state: str, captured_at: datetime) -> BasketHealth:
+    return BasketHealth(
+        topic=topic,
+        tracked_wallet_count=3,
+        fresh_core_wallets_24h=1,
+        fresh_active_wallets_7d=2,
+        active_eligible_wallet_count=1,
+        eligible_trades_7d=2,
+        stale_ratio=0.3333,
+        clustered_ratio=0.0,
+        health_state=state,
+        captured_at=captured_at,
     )
 
 
@@ -189,6 +233,47 @@ def test_portfolio_var_falls_back_to_analytical_when_monte_carlo_unavailable() -
         var = store.get_portfolio_var(use_monte_carlo=True)
 
         assert var > 0.0
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_wallet_registry_tables_round_trip_latest_state() -> None:
+    store, db_path = make_store()
+    try:
+        store.upsert_wallet_registry_entries([
+            make_registry_entry("w1", status="active"),
+            make_registry_entry("w2", status="probation"),
+        ])
+        store.upsert_wallet_registry_entries([make_registry_entry("w1", status="suspended")])
+        store.upsert_basket_memberships([
+            make_membership("geopolitics", "w1", tier="core", rank=1),
+            make_membership("geopolitics", "w2", tier="rotating", rank=2),
+            make_membership("sports", "w3", tier="backup", rank=1),
+        ])
+        store.save_basket_health([
+            make_health("geopolitics", "stale", datetime(2026, 1, 1, tzinfo=UTC)),
+            make_health("sports", "healthy", datetime(2026, 1, 1, tzinfo=UTC)),
+        ])
+        store.save_basket_health([
+            make_health("geopolitics", "thin", datetime(2026, 1, 2, tzinfo=UTC)),
+        ])
+
+        entries = store.load_wallet_registry_entries()
+        memberships = store.load_basket_memberships()
+        latest_health = store.latest_basket_health()
+
+        assert {entry.wallet: entry.status for entry in entries} == {
+            "w1": "suspended",
+            "w2": "probation",
+        }
+        assert {(membership.topic, membership.wallet, membership.tier) for membership in memberships} == {
+            ("geopolitics", "w1", "core"),
+            ("geopolitics", "w2", "rotating"),
+            ("sports", "w3", "backup"),
+        }
+        assert latest_health["geopolitics"].health_state == "thin"
+        assert latest_health["sports"].health_state == "healthy"
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)
