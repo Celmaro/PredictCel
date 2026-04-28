@@ -1,7 +1,12 @@
 import sys
+from dataclasses import replace
+from datetime import UTC, datetime
+from pathlib import Path
 
+from predictcel.config import load_config
 from predictcel import discover_wallets
 from predictcel.main import (
+    _build_wallet_registry_summary,
     _compact_cycle_output,
     _creates_or_updates_paper_position,
     _filter_duplicate_candidates,
@@ -11,10 +16,14 @@ from predictcel.main import (
     _propagate_canonical_market_updates,
 )
 from predictcel.models import (
+    BasketHealth,
+    BasketMembership,
     CopyCandidate,
     ExecutionIntent,
     ExecutionResult,
     MarketSnapshot,
+    WalletRegistryEntry,
+    WalletTrade,
 )
 
 
@@ -45,6 +54,37 @@ class ProbeSourceClient:
     timeout_seconds = 15
     max_retries = 1
     retry_base_delay_seconds = 0.5
+
+
+class RegistrySummaryStore:
+    def __init__(
+        self,
+        registry_entries: list[WalletRegistryEntry],
+        memberships: list[BasketMembership],
+    ) -> None:
+        self.registry_entries = registry_entries
+        self.memberships = memberships
+        self.saved_health: list[BasketHealth] = []
+
+    def upsert_wallet_registry_entries(self, entries) -> None:
+        self.registry_entries = list(entries)
+
+    def upsert_basket_memberships(self, memberships) -> None:
+        self.memberships = list(memberships)
+
+    def load_wallet_registry_entries(self) -> list[WalletRegistryEntry]:
+        return list(self.registry_entries)
+
+    def load_basket_memberships(self, topic: str | None = None) -> list[BasketMembership]:
+        if topic is None:
+            return list(self.memberships)
+        return [membership for membership in self.memberships if membership.topic == topic]
+
+    def save_basket_health(self, health_snapshots: list[BasketHealth]) -> None:
+        self.saved_health = list(health_snapshots)
+
+    def latest_basket_health(self) -> dict[str, BasketHealth]:
+        return {health.topic: health for health in self.saved_health}
 
 
 def make_result(status: str, order_id: str = "order_123") -> ExecutionResult:
@@ -253,6 +293,81 @@ def test_compact_cycle_output_includes_wallet_registry_summary() -> None:
                 "health_state": "thin",
             }
         },
+    }
+
+
+def test_build_wallet_registry_summary_includes_live_roster() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        wallet_registry=replace(config.wallet_registry, enabled=True, seed_from_baskets=False),
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=4,
+            core_slots=2,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=0,
+            force_refresh_if_fresh_core_below=2,
+            min_active_eligible_wallets=3,
+        ),
+    )
+    captured_at = datetime(2026, 1, 1, tzinfo=UTC)
+    store = RegistrySummaryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet=wallet,
+                source_type="static_basket",
+                source_ref="config.baskets",
+                trust_seed=1.0,
+                status="active",
+                first_seen_at=captured_at,
+            )
+            for wallet in ["w1", "w2", "w3", "w4"]
+        ],
+        memberships=[
+            BasketMembership(
+                topic="geopolitics",
+                wallet=wallet,
+                tier="core",
+                rank=index,
+                active=True,
+                joined_at=captured_at,
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+            for index, wallet in enumerate(["w1", "w2", "w3", "w4"], start=1)
+        ],
+    )
+    trades = [
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.5, 20.0, 1_200),
+        WalletTrade("w2", "geopolitics", "m2", "NO", 0.4, 15.0, 90_000),
+    ]
+
+    summary = _build_wallet_registry_summary(config, store, trades)
+
+    assert summary["live_roster_by_topic"]["geopolitics"] == {
+        "selected_wallets": {
+            "core": ["w1", "w2"],
+            "rotating": ["w3"],
+            "backup": ["w4"],
+            "explorer": [],
+        },
+        "fresh_core_wallet_count": 1,
+        "live_eligible_wallet_count": 1,
+        "tracked_wallet_count": 4,
+        "unfilled_slots": {
+            "core": 0,
+            "rotating": 0,
+            "backup": 0,
+            "explorer": 0,
+        },
+        "needs_refresh": True,
+        "refresh_reasons": [
+            "fresh_core_below_threshold",
+            "live_eligible_wallets_below_threshold",
+        ],
     }
 
 

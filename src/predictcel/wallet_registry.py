@@ -10,6 +10,9 @@ from .models import BasketHealth, BasketMembership, WalletRegistryEntry, WalletT
 if TYPE_CHECKING:
     from .config import AppConfig
 
+TIER_ORDER = ("core", "rotating", "backup", "explorer")
+TIER_PRIORITY = {tier: index for index, tier in enumerate(TIER_ORDER)}
+
 
 def seed_registry_from_config(
     config: AppConfig,
@@ -152,3 +155,126 @@ def compute_basket_health_from_static_memberships(
         )
 
     return health_snapshots
+
+
+def build_live_basket_roster(
+    config: AppConfig,
+    memberships: Iterable[BasketMembership],
+    trades: Iterable[WalletTrade],
+) -> dict[str, dict[str, object]]:
+    """Derive a live basket roster from recent membership activity."""
+    active_memberships_by_topic: dict[str, list[BasketMembership]] = defaultdict(list)
+    for membership in memberships:
+        if membership.active:
+            active_memberships_by_topic[membership.topic].append(membership)
+
+    trades_by_topic_wallet: dict[tuple[str, str], list[WalletTrade]] = defaultdict(list)
+    for trade in trades:
+        trades_by_topic_wallet[(trade.topic, trade.wallet)].append(trade)
+
+    controller = config.basket_controller
+    slot_counts = {
+        "core": controller.core_slots,
+        "rotating": controller.rotating_slots,
+        "backup": controller.backup_slots,
+        "explorer": controller.explorer_slots,
+    }
+    live_tiers = ["core", "rotating"]
+    if controller.allow_backup_in_live_consensus:
+        live_tiers.append("backup")
+
+    roster: dict[str, dict[str, object]] = {}
+    for topic in sorted(active_memberships_by_topic):
+        ranked_memberships = sorted(
+            active_memberships_by_topic[topic],
+            key=lambda membership: _membership_activity_sort_key(
+                membership,
+                trades_by_topic_wallet.get((topic, membership.wallet), []),
+                config.filters.max_trade_age_seconds,
+            ),
+        )
+
+        selected_wallets: dict[str, list[str]] = {tier: [] for tier in TIER_ORDER}
+        selected_memberships: dict[str, list[BasketMembership]] = {
+            tier: [] for tier in TIER_ORDER
+        }
+        start = 0
+        for tier in TIER_ORDER:
+            slots = slot_counts[tier]
+            if slots <= 0:
+                continue
+            tier_memberships = ranked_memberships[start : start + slots]
+            selected_memberships[tier] = tier_memberships
+            selected_wallets[tier] = [membership.wallet for membership in tier_memberships]
+            start += slots
+
+        fresh_core_wallet_count = sum(
+            1
+            for membership in selected_memberships["core"]
+            if _has_trade_within(
+                trades_by_topic_wallet.get((topic, membership.wallet), []),
+                86_400,
+            )
+        )
+        live_eligible_wallet_count = sum(
+            1
+            for tier in live_tiers
+            for membership in selected_memberships[tier]
+            if _has_trade_within(
+                trades_by_topic_wallet.get((topic, membership.wallet), []),
+                config.filters.max_trade_age_seconds,
+            )
+        )
+        unfilled_slots = {
+            tier: max(0, slot_counts[tier] - len(selected_wallets[tier]))
+            for tier in TIER_ORDER
+        }
+        refresh_reasons: list[str] = []
+        if fresh_core_wallet_count < controller.force_refresh_if_fresh_core_below:
+            refresh_reasons.append("fresh_core_below_threshold")
+        if live_eligible_wallet_count < controller.min_active_eligible_wallets:
+            refresh_reasons.append("live_eligible_wallets_below_threshold")
+        if unfilled_slots["core"] > 0:
+            refresh_reasons.append("core_slots_unfilled")
+
+        roster[topic] = {
+            "selected_wallets": selected_wallets,
+            "fresh_core_wallet_count": fresh_core_wallet_count,
+            "live_eligible_wallet_count": live_eligible_wallet_count,
+            "tracked_wallet_count": len(active_memberships_by_topic[topic]),
+            "unfilled_slots": unfilled_slots,
+            "needs_refresh": bool(refresh_reasons),
+            "refresh_reasons": refresh_reasons,
+        }
+
+    return roster
+
+
+def _membership_activity_sort_key(
+    membership: BasketMembership,
+    trades: list[WalletTrade],
+    max_trade_age_seconds: int,
+) -> tuple[int, int, int, int, int, int, int, str]:
+    eligible_trade_count = sum(
+        1 for trade in trades if trade.age_seconds <= max_trade_age_seconds
+    )
+    recent_trade_count_24h = sum(1 for trade in trades if trade.age_seconds <= 86_400)
+    active_trade_count_7d = sum(1 for trade in trades if trade.age_seconds <= 604_800)
+    freshest_trade_age_seconds = min(
+        (trade.age_seconds for trade in trades),
+        default=10**12,
+    )
+    return (
+        0 if eligible_trade_count > 0 else 1,
+        freshest_trade_age_seconds,
+        -recent_trade_count_24h,
+        -active_trade_count_7d,
+        -eligible_trade_count,
+        TIER_PRIORITY.get(membership.tier, len(TIER_PRIORITY)),
+        membership.rank,
+        membership.wallet,
+    )
+
+
+def _has_trade_within(trades: list[WalletTrade], max_age_seconds: int) -> bool:
+    return any(trade.age_seconds <= max_age_seconds for trade in trades)

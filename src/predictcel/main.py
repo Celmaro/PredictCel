@@ -36,6 +36,7 @@ from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallet_discovery import WalletDiscoveryPipeline
 from .wallet_registry import (
+    build_live_basket_roster,
     compute_basket_health_from_static_memberships,
     seed_memberships_from_config,
     seed_registry_from_config,
@@ -391,6 +392,7 @@ def _build_wallet_registry_summary(
             "registry_wallet_count": 0,
             "memberships_by_topic": {},
             "basket_health": {},
+            "live_roster_by_topic": {},
         }
 
     captured_at = datetime.now(UTC)
@@ -406,6 +408,7 @@ def _build_wallet_registry_summary(
         trades,
         captured_at=captured_at,
     )
+    live_roster = build_live_basket_roster(config, memberships, trades)
     store.save_basket_health(basket_health)
     latest_health = store.latest_basket_health()
     return {
@@ -416,6 +419,7 @@ def _build_wallet_registry_summary(
             topic: _basket_health_as_dict(health)
             for topic, health in latest_health.items()
         },
+        "live_roster_by_topic": live_roster,
     }
 
 
