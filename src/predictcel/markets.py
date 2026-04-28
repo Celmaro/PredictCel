@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .models import MarketSnapshot
 
-__all__ = ["MarketCache", "fetch_markets", "get_market"]
+__all__ = ["load_market_snapshots"]
 
 
 
@@ -80,9 +80,10 @@ def _parse_outcome(item: dict[str, object]) -> str | None:
 
 
 def _parse_resolution_price(item: dict[str, object]) -> float | None:
-    if item.get("resolution_price") is not None:
+    value = item.get("resolution_price")
+    if isinstance(value, (int, float, str)):
         try:
-            return float(item["resolution_price"])
+            return float(value)
         except (TypeError, ValueError):
             return None
     outcome = _parse_outcome(item)

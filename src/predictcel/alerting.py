@@ -66,6 +66,35 @@ class SlackFormatter:
         return {"attachments": [{"color": color, "blocks": blocks}]}
 
 
+class DiscordFormatter:
+    """Formats alerts as Discord webhook messages."""
+
+    SEVERITY_COLORS = {"critical": 0xFF0000, "warning": 0xFFA500, "info": 0x36A64F}
+
+    @classmethod
+    def format(cls, payload: AlertPayload) -> dict[str, Any]:
+        fields = [{"name": "Severity", "value": payload.severity.upper(), "inline": True}]
+        if payload.cycle_id:
+            fields.append({"name": "Cycle ID", "value": payload.cycle_id, "inline": True})
+        if payload.metadata:
+            fields.extend(
+                {"name": str(key), "value": str(value), "inline": True}
+                for key, value in list(payload.metadata.items())[:5]
+            )
+        return {
+            "content": f"**{payload.title}**\n{payload.message}",
+            "embeds": [
+                {
+                    "title": payload.title,
+                    "description": payload.message,
+                    "color": cls.SEVERITY_COLORS.get(payload.severity, 0x808080),
+                    "timestamp": payload.timestamp,
+                    "fields": fields,
+                }
+            ],
+        }
+
+
 class AlertManager:
     """Centralized alerting manager for PredictCel."""
 
@@ -123,6 +152,12 @@ class AlertManager:
             slack_data = SlackFormatter.format(payload)
             if self._send_webhook(self.slack_url, slack_data):
                 logger.info(f"Slack alert sent: {title}")
+                sent = True
+
+        if self.discord_url:
+            discord_data = DiscordFormatter.format(payload)
+            if self._send_webhook(self.discord_url, discord_data):
+                logger.info(f"Discord alert sent: {title}")
                 sent = True
 
         if self.generic_url:
@@ -187,4 +222,4 @@ def get_alert_manager() -> AlertManager:
     return _alert_manager
 
 
-__all__ = ["AlertManager", "AlertPayload", "get_alert_manager", "SlackFormatter"]
+__all__ = ["AlertManager", "AlertPayload", "DiscordFormatter", "SlackFormatter", "get_alert_manager"]

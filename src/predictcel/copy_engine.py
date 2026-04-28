@@ -17,7 +17,7 @@ from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
 
-__all__ = ["CopyEngine", "evaluate_markets"]
+__all__ = ["CopyEngine"]
 
 
 logger = logging.getLogger(__name__)

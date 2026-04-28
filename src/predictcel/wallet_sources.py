@@ -9,7 +9,7 @@ from typing import Any
 
 from .polymarket import PolymarketPublicClient
 
-__all__ = ["WALLET_SOURCES", "get_source_config"]
+__all__ = ["DataApiWalletSource", "extract_wallet_address"]
 
 
 

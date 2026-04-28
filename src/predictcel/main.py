@@ -35,7 +35,7 @@ from .storage import SignalStore
 from .wallet_discovery import WalletDiscoveryPipeline
 from .wallets import load_wallet_trades
 
-__all__ = ["main", "run_cycle"]
+__all__ = ["main"]
 
 
 TRUSTED_POSITION_STATUSES = {"filled", "matched", "success"}
