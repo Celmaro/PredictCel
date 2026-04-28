@@ -359,6 +359,9 @@ def _load_live_inputs(config):
     orderbook_ready_markets = sum(1 for snapshot in relevant_snapshots if snapshot.orderbook_ready)
     markets_with_yes_depth = sum(1 for snapshot in relevant_snapshots if snapshot.yes_ask > 0 and snapshot.yes_ask_size > 0)
     markets_with_no_depth = sum(1 for snapshot in relevant_snapshots if snapshot.no_ask > 0 and snapshot.no_ask_size > 0)
+    orderbook_probe_samples = []
+    if relevant_snapshots and orderbook_ready_markets == 0:
+        orderbook_probe_samples = _build_orderbook_probe_samples(client, relevant_snapshots)
     diagnostics = {
         "requested_wallets": sum(len(basket.wallets) for basket in config.baskets),
         "valid_wallets": len(raw_topic_by_wallet),
@@ -381,6 +384,7 @@ def _load_live_inputs(config):
         "orderbook_ready_markets": orderbook_ready_markets,
         "markets_with_yes_depth": markets_with_yes_depth,
         "markets_with_no_depth": markets_with_no_depth,
+        "orderbook_probe_samples": orderbook_probe_samples,
         "market_crossref": {
             "unique_trade_market_keys": len(trade_market_keys),
             "matched_count": len(matched_trade_market_keys),
@@ -388,6 +392,120 @@ def _load_live_inputs(config):
         },
     }
     return trades, markets, diagnostics
+
+
+def _build_orderbook_probe_samples(
+    client: PolymarketPublicClient,
+    snapshots: list[Any],
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    seen_market_ids: set[str] = set()
+    for snapshot in snapshots:
+        if snapshot.market_id in seen_market_ids or snapshot.orderbook_ready:
+            continue
+        seen_market_ids.add(snapshot.market_id)
+        samples.append(
+            {
+                "market_id": snapshot.market_id,
+                "market_title": snapshot.title,
+                "yes_token_id": snapshot.yes_token_id,
+                "no_token_id": snapshot.no_token_id,
+                "yes_book": _probe_token_orderbook(client, snapshot.yes_token_id),
+                "no_book": _probe_token_orderbook(client, snapshot.no_token_id),
+                "yes_token_lookup": _probe_token_lookup(client, snapshot.yes_token_id),
+                "no_token_lookup": _probe_token_lookup(client, snapshot.no_token_id),
+            }
+        )
+        if len(samples) >= limit:
+            break
+    return samples
+
+
+def _probe_token_orderbook(client: PolymarketPublicClient, token_id: str) -> dict[str, Any]:
+    token_id = str(token_id).strip()
+    if not token_id:
+        return {"missing_token_id": True}
+    try:
+        return _summarize_order_book_payload(client.fetch_order_book(token_id))
+    except Exception as exc:
+        return {"token_id": token_id, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _probe_token_lookup(client: PolymarketPublicClient, token_id: str) -> dict[str, Any]:
+    token_id = str(token_id).strip()
+    if not token_id:
+        return {"missing_token_id": True}
+    try:
+        rows = client.fetch_markets_by_clob_token_ids([token_id], chunk_size=1)
+    except Exception as exc:
+        return {"token_id": token_id, "error": f"{type(exc).__name__}: {exc}"}
+    return _summarize_market_lookup_rows(rows, token_id)
+
+
+def _summarize_order_book_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    bids = payload.get("bids") if isinstance(payload, dict) else None
+    asks = payload.get("asks") if isinstance(payload, dict) else None
+    return {
+        "raw_keys": sorted(payload.keys())[:8] if isinstance(payload, dict) else [],
+        "market": str(payload.get("market") or "") if isinstance(payload, dict) else "",
+        "asset_id": str(payload.get("asset_id") or payload.get("assetId") or "") if isinstance(payload, dict) else "",
+        "bid_levels": len(bids) if isinstance(bids, list) else 0,
+        "ask_levels": len(asks) if isinstance(asks, list) else 0,
+        "best_bid_price": _first_book_level_value(bids, "price"),
+        "best_bid_size": _first_book_level_value(bids, "size"),
+        "best_ask_price": _first_book_level_value(asks, "price"),
+        "best_ask_size": _first_book_level_value(asks, "size"),
+    }
+
+
+def _first_book_level_value(levels: Any, key: str) -> float:
+    if not isinstance(levels, list) or not levels:
+        return 0.0
+    best = levels[0]
+    if not isinstance(best, dict):
+        return 0.0
+    return float(best.get(key) or 0.0)
+
+
+def _summarize_market_lookup_rows(rows: list[dict[str, Any]], token_id: str) -> dict[str, Any]:
+    if not rows:
+        return {"matched_rows": 0}
+    row = rows[0]
+    token_ids = _market_row_token_ids(row)
+    return {
+        "matched_rows": len(rows),
+        "condition_id": str(row.get("conditionId") or row.get("condition_id") or row.get("id") or ""),
+        "slug": str(row.get("slug") or row.get("marketSlug") or ""),
+        "question": str(row.get("question") or row.get("title") or ""),
+        "token_ids": token_ids,
+        "matched_input_token": token_id in token_ids,
+    }
+
+
+def _market_row_token_ids(row: dict[str, Any]) -> list[str]:
+    raw = row.get("clobTokenIds") or row.get("tokenIds")
+    if isinstance(raw, list):
+        return [str(token) for token in raw[:2] if str(token).strip()]
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(token) for token in parsed[:2] if str(token).strip()]
+
+    tokens = row.get("tokens")
+    if isinstance(tokens, list):
+        token_ids: list[str] = []
+        for token in tokens[:2]:
+            if not isinstance(token, dict):
+                continue
+            token_id = token.get("token_id") or token.get("id") or token.get("tokenId")
+            if token_id and str(token_id).strip():
+                token_ids.append(str(token_id))
+        return token_ids
+    return []
 
 
 def _fetch_wallet_payloads(client: PolymarketPublicClient, wallets: list[str], limit: int) -> dict[str, list[dict[str, Any]]]:
@@ -520,6 +638,8 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
         "markets_with_no_depth": diagnostics.get("markets_with_no_depth", 0),
         "market_crossref": diagnostics.get("market_crossref", {}),
     }
+    if diagnostics.get("orderbook_probe_samples"):
+        compact["orderbook_probe_samples"] = diagnostics["orderbook_probe_samples"][:2]
     skipped_invalid_wallets = diagnostics.get("skipped_invalid_wallets", 0)
     if skipped_invalid_wallets:
         compact["skipped_invalid_wallets"] = skipped_invalid_wallets
