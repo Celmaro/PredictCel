@@ -11,7 +11,7 @@ from typing import Any
 
 from .models import WalletTopicProfile
 
-__all__ = ["analyze_wallet_topics", "get_topic_preferences"]
+__all__ = ["classify_wallet_topics", "classify_trade_topic"]
 
 
 UNKNOWN_TOPIC = "other"
@@ -30,7 +30,7 @@ def classify_wallet_topics(trades: list[dict[str, Any]], topic_keywords: dict[st
         return WalletTopicProfile(topic_affinities={UNKNOWN_TOPIC: 1.0}, primary_topic=UNKNOWN_TOPIC, specialization_score=1.0)
 
     affinities = {topic: round(count / total, 4) for topic, count in counts.items()}
-    primary_topic = max(affinities, key=affinities.get)
+    primary_topic = max(affinities.items(), key=lambda item: item[1])[0]
     specialization = round(sum(value * value for value in affinities.values()), 4)
     return WalletTopicProfile(
         topic_affinities=dict(sorted(affinities.items(), key=lambda item: item[1], reverse=True)),

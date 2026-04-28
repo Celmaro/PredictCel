@@ -22,6 +22,16 @@ jobs:
       - run: ruff check src/ tests/
       - run: ruff format --check src/ tests/
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: python -m mypy
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -37,7 +47,7 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, typecheck, test]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

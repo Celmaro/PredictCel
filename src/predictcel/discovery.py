@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any
 
-__all__ = ["DiscoveryRunner", "discover_wallets"]
+__all__ = ["WalletCandidate", "score_wallet_candidates", "candidates_as_dicts"]
 
 
 

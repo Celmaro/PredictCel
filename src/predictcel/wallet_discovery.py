@@ -21,7 +21,7 @@ from .polymarket import PolymarketPublicClient
 from .wallet_sources import DataApiWalletSource
 from .wallet_topics import classify_wallet_topics
 
-__all__ = ["discover_from_leaderboard", "discover_from_sources"]
+__all__ = ["WalletDiscoveryPipeline"]
 
 
 

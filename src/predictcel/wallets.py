@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .models import WalletTrade
 
-__all__ = ["Wallet", "WalletStats", "filter_wallets"]
+__all__ = ["load_wallet_trades", "bucket_trades_by_market"]
 
 
 
