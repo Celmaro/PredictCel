@@ -6,12 +6,12 @@ wallet baskets and market conditions.
 
 from __future__ import annotations
 
+import logging
+import os
+import pickle
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
-import logging
-import pickle
-import os
 
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
@@ -23,6 +23,12 @@ __all__ = ["CopyEngine"]
 logger = logging.getLogger(__name__)
 
 LATE_ENTRY_PRICE_THRESHOLD = 0.95
+NO_VALID_TRADE_REASON_KEYS = (
+    "topic_mismatch",
+    "wallet_not_in_basket",
+    "too_old",
+    "too_small",
+)
 
 
 class CopyEngine:
@@ -55,6 +61,7 @@ class CopyEngine:
         from sklearn.ensemble import RandomForestRegressor
         from sklearn.metrics import mean_squared_error
         from sklearn.model_selection import train_test_split
+
         features = []
         targets = []
         for record in backtest_data:
@@ -74,7 +81,12 @@ class CopyEngine:
             logger.warning("No backtest data available for ML training")
             return
 
-        X_train, X_test, y_train, y_test = train_test_split(features, targets, test_size=0.2, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(
+            features,
+            targets,
+            test_size=0.2,
+            random_state=42,
+        )
         model = RandomForestRegressor(n_estimators=100, random_state=42)
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
@@ -114,40 +126,82 @@ class CopyEngine:
         market_not_found = 0
         basket_not_found = 0
         rejection_counts: Counter[str] = Counter()
+        no_valid_trade_reason_counts: Counter[str] = Counter()
 
-        def process_market(market_id: str, market_trades: list[WalletTrade]) -> tuple[list[CopyCandidate], int, int, Counter]:
-            local_candidates = []
+        def process_market(
+            market_id: str,
+            market_trades: list[WalletTrade],
+        ) -> tuple[list[CopyCandidate], int, int, Counter[str], Counter[str]]:
+            local_candidates: list[CopyCandidate] = []
             local_market_not_found = 0
             local_basket_not_found = 0
-            local_rejection_counts = Counter()
+            local_rejection_counts: Counter[str] = Counter()
+            local_no_valid_trade_reason_counts: Counter[str] = Counter()
             market = markets.get(market_id)
             if market is None:
                 local_market_not_found += 1
                 local_rejection_counts["market_not_found"] += 1
-                return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
+                return (
+                    local_candidates,
+                    local_market_not_found,
+                    local_basket_not_found,
+                    local_rejection_counts,
+                    local_no_valid_trade_reason_counts,
+                )
 
             topic = self._resolve_topic(market_trades)
             basket = self.baskets_by_topic.get(topic)
             if basket is None:
                 local_basket_not_found += 1
                 local_rejection_counts["basket_not_found"] += 1
-                return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
+                return (
+                    local_candidates,
+                    local_market_not_found,
+                    local_basket_not_found,
+                    local_rejection_counts,
+                    local_no_valid_trade_reason_counts,
+                )
 
-            candidate, rejection_reason = self._evaluate_market(topic, basket, market, market_trades, wallet_qualities, portfolio_summary)
+            candidate, rejection_reason, no_valid_trade_reasons = self._evaluate_market(
+                topic,
+                basket,
+                market,
+                market_trades,
+                wallet_qualities,
+                portfolio_summary,
+            )
             if candidate is not None:
                 local_candidates.append(candidate)
             elif rejection_reason is not None:
                 local_rejection_counts[rejection_reason] += 1
-            return local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts
+                if rejection_reason == "no_valid_trades":
+                    local_no_valid_trade_reason_counts.update(no_valid_trade_reasons)
+            return (
+                local_candidates,
+                local_market_not_found,
+                local_basket_not_found,
+                local_rejection_counts,
+                local_no_valid_trade_reason_counts,
+            )
 
         with ThreadPoolExecutor(max_workers=max(1, min(8, len(grouped)))) as executor:
-            futures = {executor.submit(process_market, market_id, market_trades): market_id for market_id, market_trades in grouped.items()}
+            futures = {
+                executor.submit(process_market, market_id, market_trades): market_id
+                for market_id, market_trades in grouped.items()
+            }
             for future in as_completed(futures):
-                local_candidates, local_market_not_found, local_basket_not_found, local_rejection_counts = future.result()
+                (
+                    local_candidates,
+                    local_market_not_found,
+                    local_basket_not_found,
+                    local_rejection_counts,
+                    local_no_valid_trade_reason_counts,
+                ) = future.result()
                 candidates.extend(local_candidates)
                 market_not_found += local_market_not_found
                 basket_not_found += local_basket_not_found
                 rejection_counts.update(local_rejection_counts)
+                no_valid_trade_reason_counts.update(local_no_valid_trade_reason_counts)
 
         filtered_at_evaluate = sum(
             count
@@ -161,10 +215,19 @@ class CopyEngine:
             "filtered_at_evaluate": filtered_at_evaluate,
             "candidates_returned": len(candidates),
             **dict(sorted(rejection_counts.items())),
+            **{
+                f"no_valid_trades_{reason}": no_valid_trade_reason_counts[reason]
+                for reason in NO_VALID_TRADE_REASON_KEYS
+                if no_valid_trade_reason_counts[reason]
+            },
         }
         return candidates
 
-    def _canonical_market_id(self, market_id: str, markets: dict[str, MarketSnapshot]) -> str:
+    def _canonical_market_id(
+        self,
+        market_id: str,
+        markets: dict[str, MarketSnapshot],
+    ) -> str:
         market = markets.get(market_id)
         if market is None:
             return market_id
@@ -184,27 +247,35 @@ class CopyEngine:
         trades: list[WalletTrade],
         wallet_qualities: dict[str, WalletQuality],
         portfolio_summary: dict[str, float | int] | None = None,
-    ) -> tuple[CopyCandidate | None, str | None]:
+    ) -> tuple[CopyCandidate | None, str | None, Counter[str]]:
         wallet_set = self.basket_wallets_by_topic.get(topic, set())
         max_age = self.config.filters.max_trade_age_seconds
         min_size = self.config.filters.min_position_size_usd
-        valid_trades = [
-            trade
-            for trade in trades
-            if trade.topic == topic
-            and trade.wallet in wallet_set
-            and trade.age_seconds <= max_age
-            and trade.size_usd >= min_size
-        ]
+        valid_trades: list[WalletTrade] = []
+        invalid_reason_counts: Counter[str] = Counter()
+        for trade in trades:
+            if trade.topic != topic:
+                invalid_reason_counts["topic_mismatch"] += 1
+                continue
+            if trade.wallet not in wallet_set:
+                invalid_reason_counts["wallet_not_in_basket"] += 1
+                continue
+            if trade.age_seconds > max_age:
+                invalid_reason_counts["too_old"] += 1
+                continue
+            if trade.size_usd < min_size:
+                invalid_reason_counts["too_small"] += 1
+                continue
+            valid_trades.append(trade)
         if not valid_trades:
-            return None, "no_valid_trades"
+            return None, "no_valid_trades", invalid_reason_counts
 
         if market.liquidity_usd < self.config.filters.min_liquidity_usd:
-            return None, "low_liquidity"
+            return None, "low_liquidity", Counter()
         if market.minutes_to_resolution < self.config.filters.min_minutes_to_resolution:
-            return None, "too_close_to_resolution"
+            return None, "too_close_to_resolution", Counter()
         if market.minutes_to_resolution > self.config.filters.max_minutes_to_resolution:
-            return None, "too_far_from_resolution"
+            return None, "too_far_from_resolution", Counter()
 
         wallet_votes = self._latest_wallet_votes(valid_trades)
         weighted_by_side: dict[str, float] = defaultdict(float)
@@ -216,11 +287,11 @@ class CopyEngine:
             trade_weights.append((trade, weight, side))
 
         if not weighted_by_side:
-            return None, "no_weighted_votes"
+            return None, "no_weighted_votes", Counter()
         side = max(weighted_by_side, key=weighted_by_side.get)
         aligned = [trade for trade, _, trade_side in trade_weights if trade_side == side]
         if not aligned:
-            return None, "no_aligned_trades"
+            return None, "no_aligned_trades", Counter()
 
         aligned_wallets = sorted({trade.wallet for trade in aligned})
         consensus_ratio = len(aligned_wallets) / len(basket.wallets) if basket.wallets else 0.0
@@ -228,13 +299,13 @@ class CopyEngine:
         aligned_weight = weighted_by_side[side]
         weighted_consensus = round(aligned_weight / total_weight, 4) if total_weight else 0.0
         if consensus_ratio < basket.quorum_ratio:
-            return None, "below_quorum"
+            return None, "below_quorum", Counter()
         if weighted_consensus < self.config.consensus.min_weighted_consensus:
-            return None, "below_weighted_consensus"
+            return None, "below_weighted_consensus", Counter()
 
         confidence_score = self._confidence_score(aligned_weight, total_weight)
         if confidence_score < self.config.consensus.min_confidence_score:
-            return None, "below_confidence"
+            return None, "below_confidence", Counter()
 
         reference_price = self._weighted_reference_price(list(wallet_votes.values()), trade_weights)
         current_price = market.yes_ask if side == "YES" else market.no_ask
@@ -242,21 +313,34 @@ class CopyEngine:
         side_ask_size = market.yes_ask_size if side == "YES" else market.no_ask_size
         side_depth_usd = side_ask_size * current_price
         if not market.orderbook_ready:
-            return None, "orderbook_not_ready"
+            return None, "orderbook_not_ready", Counter()
         if side_depth_usd <= 0:
-            return None, "insufficient_side_depth"
+            return None, "insufficient_side_depth", Counter()
         if current_price >= LATE_ENTRY_PRICE_THRESHOLD:
-            return None, "too_late_price"
+            return None, "too_late_price", Counter()
         drift = abs(current_price - reference_price)
         if drift > self.config.filters.max_price_drift:
-            return None, "too_much_drift"
+            return None, "too_much_drift", Counter()
 
         average_age = sum(trade.age_seconds for trade in aligned) / len(aligned)
-        quality_values = [wallet_qualities[wallet].score for wallet in aligned_wallets if wallet in wallet_qualities]
-        wallet_quality_score = round(sum(quality_values) / len(quality_values), 4) if quality_values else 0.5
+        quality_values = [
+            wallet_qualities[wallet].score
+            for wallet in aligned_wallets
+            if wallet in wallet_qualities
+        ]
+        wallet_quality_score = round(
+            sum(quality_values) / len(quality_values),
+            4,
+        ) if quality_values else 0.5
         conflict_penalty = self._conflict_penalty(aligned_weight, total_weight)
         recency_score = self._recency_score(aligned)
-        regime = self._classify_market_regime(market, side, current_price, side_spread, side_depth_usd)
+        regime = self._classify_market_regime(
+            market,
+            side,
+            current_price,
+            side_spread,
+            side_depth_usd,
+        )
         base_score = compute_copyability_score(
             consensus_ratio=weighted_consensus,
             wallet_quality_score=wallet_quality_score,
@@ -268,31 +352,53 @@ class CopyEngine:
             filters=self.config.filters,
             recency_half_life_seconds=self.config.consensus.recency_half_life_seconds,
         )
-        copyability_score = round(max(0.0, min(1.0, (base_score * 0.70) + (confidence_score * 0.15) + (recency_score * 0.10) + (regime.score * 0.05) - conflict_penalty)), 4)
-        suggested_position_usd = self._suggested_position_size(current_price, confidence_score, copyability_score, portfolio_summary)
+        copyability_score = round(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    (base_score * 0.70)
+                    + (confidence_score * 0.15)
+                    + (recency_score * 0.10)
+                    + (regime.score * 0.05)
+                    - conflict_penalty,
+                ),
+            ),
+            4,
+        )
+        suggested_position_usd = self._suggested_position_size(
+            current_price,
+            confidence_score,
+            copyability_score,
+            portfolio_summary,
+        )
 
-        return CopyCandidate(
-            topic=topic,
-            market_id=market.market_id,
-            side=side,
-            consensus_ratio=consensus_ratio,
-            reference_price=reference_price,
-            current_price=current_price,
-            liquidity_usd=market.liquidity_usd,
-            source_wallets=aligned_wallets,
-            wallet_quality_score=wallet_quality_score,
-            copyability_score=copyability_score,
-            reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and tradable orderbook inputs passed",
-            market_title=market.title,
-            weighted_consensus=weighted_consensus,
-            confidence_score=confidence_score,
-            conflict_penalty=conflict_penalty,
-            recency_score=recency_score,
-            suggested_position_usd=suggested_position_usd,
-            market_regime=regime.label,
-            regime_score=regime.score,
-            regime_reason=regime.reason,
-        ), None
+        return (
+            CopyCandidate(
+                topic=topic,
+                market_id=market.market_id,
+                side=side,
+                consensus_ratio=consensus_ratio,
+                reference_price=reference_price,
+                current_price=current_price,
+                liquidity_usd=market.liquidity_usd,
+                source_wallets=aligned_wallets,
+                wallet_quality_score=wallet_quality_score,
+                copyability_score=copyability_score,
+                reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and tradable orderbook inputs passed",
+                market_title=market.title,
+                weighted_consensus=weighted_consensus,
+                confidence_score=confidence_score,
+                conflict_penalty=conflict_penalty,
+                recency_score=recency_score,
+                suggested_position_usd=suggested_position_usd,
+                market_regime=regime.label,
+                regime_score=regime.score,
+                regime_reason=regime.reason,
+            ),
+            None,
+            Counter(),
+        )
 
     def _latest_wallet_votes(self, trades: list[WalletTrade]) -> dict[str, WalletTrade]:
         latest: dict[str, WalletTrade] = {}
@@ -302,14 +408,30 @@ class CopyEngine:
                 latest[trade.wallet] = trade
         return latest
 
-    def _trade_weight(self, trade: WalletTrade, wallet_qualities: dict[str, WalletQuality]) -> float:
+    def _trade_weight(
+        self,
+        trade: WalletTrade,
+        wallet_qualities: dict[str, WalletQuality],
+    ) -> float:
         quality = wallet_qualities.get(trade.wallet)
         quality_weight = quality.score if quality is not None else 0.5
-        recency_weight = 0.5 ** (trade.age_seconds / self.config.consensus.recency_half_life_seconds)
-        size_weight = min(max(trade.size_usd / max(self.config.filters.min_position_size_usd, 1.0), 0.25), 3.0)
+        recency_weight = 0.5 ** (
+            trade.age_seconds / self.config.consensus.recency_half_life_seconds
+        )
+        size_weight = min(
+            max(
+                trade.size_usd / max(self.config.filters.min_position_size_usd, 1.0),
+                0.25,
+            ),
+            3.0,
+        )
         return max(quality_weight * recency_weight * size_weight, 0.0001)
 
-    def _weighted_reference_price(self, trades: list[WalletTrade], trade_weights: list[tuple[WalletTrade, float, str]] | None = None) -> float:
+    def _weighted_reference_price(
+        self,
+        trades: list[WalletTrade],
+        trade_weights: list[tuple[WalletTrade, float, str]] | None = None,
+    ) -> float:
         weighted_sum = 0.0
         total_weight = 0.0
         if trade_weights is not None:
@@ -321,27 +443,54 @@ class CopyEngine:
                 weight = self._trade_weight(trade, {})
                 weighted_sum += trade.price * weight
                 total_weight += weight
-        return weighted_sum / total_weight if total_weight else sum(trade.price for trade in trades) / len(trades)
+        return (
+            weighted_sum / total_weight
+            if total_weight
+            else sum(trade.price for trade in trades) / len(trades)
+        )
 
     def _confidence_score(self, aligned_weight: float, total_weight: float) -> float:
         prior = self.config.consensus.confidence_prior_strength
-        posterior_mean = (aligned_weight + prior * 0.5) / (total_weight + prior) if total_weight + prior else 0.0
-        sample_strength = min(total_weight / (total_weight + prior), 1.0) if total_weight + prior else 0.0
+        posterior_mean = (
+            (aligned_weight + prior * 0.5) / (total_weight + prior)
+            if total_weight + prior
+            else 0.0
+        )
+        sample_strength = (
+            min(total_weight / (total_weight + prior), 1.0)
+            if total_weight + prior
+            else 0.0
+        )
         return round(max(0.0, min(1.0, posterior_mean * sample_strength)), 4)
 
     def _conflict_penalty(self, aligned_weight: float, total_weight: float) -> float:
         if total_weight <= 0:
             return 0.0
         conflict_ratio = max(0.0, 1.0 - (aligned_weight / total_weight))
-        return round(conflict_ratio * self.config.consensus.conflict_penalty_weight, 4)
+        return round(
+            conflict_ratio * self.config.consensus.conflict_penalty_weight,
+            4,
+        )
 
     def _recency_score(self, trades: list[WalletTrade]) -> float:
         if not trades:
             return 0.0
-        weights = [0.5 ** (trade.age_seconds / self.config.consensus.recency_half_life_seconds) for trade in trades]
+        weights = [
+            0.5 ** (
+                trade.age_seconds / self.config.consensus.recency_half_life_seconds
+            )
+            for trade in trades
+        ]
         return round(sum(weights) / len(weights), 4)
 
-    def _classify_market_regime(self, market: MarketSnapshot, side: str, current_price: float, side_spread: float, side_depth_usd: float) -> MarketRegime:
+    def _classify_market_regime(
+        self,
+        market: MarketSnapshot,
+        side: str,
+        current_price: float,
+        side_spread: float,
+        side_depth_usd: float,
+    ) -> MarketRegime:
         config = self.config.market_regime
         if not config.enabled:
             return MarketRegime("DISABLED", 0.5, "market regime scoring disabled")
@@ -349,28 +498,58 @@ class CopyEngine:
         volatility_score = min(side_spread / 0.05, 1.0)
         depth_score = min(side_depth_usd / 1000, 1.0)
 
-        if side_spread > config.max_stable_spread or side_depth_usd < config.min_depth_usd:
-            score = max(0.0, 0.5 - config.unstable_penalty - 0.1 * volatility_score)
-            return MarketRegime("UNSTABLE", round(score, 4), f"spread={side_spread:.4f}, depth=${side_depth_usd:.0f}, volatility={volatility_score:.2f}")
+        if (
+            side_spread > config.max_stable_spread
+            or side_depth_usd < config.min_depth_usd
+        ):
+            score = max(
+                0.0,
+                0.5 - config.unstable_penalty - 0.1 * volatility_score,
+            )
+            return MarketRegime(
+                "UNSTABLE",
+                round(score, 4),
+                f"spread={side_spread:.4f}, depth=${side_depth_usd:.0f}, volatility={volatility_score:.2f}",
+            )
 
         skew = abs(current_price - 0.5)
         if skew >= config.trend_price_skew:
-            directional_match = (side == "YES" and current_price > 0.5) or (side == "NO" and current_price < 0.5)
+            directional_match = (
+                (side == "YES" and current_price > 0.5)
+                or (side == "NO" and current_price < 0.5)
+            )
             score = 0.75 + config.trend_bonus if directional_match else 0.60
             score += 0.05 * (1 - volatility_score)
-            return MarketRegime("TREND", round(min(score, 1.0), 4), f"price skew={skew:.3f}, directional_match={directional_match}, volatility={volatility_score:.2f}")
+            return MarketRegime(
+                "TREND",
+                round(min(score, 1.0), 4),
+                f"price skew={skew:.3f}, directional_match={directional_match}, volatility={volatility_score:.2f}",
+            )
 
         if skew <= config.range_price_skew:
-            score = round(min(0.65 + config.range_bonus + 0.1 * depth_score, 1.0), 4)
-            return MarketRegime("RANGE", score, f"price near midpoint, depth_score={depth_score:.2f}")
+            score = round(
+                min(0.65 + config.range_bonus + 0.1 * depth_score, 1.0),
+                4,
+            )
+            return MarketRegime(
+                "RANGE",
+                score,
+                f"price near midpoint, depth_score={depth_score:.2f}",
+            )
 
         score = 0.55 + 0.05 * (1 - volatility_score)
-        return MarketRegime("TRANSITION", round(min(score, 1.0), 4), f"between range/trend thresholds, volatility={volatility_score:.2f}")
+        return MarketRegime(
+            "TRANSITION",
+            round(min(score, 1.0), 4),
+            f"between range/trend thresholds, volatility={volatility_score:.2f}",
+        )
 
     def _portfolio_summary(self, store: Any = None) -> dict[str, float | int]:
         if store is None:
             return {}
-        return store.get_portfolio_summary(starting_bankroll_usd=self.config.consensus.bankroll_usd)
+        return store.get_portfolio_summary(
+            starting_bankroll_usd=self.config.consensus.bankroll_usd,
+        )
 
     def _suggested_position_size(
         self,
@@ -403,13 +582,31 @@ class CopyEngine:
                 1000,
             ]
             ml_prediction = self._ml_model.predict([features])[0]
-            raw_size = self.config.consensus.bankroll_usd * max(0.0, min(1.0, ml_prediction)) * kelly_multiplier
-            logger.debug(f"ML position sizing: predicted fraction {ml_prediction:.4f}, size {raw_size:.2f}")
+            raw_size = (
+                self.config.consensus.bankroll_usd
+                * max(0.0, min(1.0, ml_prediction))
+                * kelly_multiplier
+            )
+            logger.debug(
+                f"ML position sizing: predicted fraction {ml_prediction:.4f}, size {raw_size:.2f}",
+            )
         else:
             adjusted_kelly = self.config.consensus.kelly_fraction * kelly_multiplier
             q = 1.0 - p
             kelly_fraction = max(0.0, ((b * p) - q) / b) if b > 0 else 0.0
-            raw_size = self.config.consensus.bankroll_usd * kelly_fraction * adjusted_kelly
-            logger.debug(f"Kelly position sizing: fraction {kelly_fraction:.4f}, size {raw_size:.2f}")
+            raw_size = (
+                self.config.consensus.bankroll_usd
+                * kelly_fraction
+                * adjusted_kelly
+            )
+            logger.debug(
+                f"Kelly position sizing: fraction {kelly_fraction:.4f}, size {raw_size:.2f}",
+            )
 
-        return round(min(max(raw_size, 0.0), self.config.consensus.max_suggested_position_usd), 4)
+        return round(
+            min(
+                max(raw_size, 0.0),
+                self.config.consensus.max_suggested_position_usd,
+            ),
+            4,
+        )

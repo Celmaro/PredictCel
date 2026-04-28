@@ -2,6 +2,7 @@ import builtins
 from dataclasses import replace
 from io import BytesIO
 
+from predictcel import copy_engine as copy_engine_module
 from predictcel.config import (
     ArbitrageConfig,
     AppConfig,
@@ -13,7 +14,6 @@ from predictcel.config import (
     LiveDataConfig,
     PositionConfig,
 )
-from predictcel import copy_engine as copy_engine_module
 from predictcel.copy_engine import CopyEngine
 from predictcel.models import MarketSnapshot, WalletQuality, WalletTrade
 
@@ -33,7 +33,13 @@ class CountingStore:
 
 def make_config(consensus: ConsensusConfig | None = None) -> AppConfig:
     return AppConfig(
-        baskets=[BasketRule(topic="geopolitics", wallets=["w1", "w2", "w3"], quorum_ratio=0.66)],
+        baskets=[
+            BasketRule(
+                topic="geopolitics",
+                wallets=["w1", "w2", "w3"],
+                quorum_ratio=0.66,
+            )
+        ],
         filters=FilterConfig(
             max_trade_age_seconds=3600,
             max_price_drift=0.05,
@@ -64,8 +70,15 @@ def make_config(consensus: ConsensusConfig | None = None) -> AppConfig:
             order_type="FOK",
             chain_id=137,
             signature_type=0,
-            position=PositionConfig(take_profit_pct=0.3, stop_loss_pct=0.1, max_hold_minutes=1440),
-            exposure=ExposureConfig(max_total_exposure_usd=500.0, max_single_position_usd=50.0),
+            position=PositionConfig(
+                take_profit_pct=0.3,
+                stop_loss_pct=0.1,
+                max_hold_minutes=1440,
+            ),
+            exposure=ExposureConfig(
+                max_total_exposure_usd=500.0,
+                max_single_position_usd=50.0,
+            ),
             max_retries=3,
             retry_base_delay_seconds=1.0,
         ),
@@ -93,17 +106,57 @@ def make_market() -> MarketSnapshot:
 
 def make_qualities() -> dict[str, WalletQuality]:
     return {
-        "w1": WalletQuality(wallet="w1", topic="geopolitics", score=0.8, eligible_trade_count=3, average_age_seconds=500, average_drift=0.01, reason="test"),
-        "w2": WalletQuality(wallet="w2", topic="geopolitics", score=0.7, eligible_trade_count=2, average_age_seconds=700, average_drift=0.02, reason="test"),
-        "w3": WalletQuality(wallet="w3", topic="geopolitics", score=0.3, eligible_trade_count=2, average_age_seconds=900, average_drift=0.03, reason="test"),
+        "w1": WalletQuality(
+            wallet="w1",
+            topic="geopolitics",
+            score=0.8,
+            eligible_trade_count=3,
+            average_age_seconds=500,
+            average_drift=0.01,
+            reason="test",
+        ),
+        "w2": WalletQuality(
+            wallet="w2",
+            topic="geopolitics",
+            score=0.7,
+            eligible_trade_count=2,
+            average_age_seconds=700,
+            average_drift=0.02,
+            reason="test",
+        ),
+        "w3": WalletQuality(
+            wallet="w3",
+            topic="geopolitics",
+            score=0.3,
+            eligible_trade_count=2,
+            average_age_seconds=900,
+            average_drift=0.03,
+            reason="test",
+        ),
     }
 
 
 def test_emits_candidate_when_quorum_and_drift_pass() -> None:
     engine = CopyEngine(make_config())
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.6,
+            size_usd=220,
+            age_seconds=800,
+        ),
     ]
 
     candidates = engine.evaluate(trades, {"m1": make_market()}, make_qualities())
@@ -128,11 +181,31 @@ def test_mixed_market_aliases_share_one_consensus_bucket() -> None:
     engine = CopyEngine(make_config())
     market = replace(make_market(), market_id="cond_1", yes_token_id="token_yes")
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="cond_1", side="YES", price=0.58, size_usd=200, age_seconds=600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="token_yes", side="YES", price=0.6, size_usd=220, age_seconds=800),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="cond_1",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="token_yes",
+            side="YES",
+            price=0.6,
+            size_usd=220,
+            age_seconds=800,
+        ),
     ]
 
-    candidates = engine.evaluate(trades, {"cond_1": market, "token_yes": market}, make_qualities())
+    candidates = engine.evaluate(
+        trades,
+        {"cond_1": market, "token_yes": market},
+        make_qualities(),
+    )
 
     assert len(candidates) == 1
     assert candidates[0].market_id == "cond_1"
@@ -143,8 +216,24 @@ def test_mixed_market_aliases_share_one_consensus_bucket() -> None:
 def test_skips_candidate_when_drift_is_too_large() -> None:
     engine = CopyEngine(make_config())
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.4, size_usd=200, age_seconds=600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.41, size_usd=220, age_seconds=800),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.4,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.41,
+            size_usd=220,
+            age_seconds=800,
+        ),
     ]
 
     candidates = engine.evaluate(trades, {"m1": make_market()}, make_qualities())
@@ -157,8 +246,24 @@ def test_skips_candidate_when_orderbook_is_not_ready() -> None:
     engine = CopyEngine(make_config())
     market = replace(make_market(), orderbook_ready=False)
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.6,
+            size_usd=220,
+            age_seconds=800,
+        ),
     ]
 
     candidates = engine.evaluate(trades, {"m1": market}, make_qualities())
@@ -171,8 +276,24 @@ def test_skips_candidate_when_selected_side_has_no_depth() -> None:
     engine = CopyEngine(make_config())
     market = replace(make_market(), yes_ask_size=0)
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.6,
+            size_usd=220,
+            age_seconds=800,
+        ),
     ]
 
     candidates = engine.evaluate(trades, {"m1": market}, make_qualities())
@@ -185,8 +306,24 @@ def test_skips_candidate_when_price_is_too_late() -> None:
     engine = CopyEngine(make_config())
     late_market = replace(make_market(), yes_ask=0.97)
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.90, size_usd=200, age_seconds=600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.91, size_usd=220, age_seconds=800),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.90,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.91,
+            size_usd=220,
+            age_seconds=800,
+        ),
     ]
 
     candidates = engine.evaluate(trades, {"m1": late_market}, make_qualities())
@@ -196,45 +333,129 @@ def test_skips_candidate_when_price_is_too_late() -> None:
 
 
 def test_weighted_consensus_can_reject_raw_quorum_with_stale_low_quality_votes() -> None:
-    consensus = ConsensusConfig(min_weighted_consensus=0.75, min_confidence_score=0.20, recency_half_life_seconds=600)
+    consensus = ConsensusConfig(
+        min_weighted_consensus=0.75,
+        min_confidence_score=0.20,
+        recency_half_life_seconds=600,
+    )
     engine = CopyEngine(make_config(consensus))
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.59, size_usd=100, age_seconds=3400),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=100, age_seconds=3400),
-        WalletTrade(wallet="w3", topic="geopolitics", market_id="m1", side="NO", price=0.41, size_usd=300, age_seconds=60),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.59,
+            size_usd=100,
+            age_seconds=3400,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.6,
+            size_usd=100,
+            age_seconds=3400,
+        ),
+        WalletTrade(
+            wallet="w3",
+            topic="geopolitics",
+            market_id="m1",
+            side="NO",
+            price=0.41,
+            size_usd=300,
+            age_seconds=60,
+        ),
     ]
 
     candidates = engine.evaluate(trades, {"m1": make_market()}, make_qualities())
 
     assert candidates == []
-    assert engine.last_diagnostics["below_quorum"] == 1 or engine.last_diagnostics["below_weighted_consensus"] == 1
+    assert (
+        engine.last_diagnostics["below_quorum"] == 1
+        or engine.last_diagnostics["below_weighted_consensus"] == 1
+    )
 
 
 def test_conflicting_vote_reduces_copyability_score() -> None:
-    consensus = ConsensusConfig(min_weighted_consensus=0.50, min_confidence_score=0.20, conflict_penalty_weight=0.25)
+    consensus = ConsensusConfig(
+        min_weighted_consensus=0.50,
+        min_confidence_score=0.20,
+        conflict_penalty_weight=0.25,
+    )
     engine = CopyEngine(make_config(consensus))
     base_trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=300),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.59, size_usd=200, age_seconds=300),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=300,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.59,
+            size_usd=200,
+            age_seconds=300,
+        ),
     ]
     conflict_trades = base_trades + [
-        WalletTrade(wallet="w3", topic="geopolitics", market_id="m1", side="NO", price=0.41, size_usd=100, age_seconds=300),
+        WalletTrade(
+            wallet="w3",
+            topic="geopolitics",
+            market_id="m1",
+            side="NO",
+            price=0.41,
+            size_usd=100,
+            age_seconds=300,
+        ),
     ]
 
     clean = engine.evaluate(base_trades, {"m1": make_market()}, make_qualities())[0]
-    conflicted = engine.evaluate(conflict_trades, {"m1": make_market()}, make_qualities())[0]
+    conflicted = engine.evaluate(
+        conflict_trades,
+        {"m1": make_market()},
+        make_qualities(),
+    )[0]
 
     assert conflicted.conflict_penalty > clean.conflict_penalty
     assert conflicted.copyability_score < clean.copyability_score
 
 
 def test_suggested_position_size_is_capped() -> None:
-    consensus = ConsensusConfig(min_confidence_score=0.20, bankroll_usd=1000.0, kelly_fraction=1.0, max_suggested_position_usd=12.0)
+    consensus = ConsensusConfig(
+        min_confidence_score=0.20,
+        bankroll_usd=1000.0,
+        kelly_fraction=1.0,
+        max_suggested_position_usd=12.0,
+    )
     engine = CopyEngine(make_config(consensus))
     market = replace(make_market(), yes_ask=0.40)
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.39, size_usd=300, age_seconds=60),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.40, size_usd=300, age_seconds=60),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.39,
+            size_usd=300,
+            age_seconds=60,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.40,
+            size_usd=300,
+            age_seconds=60,
+        ),
     ]
 
     candidate = engine.evaluate(trades, {"m1": market}, make_qualities())[0]
@@ -245,8 +466,24 @@ def test_suggested_position_size_is_capped() -> None:
 def test_market_regime_detects_trend_and_unstable_books() -> None:
     engine = CopyEngine(make_config(ConsensusConfig(min_confidence_score=0.20)))
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.69, size_usd=300, age_seconds=60),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.70, size_usd=300, age_seconds=60),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.69,
+            size_usd=300,
+            age_seconds=60,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.70,
+            size_usd=300,
+            age_seconds=60,
+        ),
     ]
     trend_market = replace(make_market(), yes_ask=0.70, yes_spread=0.02, yes_ask_size=200)
     unstable_market = replace(make_market(), yes_ask=0.70, yes_spread=0.20, yes_ask_size=1)
@@ -262,13 +499,32 @@ def test_market_regime_detects_trend_and_unstable_books() -> None:
 def test_candidate_reason_describes_tradable_orderbook_inputs() -> None:
     engine = CopyEngine(make_config())
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.6,
+            size_usd=220,
+            age_seconds=800,
+        ),
     ]
 
     candidate = engine.evaluate(trades, {"m1": make_market()}, make_qualities())[0]
 
-    assert candidate.reason == "weighted basket consensus, market regime, confidence, recency, liquidity, drift, and tradable orderbook inputs passed"
+    assert (
+        candidate.reason
+        == "weighted basket consensus, market regime, confidence, recency, liquidity, drift, and tradable orderbook inputs passed"
+    )
 
 
 def test_records_market_and_basket_rejections() -> None:
@@ -290,7 +546,17 @@ def test_records_market_and_basket_rejections() -> None:
         consensus=ConsensusConfig(),
     )
     engine = CopyEngine(config)
-    trades = [WalletTrade(wallet="w1", topic="geopolitics", market_id="missing", side="YES", price=0.5, size_usd=200, age_seconds=100)]
+    trades = [
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="missing",
+            side="YES",
+            price=0.5,
+            size_usd=200,
+            age_seconds=100,
+        )
+    ]
 
     engine.evaluate(trades, {"m1": make_market()}, {})
 
@@ -301,8 +567,24 @@ def test_records_low_liquidity_rejection() -> None:
     engine = CopyEngine(make_config())
     low_liq_market = replace(make_market(), liquidity_usd=100)
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.6,
+            size_usd=220,
+            age_seconds=800,
+        ),
     ]
 
     candidates = engine.evaluate(trades, {"m1": low_liq_market}, make_qualities())
@@ -311,18 +593,110 @@ def test_records_low_liquidity_rejection() -> None:
     assert engine.last_diagnostics["low_liquidity"] == 1
 
 
+def test_records_no_valid_trade_breakdown() -> None:
+    engine = CopyEngine(make_config())
+    trades = [
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=7200,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.6,
+            size_usd=50,
+            age_seconds=800,
+        ),
+        WalletTrade(
+            wallet="w9",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.59,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="m1",
+            side="YES",
+            price=0.59,
+            size_usd=200,
+            age_seconds=600,
+        ),
+    ]
+
+    candidates = engine.evaluate(trades, {"m1": make_market()}, make_qualities())
+
+    assert candidates == []
+    assert engine.last_diagnostics["no_valid_trades"] == 1
+    assert engine.last_diagnostics["no_valid_trades_too_old"] == 1
+    assert engine.last_diagnostics["no_valid_trades_too_small"] == 1
+    assert engine.last_diagnostics["no_valid_trades_wallet_not_in_basket"] == 1
+    assert engine.last_diagnostics["no_valid_trades_topic_mismatch"] == 1
+
+
 def test_evaluate_reads_portfolio_summary_once_before_threading() -> None:
-    engine = CopyEngine(make_config(ConsensusConfig(min_confidence_score=0.20, bankroll_usd=1000.0, kelly_fraction=1.0, max_suggested_position_usd=12.0)))
+    engine = CopyEngine(
+        make_config(
+            ConsensusConfig(
+                min_confidence_score=0.20,
+                bankroll_usd=1000.0,
+                kelly_fraction=1.0,
+                max_suggested_position_usd=12.0,
+            )
+        )
+    )
     store = CountingStore(win_rate=0.65)
     markets = {
         "m1": replace(make_market(), market_id="m1", yes_ask=0.40),
         "m2": replace(make_market(), market_id="m2", yes_ask=0.41),
     }
     trades = [
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.39, size_usd=300, age_seconds=60),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.40, size_usd=300, age_seconds=60),
-        WalletTrade(wallet="w1", topic="geopolitics", market_id="m2", side="YES", price=0.40, size_usd=300, age_seconds=60),
-        WalletTrade(wallet="w2", topic="geopolitics", market_id="m2", side="YES", price=0.41, size_usd=300, age_seconds=60),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.39,
+            size_usd=300,
+            age_seconds=60,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.40,
+            size_usd=300,
+            age_seconds=60,
+        ),
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m2",
+            side="YES",
+            price=0.40,
+            size_usd=300,
+            age_seconds=60,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m2",
+            side="YES",
+            price=0.41,
+            size_usd=300,
+            age_seconds=60,
+        ),
     ]
 
     candidates = engine.evaluate(trades, markets, make_qualities(), store)
@@ -355,7 +729,11 @@ def test_copy_engine_ignores_cwd_pickle_fallback(monkeypatch) -> None:
     monkeypatch.setattr(copy_engine_module.os.path, "exists", fake_exists)
     monkeypatch.setattr(copy_engine_module.os.path, "abspath", lambda path: cwd_model)
     monkeypatch.setattr(copy_engine_module.pickle, "load", fake_load)
-    monkeypatch.setattr(builtins, "open", lambda *args, **kwargs: BytesIO(b"pickle-bytes"))
+    monkeypatch.setattr(
+        builtins,
+        "open",
+        lambda *args, **kwargs: BytesIO(b"pickle-bytes"),
+    )
 
     engine = CopyEngine(make_config())
 
