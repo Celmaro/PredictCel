@@ -17,7 +17,6 @@ from .models import MarketSnapshot, WalletTrade
 
 logger = logging.getLogger(__name__)
 
-# Thread-local storage for metrics to avoid global mutable state
 _metrics_local = threading.local()
 
 
@@ -30,15 +29,15 @@ def _get_metrics() -> dict:
 
 class CircuitBreaker:
     """Circuit breaker pattern for resilient API calls."""
-    
+
     def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.failure_count = 0
         self.last_failure_time = 0
-        self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+        self.state = "CLOSED"
         self._lock = threading.Lock()
-    
+
     def call(self, func, *args, **kwargs):
         """Execute function with circuit breaker protection."""
         with self._lock:
@@ -47,7 +46,7 @@ class CircuitBreaker:
                     self.state = "HALF_OPEN"
                 else:
                     raise Exception("Circuit breaker is OPEN")
-        
+
         try:
             result = func(*args, **kwargs)
             self._on_success()
@@ -55,13 +54,13 @@ class CircuitBreaker:
         except Exception as e:
             self._on_failure()
             raise e
-    
+
     def _on_success(self):
         """Reset failure count on success."""
         with self._lock:
             self.failure_count = 0
             self.state = "CLOSED"
-    
+
     def _on_failure(self):
         """Increment failure count and open circuit if threshold reached."""
         with self._lock:
@@ -73,11 +72,10 @@ class CircuitBreaker:
 
 class PolymarketPublicClient:
     """Client for Polymarket public APIs with caching and resilience."""
-    
-    # Configurable constants
+
     DEFAULT_Z_THRESHOLD = 3.0
     DEFAULT_CACHE_TTL_SECONDS = 300
-    
+
     def __init__(
         self,
         gamma_base_url: str = "https://gamma-api.polymarket.com",
@@ -91,7 +89,7 @@ class PolymarketPublicClient:
         redis_port: int = 6379,
     ) -> None:
         """Initialize Polymarket client.
-        
+
         Args:
             gamma_base_url: Gamma API base URL
             data_base_url: Data API base URL
@@ -114,19 +112,17 @@ class PolymarketPublicClient:
         self._request_cache: dict[str, Any] = {}
         self._cache_lock = threading.Lock()
         self._circuit_breaker = CircuitBreaker()
-        
-        # Initialize Redis if requested, with graceful fallback
+
         if use_redis:
             try:
                 import redis
                 self.redis_client = redis.Redis(
-                    host=redis_host, 
-                    port=redis_port, 
+                    host=redis_host,
+                    port=redis_port,
                     decode_responses=True,
                     socket_connect_timeout=5,
-                    socket_timeout=5
+                    socket_timeout=5,
                 )
-                # Test connection
                 self.redis_client.ping()
                 logger.info("Redis caching enabled")
             except (ModuleNotFoundError, ImportError):
@@ -136,21 +132,21 @@ class PolymarketPublicClient:
                 logger.warning(f"Redis connection failed ({e}), falling back to in-memory cache")
                 self.use_redis = False
                 self.redis_client = None
-    
+
     def fetch_active_markets(self, limit: int) -> list[dict[str, Any]]:
         """Fetch active markets from Gamma API."""
         query = urlencode({"limit": limit, "closed": "false", "active": "true"})
         payload = self._get_json(f"{self.gamma_base_url}/markets?{query}")
         return _extract_list(payload)
-    
+
     def fetch_markets_by_condition_ids(self, condition_ids: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
         """Fetch markets by condition IDs."""
         return self._fetch_markets_by_array_filter("condition_ids", condition_ids, chunk_size)
-    
+
     def fetch_markets_by_clob_token_ids(self, token_ids: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
         """Fetch markets by CLOB token IDs."""
         return self._fetch_markets_by_array_filter("clob_token_ids", token_ids, chunk_size)
-    
+
     def fetch_market_by_slug(self, slug: str) -> dict[str, Any]:
         """Fetch market by slug."""
         normalized_slug = str(slug).strip()
@@ -158,17 +154,17 @@ class PolymarketPublicClient:
             return {}
         payload = self._get_json(f"{self.gamma_base_url}/markets/slug/{quote(normalized_slug, safe='')}")
         return payload if isinstance(payload, dict) else {}
-    
+
     def fetch_markets_by_slugs(self, slugs: list[str], max_workers: int = 8) -> list[dict[str, Any]]:
         """Fetch markets by slugs with parallel execution."""
         unique_slugs = sorted({str(slug).strip() for slug in slugs if str(slug).strip()})
         if not unique_slugs:
             return []
-        
+
         results: list[dict[str, Any]] = []
         seen_market_keys: set[str] = set()
         workers = max(1, min(max_workers, len(unique_slugs)))
-        
+
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {executor.submit(self.fetch_market_by_slug, slug): slug for slug in unique_slugs}
             for future in as_completed(futures):
@@ -177,25 +173,25 @@ class PolymarketPublicClient:
                 except Exception as e:
                     logger.debug(f"Failed to fetch market for slug {futures[future]}: {e}")
                     continue
-                
+
                 rows = _extract_list(payload)
                 if not rows and payload:
                     rows = [payload]
-                
+
                 for row in rows:
                     key = str(row.get("conditionId") or row.get("condition_id") or row.get("id") or row.get("slug") or row).strip()
                     if key in seen_market_keys:
                         continue
                     seen_market_keys.add(key)
                     results.append(row)
-        
+
         return results
-    
+
     def fetch_markets_by_identifiers(self, identifiers: list[str], chunk_size: int = 25) -> list[dict[str, Any]]:
         """Fetch markets by various identifiers."""
         results: list[dict[str, Any]] = []
         seen_market_keys: set[str] = set()
-        
+
         for rows in (
             self.fetch_markets_by_condition_ids(identifiers, chunk_size),
             self.fetch_markets_by_clob_token_ids(identifiers, chunk_size),
@@ -206,18 +202,18 @@ class PolymarketPublicClient:
                     continue
                 seen_market_keys.add(key)
                 results.append(row)
-        
+
         return results
-    
+
     def fetch_leaderboard(self, limit: int) -> list[dict[str, Any]]:
         """Fetch leaderboard from data API."""
         query = urlencode({"limit": limit})
         payload = self._get_json(f"{self.data_base_url}/v1/leaderboard?{query}")
         return _extract_list(payload)[:limit]
-    
+
     def fetch_wallet_trades(self, wallet: str, limit: int) -> list[dict[str, Any]]:
         """Fetch trades for a wallet with fallback endpoints.
-        
+
         Tries multiple endpoint variations and returns best results.
         Logs warnings if all endpoints fail.
         """
@@ -229,12 +225,12 @@ class PolymarketPublicClient:
             (f"{self.data_base_url}/activity", {"user": wallet, "limit": limit}),
             (f"{self.data_base_url}/activity", {"address": wallet, "limit": limit}),
         ]
-        
+
         wallet_key = wallet.lower()
         best_rows: list[dict[str, Any]] = []
         best_scored_rows: list[dict[str, Any]] = []
         errors: list[str] = []
-        
+
         for base_url, params in request_variants:
             query = urlencode(params)
             try:
@@ -242,45 +238,44 @@ class PolymarketPublicClient:
             except Exception as e:
                 errors.append(f"{base_url}: {type(e).__name__}")
                 continue
-            
+
             rows = _extract_list(payload)
             if not rows:
                 continue
-            
+
             normalized = [_flatten_trade_payload(item) for item in rows]
             matching_rows = [item for item in normalized if _trade_matches_wallet(item, wallet_key)]
             rows_with_owner = [item for item in normalized if _trade_wallet_address(item)]
             candidate_rows = matching_rows if rows_with_owner else normalized
-            
+
             if _score_trade_rows(candidate_rows) > _score_trade_rows(best_scored_rows):
                 best_scored_rows = candidate_rows
                 best_rows = candidate_rows
             elif len(candidate_rows) > len(best_rows):
                 best_rows = candidate_rows
-            
+
             if matching_rows and _count_trade_items_with_ids(matching_rows) >= min(limit, len(matching_rows)):
                 break
-        
-        # Log warning if all endpoints failed
+
         if not best_rows and errors:
             logger.warning(
                 f"All API endpoints failed for wallet {wallet[:10]}... "
                 f"Errors: {errors[:3]}"
             )
-        
+
         return best_rows[:limit]
-    
+
     def fetch_order_book(self, token_id: str) -> dict[str, Any]:
         """Fetch order book for a token."""
         query = urlencode({"token_id": token_id})
         payload = self._get_json(f"{self.clob_base_url}/book?{query}")
         return payload if isinstance(payload, dict) else {}
-    
+
     async def subscribe_market_updates(self, market_ids: list[str], callback: callable) -> None:
         """Subscribe to real-time market updates via WebSocket."""
         ws_url = "wss://ws.polymarket.com"
         logger.info(f"Connecting to WebSocket at {ws_url} for {len(market_ids)} markets")
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(ws_url) as ws:
@@ -288,7 +283,7 @@ class PolymarketPublicClient:
                     subscribe_msg = {"type": "subscribe", "markets": market_ids}
                     await ws.send_json(subscribe_msg)
                     logger.info(f"Subscribed to market updates for {market_ids}")
-                    
+
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             data = msg.json()
@@ -310,12 +305,12 @@ class PolymarketPublicClient:
         except Exception as e:
             logger.error(f"WebSocket unexpected error: {e}")
             raise
-    
+
     def _fetch_markets_by_array_filter(self, filter_name: str, values: list[str], chunk_size: int) -> list[dict[str, Any]]:
         """Fetch markets using array filter with chunking."""
         results: list[dict[str, Any]] = []
         unique_values = sorted({value.strip() for value in values if value and value.strip()})
-        
+
         for chunk in _chunks(unique_values, max(chunk_size, 1)):
             query = urlencode({filter_name: chunk, "limit": len(chunk)}, doseq=True)
             try:
@@ -324,22 +319,21 @@ class PolymarketPublicClient:
                 logger.debug(f"Failed to fetch markets with {filter_name}: {e}")
                 continue
             results.extend(_extract_list(payload))
-        
+
         return results
-    
+
     def _get_json(self, url: str) -> Any:
         """Make HTTP GET request with caching and retries."""
         def _fetch_url():
             metrics = _get_metrics()
             metrics["requests"] += 1
-            
-            # Check cache
+
             cached = self._get_cached(url)
             if cached is not None:
                 return cached
-            
+
             request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
-            
+
             for attempt in range(self.max_retries):
                 try:
                     with urlopen(request, timeout=self.timeout_seconds) as response:
@@ -353,11 +347,11 @@ class PolymarketPublicClient:
                         raise
                     delay = _retry_delay(self.retry_base_delay_seconds, attempt)
                     time.sleep(delay)
-            
+
             return None
-        
+
         return self._circuit_breaker.call(_fetch_url)
-    
+
     def _get_cached(self, url: str) -> Any:
         """Get cached response if available and not expired."""
         if self.use_redis and self.redis_client:
@@ -375,7 +369,7 @@ class PolymarketPublicClient:
                         pass
             except Exception as e:
                 logger.debug(f"Redis get failed: {e}")
-        
+
         with self._cache_lock:
             if url in self._request_cache:
                 cached = self._request_cache[url]
@@ -384,9 +378,9 @@ class PolymarketPublicClient:
                         return {k: v for k, v in cached.items() if k != "_cached_at"}
                 elif not isinstance(cached, dict):
                     return cached
-        
+
         return None
-    
+
     def _set_cached(self, url: str, payload: Any) -> None:
         """Cache response with TTL."""
         if self.use_redis and self.redis_client:
@@ -398,18 +392,18 @@ class PolymarketPublicClient:
                 return
             except Exception as e:
                 logger.debug(f"Redis set failed: {e}")
-        
+
         with self._cache_lock:
             cache_data = payload.copy() if isinstance(payload, dict) else payload
             if isinstance(cache_data, dict):
                 cache_data["_cached_at"] = time.time()
             self._request_cache[url] = cache_data
-    
+
     def _validate_response(self, payload: Any, url: str) -> None:
         """Validate API response with anomaly detection."""
         if not isinstance(payload, (dict, list)):
             raise ValueError(f"Invalid response type for {url}: {type(payload)}")
-        
+
         if isinstance(payload, list):
             prices = []
             for item in payload:
@@ -420,22 +414,22 @@ class PolymarketPublicClient:
                         prices.append(yes_ask)
                     if no_ask is not None and isinstance(no_ask, (int, float)):
                         prices.append(no_ask)
-            
+
             if prices:
                 import statistics
                 mean_price = statistics.mean(prices)
                 stdev_price = statistics.stdev(prices) if len(prices) > 1 else 0
-                
+
                 anomalies = 0
                 for price in prices:
                     if stdev_price > 0:
                         z_score = abs(price - mean_price) / stdev_price
                         if z_score > self.DEFAULT_Z_THRESHOLD:
                             anomalies += 1
-                
+
                 if anomalies > 0:
                     logger.warning(f"Detected {anomalies} anomalous prices in response from {url}")
-        
+
         if "markets" in url and isinstance(payload, dict):
             data = payload.get("data", payload)
             if isinstance(data, list) and data:
@@ -443,7 +437,7 @@ class PolymarketPublicClient:
                 has_market_identifier = any(field in sample for field in ("conditionId", "condition_id", "id"))
                 has_direct_prices = all(field in sample for field in ("yes", "no"))
                 has_outcome_prices = any(field in sample for field in ("outcomePrices", "outcomes"))
-                
+
                 if not has_market_identifier or not (has_direct_prices or has_outcome_prices):
                     logger.error(f"Unexpected market data shape from {url}")
                     raise ValueError("Unexpected market data shape")
@@ -469,17 +463,17 @@ def enrich_market_snapshots_with_orderbooks(
     """Enrich market snapshots with order book data."""
     if not snapshots:
         return {}
-    
+
     unique_snapshots: dict[str, MarketSnapshot] = {}
     aliases_by_canonical: dict[str, list[str]] = {}
-    
+
     for alias, snapshot in snapshots.items():
         unique_snapshots.setdefault(snapshot.market_id, snapshot)
         aliases_by_canonical.setdefault(snapshot.market_id, []).append(alias)
-    
+
     enriched_unique: dict[str, MarketSnapshot] = {}
     workers = max(1, min(max_workers, len(unique_snapshots)))
-    
+
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(_enrich_one_snapshot, snapshot, client): market_id for market_id, snapshot in unique_snapshots.items()}
         for future in as_completed(futures):
@@ -489,13 +483,13 @@ def enrich_market_snapshots_with_orderbooks(
             except Exception as e:
                 logger.debug(f"Failed to enrich snapshot {market_id}: {e}")
                 enriched_unique[market_id] = unique_snapshots[market_id]
-    
+
     enriched: dict[str, MarketSnapshot] = {}
     for canonical_id, aliases in aliases_by_canonical.items():
         snapshot = enriched_unique.get(canonical_id, unique_snapshots[canonical_id])
         for alias in aliases:
             enriched[alias] = snapshot
-    
+
     return enriched
 
 
@@ -503,21 +497,22 @@ def _enrich_one_snapshot(snapshot: MarketSnapshot, client: PolymarketPublicClien
     """Enrich a single snapshot with order book data."""
     yes_book = client.fetch_order_book(snapshot.yes_token_id) if snapshot.yes_token_id else {}
     no_book = client.fetch_order_book(snapshot.no_token_id) if snapshot.no_token_id else {}
-    
+
     yes_bid = _book_best_price(yes_book, "bids")
     no_bid = _book_best_price(no_book, "bids")
     yes_ask = _book_best_price(yes_book, "asks") or snapshot.yes_ask
     no_ask = _book_best_price(no_book, "asks") or snapshot.no_ask
-    
+
     yes_ask_size = _book_best_size(yes_book, "asks")
     no_ask_size = _book_best_size(no_book, "asks")
-    
+    yes_book_ready = yes_ask > 0 and yes_ask_size > 0
+    no_book_ready = no_ask > 0 and no_ask_size > 0
+
     yes_spread = round(max(yes_ask - yes_bid, 0.0), 4) if yes_ask and yes_bid else 0.0
     no_spread = round(max(no_ask - no_bid, 0.0), 4) if no_ask and no_bid else 0.0
-    
-    # Calculate best_bid from order book data
+
     best_bid = max(yes_bid, no_bid, snapshot.best_bid)
-    
+
     return replace(
         snapshot,
         yes_ask=yes_ask,
@@ -529,7 +524,7 @@ def _enrich_one_snapshot(snapshot: MarketSnapshot, client: PolymarketPublicClien
         no_ask_size=no_ask_size,
         yes_spread=yes_spread,
         no_spread=no_spread,
-        orderbook_ready=bool(yes_book or no_book),
+        orderbook_ready=yes_book_ready or no_book_ready,
     )
 
 
@@ -541,18 +536,18 @@ def build_wallet_trades(
     """Build wallet trades from API payloads."""
     now = now or datetime.now(UTC)
     trades: list[WalletTrade] = []
-    
+
     for wallet, items in wallet_payloads.items():
         topics = _normalize_topics(topic_by_wallet.get(wallet))
         if not topics:
             continue
-        
+
         for item in items:
             for topic in topics:
                 trade = wallet_trade_from_data(wallet, topic, item, now)
                 if trade is not None:
                     trades.append(trade)
-    
+
     return trades
 
 
@@ -583,29 +578,28 @@ def market_snapshot_from_gamma(item: dict[str, Any]) -> MarketSnapshot | None:
     market_id = str(item.get("conditionId") or item.get("condition_id") or item.get("id") or "").strip()
     if not market_id:
         return None
-    
+
     prices = _parse_outcome_prices(item.get("outcomePrices"))
     if len(prices) < 2:
         prices = _parse_outcome_prices(item.get("outcomes"))
-    
+
     yes_ask = float(prices[0]) if len(prices) > 0 else 0.0
     no_ask = float(prices[1]) if len(prices) > 1 else 0.0
-    
+
     token_ids = _parse_token_ids(item)
     minutes_to_resolution = _minutes_to_resolution(item.get("endDate") or item.get("end_date"))
     title = str(item.get("question") or item.get("title") or market_id)
     topic = str(item.get("category") or item.get("tag") or item.get("seriesSlug") or "unknown")
-    
-    # Calculate best_bid from order book if available, otherwise use API value
+
     best_bid_api = float(item.get("bestBid") or item.get("best_bid") or 0.0)
-    
+
     return MarketSnapshot(
         market_id=market_id,
         topic=topic,
         title=title,
         yes_ask=yes_ask,
         no_ask=no_ask,
-        best_bid=best_bid_api,  # Will be enriched with order book data later
+        best_bid=best_bid_api,
         liquidity_usd=float(item.get("liquidity") or item.get("liquidityNum") or 0.0),
         minutes_to_resolution=minutes_to_resolution,
         yes_token_id=token_ids[0] if len(token_ids) > 0 else "",
@@ -622,10 +616,10 @@ def wallet_trade_from_data(
     """Create WalletTrade from API item."""
     market_id = _trade_market_id(item)
     side = _trade_side(item)
-    
+
     if not market_id or side not in {"YES", "NO"}:
         return None
-    
+
     timestamp = (
         item.get("timestamp")
         or item.get("createdAt")
@@ -634,7 +628,7 @@ def wallet_trade_from_data(
         or item.get("updatedAt")
     )
     age_seconds = _age_seconds(timestamp, now)
-    
+
     price = float(
         item.get("price")
         or item.get("matchedPrice")
@@ -642,7 +636,7 @@ def wallet_trade_from_data(
         or item.get("lastPrice")
         or 0.0
     )
-    
+
     size_usd = float(
         item.get("size")
         or item.get("sizeUsd")
@@ -652,7 +646,7 @@ def wallet_trade_from_data(
         or item.get("notional")
         or 0.0
     )
-    
+
     return WalletTrade(
         wallet=wallet,
         topic=topic,
@@ -664,7 +658,6 @@ def wallet_trade_from_data(
     )
 
 
-# Helper functions (unchanged from original)
 def _extract_list(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -693,13 +686,13 @@ def _trade_market_slug(item: dict[str, Any]) -> str:
         value = item.get(key)
         if value is not None and str(value).strip():
             return str(value).strip()
-    
+
     nested_market = item.get("market")
     if isinstance(nested_market, dict):
         value = nested_market.get("slug") or nested_market.get("marketSlug")
         if value is not None and str(value).strip():
             return str(value).strip()
-    
+
     return ""
 
 
@@ -720,7 +713,7 @@ def _normalize_topics(value: str | list[str] | tuple[str, ...] | set[str] | None
         return [value]
     if isinstance(value, set):
         return sorted(str(item) for item in value if str(item).strip())
-    
+
     normalized: list[str] = []
     for item in value:
         topic = str(item).strip()
@@ -741,13 +734,13 @@ def _trade_side(item: dict[str, Any]) -> str:
             return "YES"
         if raw_side in {"BUY_NO", "LONG_NO", "BID_NO"}:
             return "NO"
-    
+
     outcome_index = item.get("outcomeIndex")
     if outcome_index == 0:
         return "YES"
     if outcome_index == 1:
         return "NO"
-    
+
     return ""
 
 
@@ -775,7 +768,7 @@ def _parse_token_ids(item: dict[str, Any]) -> list[str]:
             parsed = None
         if isinstance(parsed, list):
             return [str(token) for token in parsed[:2]]
-    
+
     tokens = item.get("tokens")
     if isinstance(tokens, list):
         result = []
@@ -785,13 +778,13 @@ def _parse_token_ids(item: dict[str, Any]) -> list[str]:
                 if token_id:
                     result.append(str(token_id))
         return result
-    
+
     return []
 
 
 def _flatten_trade_payload(item: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(item)
-    
+
     nested_market = item.get("market")
     if isinstance(nested_market, dict):
         for source_key, target_key in (
@@ -803,13 +796,13 @@ def _flatten_trade_payload(item: dict[str, Any]) -> dict[str, Any]:
         ):
             if target_key not in normalized and nested_market.get(source_key) is not None:
                 normalized[target_key] = nested_market.get(source_key)
-    
+
     nested_asset = item.get("asset")
     if isinstance(nested_asset, dict):
         for source_key, target_key in (("id", "asset"), ("tokenId", "tokenId"), ("token_id", "token_id")):
             if target_key not in normalized and nested_asset.get(source_key) is not None:
                 normalized[target_key] = nested_asset.get(source_key)
-    
+
     return normalized
 
 
@@ -833,14 +826,14 @@ def _trade_wallet_address(item: dict[str, Any]) -> str:
         value = item.get(key)
         if value is not None and str(value).strip():
             return str(value).strip().lower()
-    
+
     profile = item.get("profile")
     if isinstance(profile, dict):
         for key in ("address", "wallet", "walletAddress", "proxyWallet"):
             value = profile.get(key)
             if value is not None and str(value).strip():
                 return str(value).strip().lower()
-    
+
     return ""
 
 

@@ -238,6 +238,13 @@ class CopyEngine:
 
         reference_price = self._weighted_reference_price(list(wallet_votes.values()), trade_weights)
         current_price = market.yes_ask if side == "YES" else market.no_ask
+        side_spread = market.yes_spread if side == "YES" else market.no_spread
+        side_ask_size = market.yes_ask_size if side == "YES" else market.no_ask_size
+        side_depth_usd = side_ask_size * current_price
+        if not market.orderbook_ready:
+            return None, "orderbook_not_ready"
+        if side_depth_usd <= 0:
+            return None, "insufficient_side_depth"
         if current_price >= LATE_ENTRY_PRICE_THRESHOLD:
             return None, "too_late_price"
         drift = abs(current_price - reference_price)
@@ -247,9 +254,6 @@ class CopyEngine:
         average_age = sum(trade.age_seconds for trade in aligned) / len(aligned)
         quality_values = [wallet_qualities[wallet].score for wallet in aligned_wallets if wallet in wallet_qualities]
         wallet_quality_score = round(sum(quality_values) / len(quality_values), 4) if quality_values else 0.5
-        side_spread = market.yes_spread if side == "YES" else market.no_spread
-        side_ask_size = market.yes_ask_size if side == "YES" else market.no_ask_size
-        side_depth_usd = side_ask_size * current_price
         conflict_penalty = self._conflict_penalty(aligned_weight, total_weight)
         recency_score = self._recency_score(aligned)
         regime = self._classify_market_regime(market, side, current_price, side_spread, side_depth_usd)
@@ -278,7 +282,7 @@ class CopyEngine:
             source_wallets=aligned_wallets,
             wallet_quality_score=wallet_quality_score,
             copyability_score=copyability_score,
-            reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and scored orderbook inputs passed",
+            reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and tradable orderbook inputs passed",
             market_title=market.title,
             weighted_consensus=weighted_consensus,
             confidence_score=confidence_score,
@@ -389,7 +393,6 @@ class CopyEngine:
             elif win_rate > 0.6:
                 kelly_multiplier = 1.2
 
-        # Use ML model if available
         if self._ml_model:
             features = [
                 confidence_score,
@@ -400,7 +403,6 @@ class CopyEngine:
                 1000,
             ]
             ml_prediction = self._ml_model.predict([features])[0]
-            # Assume model predicts optimal fraction of bankroll
             raw_size = self.config.consensus.bankroll_usd * max(0.0, min(1.0, ml_prediction)) * kelly_multiplier
             logger.debug(f"ML position sizing: predicted fraction {ml_prediction:.4f}, size {raw_size:.2f}")
         else:

@@ -353,6 +353,12 @@ def _load_live_inputs(config):
     matched_trade_market_keys = [market_key for market_key in trade_market_keys if market_key in markets]
     wallets_with_payloads = sum(1 for items in wallet_payloads.values() if items)
     wallets_with_parsed_trades = len({trade.wallet for trade in trades})
+    unique_market_snapshots = {snapshot.market_id: snapshot for snapshot in markets.values()}
+    relevant_canonical_market_ids = {markets[market_key].market_id for market_key in relevant_market_keys}
+    relevant_snapshots = [unique_market_snapshots[market_id] for market_id in sorted(relevant_canonical_market_ids)]
+    orderbook_ready_markets = sum(1 for snapshot in relevant_snapshots if snapshot.orderbook_ready)
+    markets_with_yes_depth = sum(1 for snapshot in relevant_snapshots if snapshot.yes_ask > 0 and snapshot.yes_ask_size > 0)
+    markets_with_no_depth = sum(1 for snapshot in relevant_snapshots if snapshot.no_ask > 0 and snapshot.no_ask_size > 0)
     diagnostics = {
         "requested_wallets": sum(len(basket.wallets) for basket in config.baskets),
         "valid_wallets": len(raw_topic_by_wallet),
@@ -371,6 +377,10 @@ def _load_live_inputs(config):
         "supplemental_slug_rows_loaded": len(supplemental_slug_rows),
         "market_cache_entries": len(markets),
         "multi_topic_wallets": sum(1 for topics in raw_topic_by_wallet.values() if len(topics) > 1),
+        "relevant_markets_enriched": len(relevant_snapshots),
+        "orderbook_ready_markets": orderbook_ready_markets,
+        "markets_with_yes_depth": markets_with_yes_depth,
+        "markets_with_no_depth": markets_with_no_depth,
         "market_crossref": {
             "unique_trade_market_keys": len(trade_market_keys),
             "matched_count": len(matched_trade_market_keys),
@@ -504,6 +514,10 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
         "supplemental_market_slugs_requested": diagnostics.get("supplemental_market_slugs_requested", 0),
         "supplemental_slug_rows_loaded": diagnostics.get("supplemental_slug_rows_loaded", 0),
         "market_cache_entries": diagnostics.get("market_cache_entries", 0),
+        "relevant_markets_enriched": diagnostics.get("relevant_markets_enriched", 0),
+        "orderbook_ready_markets": diagnostics.get("orderbook_ready_markets", 0),
+        "markets_with_yes_depth": diagnostics.get("markets_with_yes_depth", 0),
+        "markets_with_no_depth": diagnostics.get("markets_with_no_depth", 0),
         "market_crossref": diagnostics.get("market_crossref", {}),
     }
     skipped_invalid_wallets = diagnostics.get("skipped_invalid_wallets", 0)

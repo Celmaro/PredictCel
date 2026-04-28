@@ -153,6 +153,34 @@ def test_skips_candidate_when_drift_is_too_large() -> None:
     assert engine.last_diagnostics["too_much_drift"] == 1
 
 
+def test_skips_candidate_when_orderbook_is_not_ready() -> None:
+    engine = CopyEngine(make_config())
+    market = replace(make_market(), orderbook_ready=False)
+    trades = [
+        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
+        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+    ]
+
+    candidates = engine.evaluate(trades, {"m1": market}, make_qualities())
+
+    assert candidates == []
+    assert engine.last_diagnostics["orderbook_not_ready"] == 1
+
+
+def test_skips_candidate_when_selected_side_has_no_depth() -> None:
+    engine = CopyEngine(make_config())
+    market = replace(make_market(), yes_ask_size=0)
+    trades = [
+        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
+        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+    ]
+
+    candidates = engine.evaluate(trades, {"m1": market}, make_qualities())
+
+    assert candidates == []
+    assert engine.last_diagnostics["insufficient_side_depth"] == 1
+
+
 def test_skips_candidate_when_price_is_too_late() -> None:
     engine = CopyEngine(make_config())
     late_market = replace(make_market(), yes_ask=0.97)
@@ -231,7 +259,7 @@ def test_market_regime_detects_trend_and_unstable_books() -> None:
     assert trend.regime_score > unstable.regime_score
 
 
-def test_candidate_reason_describes_scored_orderbook_inputs() -> None:
+def test_candidate_reason_describes_tradable_orderbook_inputs() -> None:
     engine = CopyEngine(make_config())
     trades = [
         WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
@@ -240,7 +268,7 @@ def test_candidate_reason_describes_scored_orderbook_inputs() -> None:
 
     candidate = engine.evaluate(trades, {"m1": make_market()}, make_qualities())[0]
 
-    assert candidate.reason == "weighted basket consensus, market regime, confidence, recency, liquidity, drift, and scored orderbook inputs passed"
+    assert candidate.reason == "weighted basket consensus, market regime, confidence, recency, liquidity, drift, and tradable orderbook inputs passed"
 
 
 def test_records_market_and_basket_rejections() -> None:
