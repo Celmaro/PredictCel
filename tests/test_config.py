@@ -14,7 +14,9 @@ def test_example_config_loads() -> None:
     assert config.arbitrage.min_gross_edge > 0
     assert config.execution is not None
     assert all(basket.target_allocation > 0 for basket in config.baskets)
-    assert config.wallet_registry.enabled is False
+    assert config.wallet_registry.enabled is True
+    assert config.basket_controller.enabled is True
+    assert config.wallet_discovery.enabled is True
     assert config.basket_controller.tracked_basket_target == 15
 
 
