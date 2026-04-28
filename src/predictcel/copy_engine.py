@@ -603,7 +603,16 @@ class CopyEngine:
         if not memberships:
             return {}
 
-        live_roster = build_live_basket_roster(self.config, memberships, trades)
+        registry_entries = None
+        if hasattr(store, "load_wallet_registry_entries"):
+            registry_entries = store.load_wallet_registry_entries()
+
+        live_roster = build_live_basket_roster(
+            self.config,
+            memberships,
+            trades,
+            registry_entries=registry_entries,
+        )
         tracked_wallets_by_topic: dict[str, list[str]] = {}
         for topic, roster in live_roster.items():
             selected_wallets = roster.get("selected_wallets")

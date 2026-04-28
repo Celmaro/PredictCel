@@ -3,9 +3,10 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from predictcel.config import load_config
+from predictcel.config import BasketRule, load_config
 from predictcel import discover_wallets
 from predictcel.main import (
+    _auto_feed_wallet_registry_from_discovery,
     _build_wallet_registry_summary,
     _compact_cycle_output,
     _creates_or_updates_paper_position,
@@ -431,6 +432,75 @@ def test_run_wallet_discovery_skips_existing_and_rejected_wallets(
     assert '"skipped_existing_wallets": 1' in output
 
 
+def test_auto_feed_wallet_registry_from_discovery_ingests_accepted_candidates(monkeypatch) -> None:
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+        ),
+        wallet_discovery=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_discovery,
+            enabled=True,
+        ),
+    )
+    store = DiscoveryStore()
+
+    class FakePipeline:
+        def __init__(self, _config) -> None:
+            self.config = _config
+
+        def run(self):
+            candidates = [
+                WalletDiscoveryCandidate(
+                    wallet_address="w_new",
+                    source="polymarket_data_api",
+                    total_trades=25,
+                    recent_trades=10,
+                    avg_trade_size_usd=55.0,
+                    topic_profile=WalletTopicProfile(
+                        topic_affinities={"geopolitics": 0.9},
+                        primary_topic="geopolitics",
+                        specialization_score=0.8,
+                    ),
+                    score=0.74,
+                    confidence="HIGH",
+                    rejected_reasons=[],
+                )
+            ]
+            assignments = [
+                BasketAssignment(
+                    wallet_address="w_new",
+                    primary_topic="geopolitics",
+                    recommended_baskets=["geopolitics"],
+                    topic_affinities={"geopolitics": 0.9},
+                    overall_score=0.74,
+                    confidence="HIGH",
+                    reasons=["strong specialization"],
+                )
+            ]
+            return candidates, assignments, []
+
+    monkeypatch.setattr("predictcel.main.WalletDiscoveryPipeline", FakePipeline)
+
+    diagnostics = _auto_feed_wallet_registry_from_discovery(config, store)
+
+    assert diagnostics == {
+        "enabled": True,
+        "ran": True,
+        "discovered_wallets_ingested": 1,
+        "new_registry_entries": 1,
+        "new_explorer_memberships": 1,
+        "skipped_existing_wallets": 0,
+        "error": None,
+    }
+    assert {entry.wallet for entry in store.registry_entries} == {"w_new"}
+    assert [
+        (membership.topic, membership.wallet, membership.tier)
+        for membership in store.memberships
+    ] == [("geopolitics", "w_new", "explorer")]
+
+
 def test_compact_cycle_output_includes_execution_state() -> None:
     compact = _compact_cycle_output(
         {
@@ -583,7 +653,7 @@ def test_build_wallet_registry_summary_includes_live_roster() -> None:
     }
 
 
-def test_build_wallet_registry_summary_rebalances_memberships_to_live_roster() -> None:
+def test_build_wallet_registry_summary_keeps_memberships_read_only() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -626,15 +696,105 @@ def test_build_wallet_registry_summary_rebalances_memberships_to_live_roster() -
         WalletTrade("w2", "geopolitics", "m5", "YES", 0.56, 15.0, 300),
     ]
 
-    _build_wallet_registry_summary(config, store, trades)
+    summary = _build_wallet_registry_summary(config, store, trades)
 
     assert [(membership.wallet, membership.tier, membership.rank, membership.active) for membership in store.memberships] == [
-        ("w5", "core", 1, True),
-        ("w4", "core", 2, True),
+        ("w1", "core", 1, True),
+        ("w2", "core", 2, True),
         ("w3", "rotating", 3, True),
-        ("w2", "backup", 4, True),
-        ("w1", "core", 5, False),
+        ("w4", "backup", 4, True),
+        ("w5", "explorer", 5, True),
     ]
+    assert summary["live_roster_by_topic"]["geopolitics"]["selected_wallets"] == {
+        "core": ["w5", "w4"],
+        "rotating": ["w3"],
+        "backup": ["w2"],
+        "explorer": [],
+    }
+
+
+def test_build_wallet_registry_summary_does_not_reseed_existing_memberships() -> None:
+    base_config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        base_config,
+        wallet_registry=replace(base_config.wallet_registry, enabled=True, seed_from_baskets=True),
+    )
+    captured_at = datetime.now(UTC)
+    store = RegistrySummaryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet="w1",
+                source_type="static_basket",
+                source_ref="config.baskets",
+                trust_seed=1.0,
+                status="active",
+                first_seen_at=captured_at,
+            )
+        ],
+        memberships=[
+            BasketMembership(
+                topic="geopolitics",
+                wallet="w1",
+                tier="explorer",
+                rank=7,
+                active=True,
+                joined_at=captured_at,
+                effective_until=None,
+                promotion_reason="manual override",
+                demotion_reason="",
+            )
+        ],
+    )
+
+    _build_wallet_registry_summary(config, store, [])
+
+    assert [(membership.wallet, membership.tier, membership.rank, membership.promotion_reason) for membership in store.memberships] == [
+        ("w1", "explorer", 7, "manual override"),
+    ]
+
+
+def test_build_wallet_registry_summary_bootstraps_static_baskets_after_discovery_auto_feed() -> None:
+    base_config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        base_config,
+        baskets=[BasketRule(topic="geopolitics", wallets=["w_seed"], quorum_ratio=0.66)],
+        wallet_registry=replace(base_config.wallet_registry, enabled=True, seed_from_baskets=True),
+    )
+    captured_at = datetime.now(UTC)
+    store = RegistrySummaryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet="w_new",
+                source_type="wallet_discovery",
+                source_ref="polymarket_data_api",
+                trust_seed=0.8,
+                status="probation",
+                first_seen_at=captured_at,
+            )
+        ],
+        memberships=[
+            BasketMembership(
+                topic="geopolitics",
+                wallet="w_new",
+                tier="explorer",
+                rank=9,
+                active=True,
+                joined_at=captured_at,
+                effective_until=None,
+                promotion_reason="wallet discovery assignment",
+                demotion_reason="",
+            )
+        ],
+    )
+
+    summary = _build_wallet_registry_summary(config, store, [])
+
+    assert {entry.wallet for entry in store.registry_entries} == {"w_new", "w_seed"}
+    assert [(membership.topic, membership.wallet, membership.tier) for membership in store.memberships] == [
+        ("geopolitics", "w_seed", "core"),
+        ("geopolitics", "w_new", "explorer"),
+    ]
+    assert summary["registry_wallet_count"] == 2
 
 
 def test_build_wallet_registry_summary_refreshes_registry_statuses_from_trade_freshness() -> None:

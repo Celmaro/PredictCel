@@ -146,6 +146,15 @@ def test_fetch_wallet_trades_filters_rows_to_requested_wallet() -> None:
     assert rows[0]["asset"] == "token_right"
 
 
+def test_fetch_market_trades_uses_repeated_market_query_params() -> None:
+    client = FakeTradeClient()
+
+    client.fetch_market_trades(["cond_1", "cond_2"], 5)
+
+    assert "market=cond_1" in client.urls[0]
+    assert "market=cond_2" in client.urls[0]
+
+
 def test_build_market_snapshots_indexes_common_aliases() -> None:
     snapshots = build_market_snapshots(
         [

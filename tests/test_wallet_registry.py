@@ -594,6 +594,55 @@ def test_rebalance_memberships_from_live_roster_rewrites_tiers_and_deactivates_o
     assert overflow.demotion_reason == "dropped from live roster rebalance"
 
 
+def test_rebalance_memberships_from_live_roster_skips_churn_until_rotation_due() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=3,
+            core_slots=1,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=0,
+            force_refresh_if_fresh_core_below=1,
+            min_active_eligible_wallets=2,
+            rotation_interval_hours=24,
+        ),
+    )
+    store = FakeStore()
+    captured_at = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
+    recent_joined_at = datetime(2026, 1, 2, 6, 0, tzinfo=UTC)
+    store.registry_entries = [
+        WalletRegistryEntry(wallet, "static_basket", "config.baskets", 1.0, "active", recent_joined_at)
+        for wallet in ["w1", "w2", "w3"]
+    ]
+    store.memberships = [
+        BasketMembership("geopolitics", "w1", "core", 1, True, recent_joined_at, None, "seeded", ""),
+        BasketMembership("geopolitics", "w2", "rotating", 2, True, recent_joined_at, None, "seeded", ""),
+        BasketMembership("geopolitics", "w3", "backup", 3, True, recent_joined_at, None, "seeded", ""),
+    ]
+    trades = [
+        WalletTrade("w3", "geopolitics", "m1", "YES", 0.6, 15.0, 60),
+        WalletTrade("w3", "geopolitics", "m2", "YES", 0.59, 15.0, 120),
+        WalletTrade("w2", "geopolitics", "m3", "YES", 0.58, 15.0, 180),
+        WalletTrade("w1", "geopolitics", "m4", "YES", 0.57, 15.0, 240),
+    ]
+
+    updated = rebalance_memberships_from_live_roster(
+        config,
+        store,
+        trades,
+        captured_at=captured_at,
+    )
+
+    assert [(membership.wallet, membership.tier, membership.rank, membership.active) for membership in updated] == [
+        ("w1", "core", 1, True),
+        ("w2", "rotating", 2, True),
+        ("w3", "backup", 3, True),
+    ]
+
+
 def test_refresh_registry_entries_from_trades_updates_status_from_freshness() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(

@@ -80,6 +80,7 @@
   "wallet_discovery": {
     "enabled": false,
     "mode": "auto_update",
+    "source": "data_api_leaderboard",
     "candidate_limit": 100,
     "trade_limit_per_wallet": 50,
     "min_trades": 20,

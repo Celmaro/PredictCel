@@ -17,8 +17,8 @@ from .basket_assignment import BasketAssignmentEngine
 from .basket_manager import BasketManagerPlanner
 from .config import AppConfig
 from .models import BasketAssignment, BasketManagerAction, WalletDiscoveryCandidate
-from .polymarket import PolymarketPublicClient
-from .wallet_sources import DataApiWalletSource
+from .polymarket import PolymarketPublicClient, extract_trade_market_ids
+from .wallet_sources import DataApiMarketTradesWalletSource, DataApiWalletSource
 from .wallet_topics import classify_wallet_topics
 
 __all__ = ["WalletDiscoveryPipeline"]
@@ -35,7 +35,7 @@ class WalletDiscoveryPipeline:
             clob_base_url=live_data.clob_base_url if live_data else "https://clob.polymarket.com",
             timeout_seconds=live_data.request_timeout_seconds if live_data else 15,
         )
-        self.source = DataApiWalletSource(self.client)
+        self.source = self._build_source()
         self.assignment_engine = BasketAssignmentEngine(config.wallet_discovery)
         self.manager = BasketManagerPlanner(config)
 
@@ -186,6 +186,26 @@ class WalletDiscoveryPipeline:
             return self.source.fetch_wallet_trades(address, self.config.wallet_discovery.trade_limit_per_wallet)
         except Exception:
             return []
+
+    def _build_source(self) -> DataApiWalletSource | DataApiMarketTradesWalletSource:
+        source = self.config.wallet_discovery.source
+        if source == "data_api_market_trades":
+            return DataApiMarketTradesWalletSource(self.client, self._discovery_market_ids())
+        return DataApiWalletSource(self.client)
+
+    def _discovery_market_ids(self) -> list[str]:
+        wallet_payloads: dict[str, list[dict[str, Any]]] = {}
+        for wallet in sorted(self._existing_wallets()):
+            try:
+                rows = self.client.fetch_wallet_trades(
+                    wallet,
+                    self.config.wallet_discovery.trade_limit_per_wallet,
+                )
+            except Exception:
+                rows = []
+            if rows:
+                wallet_payloads[wallet] = rows
+        return extract_trade_market_ids(wallet_payloads)
 
     def _existing_wallets(self) -> set[str]:
         return {wallet.lower() for basket in self.config.baskets for wallet in basket.wallets}

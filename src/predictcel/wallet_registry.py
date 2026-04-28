@@ -425,7 +425,11 @@ def rebalance_memberships_from_live_roster(
         memberships,
         trades,
         registry_entries=registry_entries,
+        captured_at=captured_at,
     )
+    if not _live_roster_requires_rebalance(live_roster):
+        return memberships
+
     memberships_by_topic: dict[str, list[BasketMembership]] = defaultdict(list)
     for membership in memberships:
         memberships_by_topic[membership.topic].append(membership)
@@ -485,6 +489,8 @@ def rebalance_memberships_from_live_roster(
             )
 
     updated_memberships.sort(key=lambda membership: (membership.topic, membership.rank, membership.wallet))
+    if updated_memberships == memberships:
+        return memberships
     store.upsert_basket_memberships(updated_memberships)
     return updated_memberships
 
@@ -633,6 +639,18 @@ def _oldest_membership_age_hours(
     oldest_joined_at = min(membership.joined_at for membership in memberships)
     age_hours = (captured_at - oldest_joined_at).total_seconds() / 3_600
     return round(age_hours, 1)
+
+
+def _live_roster_requires_rebalance(
+    live_roster: dict[str, dict[str, object]],
+) -> bool:
+    for roster_entry in live_roster.values():
+        if not isinstance(roster_entry, dict):
+            continue
+        refresh_reasons = roster_entry.get("refresh_reasons", [])
+        if isinstance(refresh_reasons, list) and refresh_reasons:
+            return True
+    return False
 
 
 def _registry_status_from_freshness(

@@ -23,7 +23,7 @@ from .config import load_config
 from .copy_engine import CopyEngine
 from .execution import ExecutionPlanner, ExitRunner, LiveOrderExecutor, intents_as_dicts
 from .markets import load_market_snapshots
-from .models import BasketHealth, Position
+from .models import BasketHealth, BasketMembership, Position, WalletRegistryEntry
 from .polymarket import (
     PolymarketPublicClient,
     build_market_snapshots,
@@ -39,10 +39,7 @@ from .wallet_registry import (
     build_live_basket_roster,
     compute_basket_health_from_static_memberships,
     ingest_wallet_discovery_inputs,
-    rebalance_memberships_from_live_roster,
     refresh_registry_entries_from_trades,
-    seed_memberships_from_config,
-    seed_registry_from_config,
 )
 from .wallets import load_wallet_trades
 
@@ -170,7 +167,9 @@ def main() -> None:
     metrics.set("trades_loaded", len(trades))
 
     store = SignalStore(args.db)
+    wallet_discovery_auto_feed = _auto_feed_wallet_registry_from_discovery(config, store)
     wallet_registry_summary = _build_wallet_registry_summary(config, store, trades)
+    wallet_registry_summary["auto_feed"] = wallet_discovery_auto_feed
     open_positions_at_start = store.get_open_positions()
     db_diagnostics = {
         "path": args.db,
@@ -434,6 +433,72 @@ def _run_wallet_discovery(argv: list[str]) -> None:
     )
 
 
+def _auto_feed_wallet_registry_from_discovery(
+    config: Any,
+    store: SignalStore,
+) -> dict[str, Any]:
+    enabled = bool(
+        getattr(config.wallet_registry, "enabled", False)
+        and getattr(config.wallet_discovery, "enabled", False)
+    )
+    diagnostics = {
+        "enabled": enabled,
+        "ran": False,
+        "discovered_wallets_ingested": 0,
+        "new_registry_entries": 0,
+        "new_explorer_memberships": 0,
+        "skipped_existing_wallets": 0,
+        "error": None,
+    }
+    if not enabled:
+        return diagnostics
+
+    try:
+        pipeline = WalletDiscoveryPipeline(config)
+        candidates, assignments, _ = pipeline.run()
+        before_registry_wallets = {
+            entry.wallet for entry in store.load_wallet_registry_entries()
+        }
+        before_explorer_memberships = {
+            (membership.topic, membership.wallet)
+            for membership in store.load_basket_memberships()
+            if membership.tier == "explorer"
+        }
+        updated_entries, updated_memberships = ingest_wallet_discovery_inputs(
+            config,
+            store,
+            candidates,
+            assignments,
+        )
+        accepted_wallets = {
+            candidate.wallet_address
+            for candidate in candidates
+            if not candidate.rejected_reasons
+        }
+        after_registry_wallets = {entry.wallet for entry in updated_entries}
+        after_explorer_memberships = {
+            (membership.topic, membership.wallet)
+            for membership in updated_memberships
+            if membership.tier == "explorer"
+        }
+        diagnostics.update(
+            {
+                "ran": True,
+                "discovered_wallets_ingested": len(accepted_wallets),
+                "new_registry_entries": len(after_registry_wallets - before_registry_wallets),
+                "new_explorer_memberships": len(
+                    after_explorer_memberships - before_explorer_memberships
+                ),
+                "skipped_existing_wallets": len(
+                    accepted_wallets & before_registry_wallets
+                ),
+            }
+        )
+    except Exception as exc:
+        diagnostics["error"] = f"{type(exc).__name__}: {exc}"
+    return diagnostics
+
+
 def _build_wallet_registry_summary(
     config: Any,
     store: SignalStore,
@@ -450,30 +515,42 @@ def _build_wallet_registry_summary(
         }
 
     captured_at = datetime.now(UTC)
+    existing_registry_entries = store.load_wallet_registry_entries()
+    existing_memberships = store.load_basket_memberships()
     if config.wallet_registry.seed_from_baskets:
-        seed_registry_from_config(config, store, captured_at=captured_at)
-        seed_memberships_from_config(config, store, captured_at=captured_at)
+        existing_registry_entries = _ensure_static_registry_bootstrap(
+            config,
+            store,
+            existing_registry_entries,
+            captured_at=captured_at,
+        )
+        existing_memberships = _ensure_static_membership_bootstrap(
+            config,
+            store,
+            existing_memberships,
+            captured_at=captured_at,
+        )
 
     registry_entries = refresh_registry_entries_from_trades(
         config,
         store,
         trades,
         captured_at=captured_at,
-    ) or store.load_wallet_registry_entries()
-    memberships = store.load_basket_memberships()
-    memberships = rebalance_memberships_from_live_roster(
-        config,
-        store,
-        trades,
-        captured_at=captured_at,
-    ) or memberships
+    ) or existing_registry_entries
+    memberships = store.load_basket_memberships() or existing_memberships
     basket_health = compute_basket_health_from_static_memberships(
         config,
         memberships,
         trades,
         captured_at=captured_at,
     )
-    live_roster = build_live_basket_roster(config, memberships, trades, captured_at=captured_at)
+    live_roster = build_live_basket_roster(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=captured_at,
+    )
     promotion_watch_by_topic = _promotion_watch_by_topic(
         memberships,
         registry_entries,
@@ -492,6 +569,90 @@ def _build_wallet_registry_summary(
         "live_roster_by_topic": live_roster,
         "promotion_watch_by_topic": promotion_watch_by_topic,
     }
+
+
+def _ensure_static_registry_bootstrap(
+    config: Any,
+    store: SignalStore,
+    existing_entries: list[WalletRegistryEntry],
+    *,
+    captured_at: datetime,
+) -> list[WalletRegistryEntry]:
+    if any(entry.source_type == "static_basket" for entry in existing_entries):
+        return existing_entries
+
+    entries_by_wallet = {entry.wallet: entry for entry in existing_entries}
+    updated_entries = list(existing_entries)
+    for basket in config.baskets:
+        for wallet in basket.wallets:
+            normalized_wallet = str(wallet).strip()
+            if not normalized_wallet or normalized_wallet in entries_by_wallet:
+                continue
+            updated_entries.append(
+                WalletRegistryEntry(
+                    wallet=normalized_wallet,
+                    source_type="static_basket",
+                    source_ref="config.baskets",
+                    trust_seed=1.0,
+                    status="active",
+                    first_seen_at=captured_at,
+                    last_seen_trade_at=None,
+                    last_scored_at=None,
+                    notes="seeded from static basket config",
+                )
+            )
+            entries_by_wallet[normalized_wallet] = updated_entries[-1]
+    if len(updated_entries) == len(existing_entries):
+        return existing_entries
+    updated_entries.sort(key=lambda entry: entry.wallet)
+    store.upsert_wallet_registry_entries(updated_entries)
+    return updated_entries
+
+
+def _ensure_static_membership_bootstrap(
+    config: Any,
+    store: SignalStore,
+    existing_memberships: list[BasketMembership],
+    *,
+    captured_at: datetime,
+) -> list[BasketMembership]:
+    if existing_memberships and any(
+        membership.promotion_reason != "wallet discovery assignment"
+        for membership in existing_memberships
+    ):
+        return existing_memberships
+
+    memberships_by_key = {
+        (membership.topic, membership.wallet): membership for membership in existing_memberships
+    }
+    updated_memberships = list(existing_memberships)
+    for basket in config.baskets:
+        for rank, wallet in enumerate(basket.wallets, start=1):
+            normalized_wallet = str(wallet).strip()
+            membership_key = (basket.topic, normalized_wallet)
+            if not normalized_wallet or membership_key in memberships_by_key:
+                continue
+            updated_memberships.append(
+                BasketMembership(
+                    topic=basket.topic,
+                    wallet=normalized_wallet,
+                    tier="core",
+                    rank=rank,
+                    active=True,
+                    joined_at=captured_at,
+                    effective_until=None,
+                    promotion_reason="seeded from static basket config",
+                    demotion_reason="",
+                )
+            )
+            memberships_by_key[membership_key] = updated_memberships[-1]
+    if len(updated_memberships) == len(existing_memberships):
+        return existing_memberships
+    updated_memberships.sort(
+        key=lambda membership: (membership.topic, membership.rank, membership.wallet)
+    )
+    store.upsert_basket_memberships(updated_memberships)
+    return updated_memberships
 
 
 def _membership_counts_by_topic(memberships: list[Any]) -> dict[str, dict[str, int]]:

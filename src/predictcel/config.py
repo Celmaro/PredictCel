@@ -69,6 +69,7 @@ class MarketRegimeConfig:
 class WalletDiscoveryConfig:
     enabled: bool = False
     mode: str = "auto_update"
+    source: str = "data_api_leaderboard"
     candidate_limit: int = 250
     trade_limit_per_wallet: int = 100
     min_trades: int = 20
@@ -277,6 +278,11 @@ def _validate_wallet_discovery(config: WalletDiscoveryConfig) -> None:
     valid_modes = {"report_only", "propose_config", "auto_update"}
     if config.mode not in valid_modes:
         raise ConfigError(f"mode must be one of: {', '.join(valid_modes)}.")
+    valid_sources = {"data_api_leaderboard", "data_api_market_trades"}
+    if config.source not in valid_sources:
+        raise ConfigError(
+            f"wallet discovery source must be one of: {', '.join(sorted(valid_sources))}."
+        )
 
     _validate_positive(config.candidate_limit, "candidate_limit")
     _validate_positive(config.trade_limit_per_wallet, "trade_limit_per_wallet")

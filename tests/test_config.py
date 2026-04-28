@@ -32,3 +32,13 @@ def test_load_config_rejects_invalid_basket_controller_slot_total(tmp_path) -> N
 
     with pytest.raises(ConfigError, match="tracked_basket_target"):
         load_config(config_path)
+
+
+def test_load_config_rejects_invalid_wallet_discovery_source(tmp_path) -> None:
+    payload = json.loads(Path("config/predictcel.example.json").read_text(encoding="utf-8"))
+    payload["wallet_discovery"]["source"] = "unsupported_source"
+    config_path = tmp_path / "invalid-wallet-discovery-source.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="wallet discovery source"):
+        load_config(config_path)

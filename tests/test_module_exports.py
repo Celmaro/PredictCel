@@ -9,7 +9,11 @@ def test_public_module_exports_match_defined_symbols() -> None:
         "predictcel.main": ["main"],
         "predictcel.markets": ["load_market_snapshots"],
         "predictcel.wallet_discovery": ["WalletDiscoveryPipeline"],
-        "predictcel.wallet_sources": ["DataApiWalletSource", "extract_wallet_address"],
+        "predictcel.wallet_sources": [
+            "DataApiWalletSource",
+            "DataApiMarketTradesWalletSource",
+            "extract_wallet_address",
+        ],
         "predictcel.wallet_topics": ["classify_wallet_topics", "classify_trade_topic"],
         "predictcel.wallets": ["load_wallet_trades", "bucket_trades_by_market"],
     }

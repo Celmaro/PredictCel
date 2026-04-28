@@ -269,6 +269,33 @@ class PolymarketPublicClient:
 
         return best_rows[:limit]
 
+    def fetch_market_trades(self, market_ids: list[str], limit: int, chunk_size: int = 25) -> list[dict[str, Any]]:
+        """Fetch recent public trades for one or more markets from the data API."""
+        unique_market_ids = sorted({str(market_id).strip() for market_id in market_ids if str(market_id).strip()})
+        if not unique_market_ids or limit <= 0:
+            return []
+
+        rows: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        per_chunk_limit = max(limit, 1)
+
+        for chunk in _chunks(unique_market_ids, max(chunk_size, 1)):
+            query = urlencode({"market": chunk, "limit": per_chunk_limit}, doseq=True)
+            payload = self._get_json(f"{self.data_base_url}/trades?{query}")
+            for item in _extract_list(payload):
+                key = str(
+                    item.get("id")
+                    or item.get("tradeID")
+                    or item.get("tradeId")
+                    or item.get("transactionHash")
+                    or item
+                ).strip()
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                rows.append(item)
+        return rows
+
     def fetch_order_book(self, token_id: str) -> dict[str, Any]:
         """Fetch order book for a token."""
         query = urlencode({"token_id": token_id})

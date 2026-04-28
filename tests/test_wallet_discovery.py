@@ -16,6 +16,7 @@ from predictcel.config import (
 )
 from predictcel.models import BasketManagerAction, WalletDiscoveryCandidate
 from predictcel.wallet_discovery import WalletDiscoveryPipeline
+from predictcel.wallet_sources import DataApiMarketTradesWalletSource
 
 
 class FakeSource:
@@ -71,6 +72,22 @@ def make_pipeline(mode: str = "auto_update") -> WalletDiscoveryPipeline:
     pipeline.assignment_engine = BasketAssignmentEngine(pipeline.config.wallet_discovery)
     pipeline.manager = BasketManagerPlanner(pipeline.config)
     return pipeline
+
+
+class FakeMarketTradesClient:
+    def fetch_market_trades(self, market_ids: list[str], limit: int):
+        assert market_ids == ["cond_1", "cond_2"]
+        assert limit == 3
+        return [
+            {"proxyWallet": "0xAAA", "conditionId": "cond_1"},
+            {"proxyWallet": "0xaaa", "conditionId": "cond_1"},
+            {"proxyWallet": "0xBBB", "conditionId": "cond_2"},
+            {"proxyWallet": "", "conditionId": "cond_2"},
+            {"proxyWallet": "0xCCC", "conditionId": "cond_2"},
+        ]
+
+    def fetch_wallet_trades(self, address: str, limit: int):
+        return [{"conditionId": "cond_1", "outcome": "YES", "size": "20"}]
 
 
 def test_pipeline_filters_existing_wallets_and_assigns_new_candidate() -> None:
@@ -135,3 +152,88 @@ def test_build_mutated_config_removes_wallets_for_remove_and_suspend_actions() -
     mutated = pipeline.build_mutated_config(payload, actions)
 
     assert mutated["baskets"][0]["wallets"] == ["0xexisting"]
+
+
+def test_market_trades_source_collects_unique_wallet_candidates() -> None:
+    source = DataApiMarketTradesWalletSource(
+        FakeMarketTradesClient(),
+        ["cond_1", "cond_2"],
+    )
+
+    candidates = source.fetch_candidates(3)
+
+    assert candidates == [
+        {
+            "address": "0xaaa",
+            "source": "polymarket_data_api_market_trades",
+            "raw": {"proxyWallet": "0xAAA", "conditionId": "cond_1"},
+        },
+        {
+            "address": "0xbbb",
+            "source": "polymarket_data_api_market_trades",
+            "raw": {"proxyWallet": "0xBBB", "conditionId": "cond_2"},
+        },
+        {
+            "address": "0xccc",
+            "source": "polymarket_data_api_market_trades",
+            "raw": {"proxyWallet": "0xCCC", "conditionId": "cond_2"},
+        },
+    ]
+
+
+def test_pipeline_uses_market_trade_source_when_configured(monkeypatch) -> None:
+    observed = {}
+
+    class CapturingSource:
+        def __init__(self, client, market_ids: list[str]) -> None:
+            observed["client"] = client
+            observed["market_ids"] = market_ids
+
+        def fetch_candidates(self, limit: int):
+            return []
+
+        def fetch_wallet_trades(self, address: str, limit: int):
+            return []
+
+    monkeypatch.setattr("predictcel.wallet_discovery.DataApiMarketTradesWalletSource", CapturingSource)
+    monkeypatch.setattr(
+        WalletDiscoveryPipeline,
+        "_discovery_market_ids",
+        lambda self: ["cond_1", "cond_2"],
+    )
+
+    config = make_config()
+    config = AppConfig(
+        baskets=config.baskets,
+        filters=config.filters,
+        arbitrage=config.arbitrage,
+        wallet_trades_path=config.wallet_trades_path,
+        market_snapshots_path=config.market_snapshots_path,
+        live_data=config.live_data,
+        execution=config.execution,
+        consensus=config.consensus,
+        market_regime=config.market_regime,
+        wallet_discovery=WalletDiscoveryConfig(
+            enabled=config.wallet_discovery.enabled,
+            mode=config.wallet_discovery.mode,
+            source="data_api_market_trades",
+            candidate_limit=config.wallet_discovery.candidate_limit,
+            trade_limit_per_wallet=config.wallet_discovery.trade_limit_per_wallet,
+            min_trades=config.wallet_discovery.min_trades,
+            min_recent_trades=config.wallet_discovery.min_recent_trades,
+            recent_window_seconds=config.wallet_discovery.recent_window_seconds,
+            min_avg_trade_size_usd=config.wallet_discovery.min_avg_trade_size_usd,
+            min_assignment_score=config.wallet_discovery.min_assignment_score,
+            exclude_existing_wallets=config.wallet_discovery.exclude_existing_wallets,
+            max_wallets_per_basket=config.wallet_discovery.max_wallets_per_basket,
+            max_new_wallets_per_run=config.wallet_discovery.max_new_wallets_per_run,
+            topics=config.wallet_discovery.topics,
+        ),
+        wallet_registry=config.wallet_registry,
+        basket_controller=config.basket_controller,
+    )
+
+    pipeline = WalletDiscoveryPipeline(config)
+
+    assert isinstance(pipeline.source, CapturingSource)
+    assert observed["market_ids"] == ["cond_1", "cond_2"]

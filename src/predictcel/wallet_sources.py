@@ -9,7 +9,7 @@ from typing import Any
 
 from .polymarket import PolymarketPublicClient
 
-__all__ = ["DataApiWalletSource", "extract_wallet_address"]
+__all__ = ["DataApiWalletSource", "DataApiMarketTradesWalletSource", "extract_wallet_address"]
 
 
 
@@ -25,6 +25,38 @@ class DataApiWalletSource:
             if not address:
                 continue
             candidates.append({"address": address.lower(), "source": "polymarket_data_api", "raw": item})
+        return candidates
+
+    def fetch_wallet_trades(self, address: str, limit: int) -> list[dict[str, Any]]:
+        return self.client.fetch_wallet_trades(address, limit)
+
+
+class DataApiMarketTradesWalletSource:
+    def __init__(self, client: PolymarketPublicClient, market_ids: list[str]) -> None:
+        self.client = client
+        self.market_ids = [str(market_id).strip() for market_id in market_ids if str(market_id).strip()]
+
+    def fetch_candidates(self, limit: int) -> list[dict[str, Any]]:
+        if not self.market_ids or limit <= 0:
+            return []
+
+        raw_items = self.client.fetch_market_trades(self.market_ids, limit)
+        candidates: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            address = extract_wallet_address(item).lower()
+            if not address or address in seen:
+                continue
+            seen.add(address)
+            candidates.append(
+                {
+                    "address": address,
+                    "source": "polymarket_data_api_market_trades",
+                    "raw": item,
+                }
+            )
+            if len(candidates) >= limit:
+                break
         return candidates
 
     def fetch_wallet_trades(self, address: str, limit: int) -> list[dict[str, Any]]:
