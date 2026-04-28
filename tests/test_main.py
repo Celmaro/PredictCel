@@ -2,6 +2,7 @@ import sys
 
 from predictcel import discover_wallets
 from predictcel.main import (
+    _compact_cycle_output,
     _creates_or_updates_paper_position,
     _filter_duplicate_candidates,
     _mark_execution_intents_seen,
@@ -129,3 +130,28 @@ def test_discover_wallets_delegates_to_main(monkeypatch) -> None:
         "--config",
         "config/predictcel.example.json",
     ]
+
+
+def test_compact_cycle_output_includes_execution_state() -> None:
+    compact = _compact_cycle_output(
+        {
+            "mode": "live",
+            "summary": {"copy_candidates": 2, "execution_intents": 0},
+            "latency_ms": {"total_cycle_ms": 10},
+            "db": {"path": "/data/predictcel.db"},
+            "portfolio_summary": {"current_exposure_usd": 0},
+            "execution": {
+                "live_trading_requested": False,
+                "execution_enabled": True,
+                "planner_ran": False,
+                "diagnostics": {"candidates_seen": 2, "candidates_planned": 0},
+            },
+        }
+    )
+
+    assert compact["execution"] == {
+        "live_trading_requested": False,
+        "execution_enabled": True,
+        "planner_ran": False,
+        "diagnostics": {"candidates_seen": 2, "candidates_planned": 0},
+    }

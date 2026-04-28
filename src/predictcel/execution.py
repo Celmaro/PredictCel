@@ -24,6 +24,7 @@ class ExecutionPlanner:
     def __init__(self, config: ExecutionConfig, position_config: PositionConfig) -> None:
         self.config = config
         self.position_config = position_config
+        self.last_diagnostics: dict[str, int] = {}
 
     def plan(
         self,
@@ -35,29 +36,51 @@ class ExecutionPlanner:
         ranked = sorted(candidates, key=lambda item: item.copyability_score, reverse=True)
         intents: list[ExecutionIntent] = []
         planned_exposure_usd = current_exposure_usd
+        diagnostics = {
+            "candidates_seen": len(ranked),
+            "below_copyability_threshold": 0,
+            "already_held": 0,
+            "orderbook_not_ready": 0,
+            "too_close_to_resolution": 0,
+            "zero_amount": 0,
+            "price_too_high": 0,
+            "missing_token_id": 0,
+            "insufficient_side_depth": 0,
+            "candidates_planned": 0,
+        }
         for candidate in ranked:
             if candidate.copyability_score < self.config.min_copyability_score:
+                diagnostics["below_copyability_threshold"] += 1
                 continue
             if candidate.market_id in held_market_ids:
+                diagnostics["already_held"] += 1
                 continue
 
             market = markets.get(candidate.market_id)
             if market is None or not market.orderbook_ready:
+                diagnostics["orderbook_not_ready"] += 1
                 continue
             if market.minutes_to_resolution < MIN_ENTRY_MINUTES_TO_RESOLUTION:
+                diagnostics["too_close_to_resolution"] += 1
                 continue
 
             amount_usd = self._planned_amount_usd(candidate, planned_exposure_usd)
             if amount_usd <= 0:
+                diagnostics["zero_amount"] += 1
                 continue
 
             token_id = market.yes_token_id if candidate.side == "YES" else market.no_token_id
             current_price = market.yes_ask if candidate.side == "YES" else market.no_ask
             if current_price >= MAX_ENTRY_PRICE:
+                diagnostics["price_too_high"] += 1
                 continue
             side_depth_shares = market.yes_ask_size if candidate.side == "YES" else market.no_ask_size
             side_depth_usd = side_depth_shares * current_price
-            if not token_id or side_depth_usd < amount_usd:
+            if not token_id:
+                diagnostics["missing_token_id"] += 1
+                continue
+            if side_depth_usd < amount_usd:
+                diagnostics["insufficient_side_depth"] += 1
                 continue
 
             worst_price = min(round(current_price + self.config.worst_price_buffer, 4), 0.99)
@@ -75,9 +98,11 @@ class ExecutionPlanner:
                     market_title=market.title,
                 )
             )
+            diagnostics["candidates_planned"] += 1
             planned_exposure_usd += amount_usd
             if len(intents) >= self.config.max_orders_per_run:
                 break
+        self.last_diagnostics = diagnostics
         return intents
 
     def _planned_amount_usd(self, candidate: CopyCandidate, planned_exposure_usd: float) -> float:
