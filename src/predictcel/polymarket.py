@@ -347,7 +347,7 @@ class PolymarketPublicClient:
                         self._validate_response(payload, url)
                         self._set_cached(url, payload)
                         return payload
-                except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
+                except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
                     metrics["errors"] += 1
                     if attempt >= self.max_retries - 1:
                         raise

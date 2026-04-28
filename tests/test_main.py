@@ -1,5 +1,4 @@
 import sys
-from types import SimpleNamespace
 
 from predictcel import discover_wallets
 from predictcel.main import (

@@ -9,9 +9,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
 
 from predictcel.discovery import score_wallet_candidates
 from predictcel.polymarket import build_wallet_trades
@@ -123,7 +120,7 @@ class TestMarketSnapshotPipeline:
 
     def test_market_snapshot_creation_from_gamma(self):
         """Verify MarketSnapshot creation from Gamma API data."""
-        from predictcel.polymarket import build_market_snapshots, market_snapshot_from_gamma
+        from predictcel.polymarket import build_market_snapshots
 
         gamma_data = [
             {
@@ -153,7 +150,6 @@ class TestMarketSnapshotPipeline:
         from predictcel.polymarket import (
             build_market_snapshots,
             enrich_market_snapshots_with_orderbooks,
-            market_snapshot_from_gamma,
         )
 
         gamma_data = [
