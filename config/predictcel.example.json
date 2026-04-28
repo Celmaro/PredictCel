@@ -77,8 +77,36 @@
     "range_bonus": 0.02,
     "unstable_penalty": 0.1
   },
+  "wallet_registry": {
+    "enabled": true,
+    "seed_from_baskets": true,
+    "min_probation_days": 7,
+    "min_eligible_trades_for_approval": 5,
+    "stale_after_hours": 72,
+    "suspend_after_hours": 168,
+    "retire_after_days": 30,
+    "max_cluster_overlap_ratio": 0.8,
+    "max_cluster_members_in_live_tiers": 2
+  },
+  "basket_controller": {
+    "enabled": true,
+    "tracked_basket_target": 15,
+    "core_slots": 5,
+    "rotating_slots": 6,
+    "backup_slots": 2,
+    "explorer_slots": 2,
+    "rotation_interval_hours": 24,
+    "force_refresh_if_fresh_core_below": 3,
+    "allow_backup_in_live_consensus": false,
+    "min_basket_participation_ratio": 0.8,
+    "min_weighted_participation_ratio": 0.75,
+    "min_active_eligible_wallets": 5,
+    "min_aligned_wallet_count": 4,
+    "max_entry_price_band_abs": 0.03,
+    "max_entry_time_spread_seconds": 10800
+  },
   "wallet_discovery": {
-    "enabled": false,
+    "enabled": true,
     "mode": "auto_update",
     "source": "data_api_leaderboard",
     "candidate_limit": 100,
