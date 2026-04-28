@@ -17,6 +17,7 @@ from .basket_controller import evaluate_basket_consensus_gate
 from .config import AppConfig, BasketRule
 from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
 from .scoring import compute_copyability_score
+from .wallet_registry import build_live_basket_roster
 
 __all__ = ["CopyEngine"]
 
@@ -123,6 +124,7 @@ class CopyEngine:
             return []
 
         portfolio_summary = self._portfolio_summary(store)
+        live_tracked_wallets_by_topic = self._live_tracked_wallets_by_topic(trades, store)
         candidates: list[CopyCandidate] = []
         market_not_found = 0
         basket_not_found = 0
@@ -170,6 +172,7 @@ class CopyEngine:
                 market_trades,
                 wallet_qualities,
                 portfolio_summary,
+                tracked_wallets=live_tracked_wallets_by_topic.get(topic),
             )
             if candidate is not None:
                 local_candidates.append(candidate)
@@ -248,8 +251,13 @@ class CopyEngine:
         trades: list[WalletTrade],
         wallet_qualities: dict[str, WalletQuality],
         portfolio_summary: dict[str, float | int] | None = None,
+        tracked_wallets: list[str] | None = None,
     ) -> tuple[CopyCandidate | None, str | None, Counter[str]]:
-        wallet_set = self.basket_wallets_by_topic.get(topic, set())
+        wallet_set = (
+            set(tracked_wallets)
+            if tracked_wallets is not None
+            else self.basket_wallets_by_topic.get(topic, set())
+        )
         max_age = self.config.filters.max_trade_age_seconds
         min_size = self.config.filters.min_position_size_usd
         valid_trades: list[WalletTrade] = []
@@ -307,6 +315,7 @@ class CopyEngine:
                 aligned,
                 wallet_weights,
                 store=portfolio_summary.get("_store") if portfolio_summary else None,
+                tracked_wallets=tracked_wallets,
             )
             if controller_rejection is not None:
                 return None, controller_rejection, Counter()
@@ -577,6 +586,38 @@ class CopyEngine:
             summary = dict(summary)
             summary["_store"] = store
         return summary
+
+    def _live_tracked_wallets_by_topic(
+        self,
+        trades: list[WalletTrade],
+        store: Any = None,
+    ) -> dict[str, list[str]]:
+        if (
+            not self.config.basket_controller.enabled
+            or store is None
+            or not hasattr(store, "load_basket_memberships")
+        ):
+            return {}
+
+        memberships = store.load_basket_memberships()
+        if not memberships:
+            return {}
+
+        live_roster = build_live_basket_roster(self.config, memberships, trades)
+        tracked_wallets_by_topic: dict[str, list[str]] = {}
+        for topic, roster in live_roster.items():
+            selected_wallets = roster.get("selected_wallets")
+            if not isinstance(selected_wallets, dict):
+                continue
+            tracked_wallets = list(selected_wallets.get("core", [])) + list(
+                selected_wallets.get("rotating", [])
+            )
+            if self.config.basket_controller.allow_backup_in_live_consensus:
+                tracked_wallets.extend(selected_wallets.get("backup", []))
+            tracked_wallets = list(dict.fromkeys(tracked_wallets))
+            if tracked_wallets:
+                tracked_wallets_by_topic[topic] = tracked_wallets
+        return tracked_wallets_by_topic
 
     def _suggested_position_size(
         self,

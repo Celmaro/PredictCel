@@ -954,3 +954,295 @@ def test_basket_controller_rejects_when_aligned_wallets_are_too_far_apart_in_tim
 
     assert candidates == []
     assert engine.last_diagnostics["wide_entry_time_spread"] == 1
+
+
+def test_basket_controller_uses_live_selected_core_and_rotating_wallets() -> None:
+    engine = CopyEngine(
+        make_config(
+            wallets=["w1", "w2", "w3"],
+            basket_controller=BasketControllerConfig(
+                enabled=True,
+                tracked_basket_target=4,
+                core_slots=2,
+                rotating_slots=1,
+                backup_slots=1,
+                explorer_slots=0,
+                min_basket_participation_ratio=1.0,
+                min_weighted_participation_ratio=0.8,
+                min_active_eligible_wallets=3,
+                min_aligned_wallet_count=3,
+                max_entry_price_band_abs=0.03,
+                max_entry_time_spread_seconds=600,
+            ),
+        )
+    )
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w1",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w2",
+            tier="core",
+            rank=2,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w4",
+            tier="rotating",
+            rank=3,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="promoted",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w5",
+            tier="backup",
+            rank=4,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="promoted",
+            demotion_reason="",
+        ),
+    ]
+    trades = [
+        WalletTrade("w2", "geopolitics", "m1", "YES", 0.58, 200, 180),
+        WalletTrade("w4", "geopolitics", "m1", "YES", 0.59, 220, 120),
+        WalletTrade("w5", "geopolitics", "m1", "YES", 0.60, 240, 60),
+    ]
+
+    candidates = engine.evaluate(
+        trades,
+        {"m1": make_market()},
+        make_qualities(),
+        MembershipStore(memberships),
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].source_wallets == ["w2", "w4", "w5"]
+    assert candidates[0].consensus_ratio == 1.0
+
+
+def test_basket_controller_excludes_stale_seeded_wallets_when_live_roster_has_fresher_replacements() -> None:
+    engine = CopyEngine(
+        make_config(
+            wallets=["w1", "w2", "w3"],
+            basket_controller=BasketControllerConfig(
+                enabled=True,
+                tracked_basket_target=3,
+                core_slots=1,
+                rotating_slots=1,
+                backup_slots=1,
+                explorer_slots=0,
+                force_refresh_if_fresh_core_below=1,
+                allow_backup_in_live_consensus=True,
+                min_basket_participation_ratio=1.0,
+                min_weighted_participation_ratio=0.8,
+                min_active_eligible_wallets=3,
+                min_aligned_wallet_count=3,
+                max_entry_price_band_abs=0.03,
+                max_entry_time_spread_seconds=600,
+            ),
+        )
+    )
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w1",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w2",
+            tier="core",
+            rank=2,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w3",
+            tier="rotating",
+            rank=3,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="active",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w4",
+            tier="backup",
+            rank=4,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="active",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w5",
+            tier="core",
+            rank=5,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="active",
+            demotion_reason="",
+        ),
+    ]
+    trades = [
+        WalletTrade("w3", "geopolitics", "m1", "YES", 0.58, 200, 180),
+        WalletTrade("w4", "geopolitics", "m1", "YES", 0.59, 220, 120),
+        WalletTrade("w5", "geopolitics", "m1", "YES", 0.60, 240, 60),
+    ]
+
+    candidates = engine.evaluate(
+        trades,
+        {"m1": make_market()},
+        make_qualities(),
+        MembershipStore(memberships),
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].source_wallets == ["w3", "w4", "w5"]
+    assert candidates[0].consensus_ratio == 1.0
+
+
+def test_basket_controller_only_includes_backup_wallets_when_allowed() -> None:
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w1",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w2",
+            tier="core",
+            rank=2,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w4",
+            tier="rotating",
+            rank=3,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="promoted",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w5",
+            tier="backup",
+            rank=4,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="promoted",
+            demotion_reason="",
+        ),
+    ]
+    trades = [
+        WalletTrade("w2", "geopolitics", "m1", "YES", 0.58, 200, 180),
+        WalletTrade("w4", "geopolitics", "m1", "YES", 0.59, 220, 120),
+        WalletTrade("w5", "geopolitics", "m1", "YES", 0.60, 240, 60),
+    ]
+
+    disallow_backup_engine = CopyEngine(
+        make_config(
+            wallets=["w1", "w2", "w3"],
+            basket_controller=BasketControllerConfig(
+                enabled=True,
+                tracked_basket_target=3,
+                core_slots=1,
+                rotating_slots=1,
+                backup_slots=1,
+                explorer_slots=0,
+                min_basket_participation_ratio=1.0,
+                min_weighted_participation_ratio=0.8,
+                min_active_eligible_wallets=3,
+                min_aligned_wallet_count=3,
+                max_entry_price_band_abs=0.03,
+                max_entry_time_spread_seconds=600,
+            ),
+        )
+    )
+    allow_backup_engine = CopyEngine(
+        make_config(
+            wallets=["w1", "w2", "w3"],
+            basket_controller=BasketControllerConfig(
+                enabled=True,
+                tracked_basket_target=3,
+                core_slots=1,
+                rotating_slots=1,
+                backup_slots=1,
+                explorer_slots=0,
+                allow_backup_in_live_consensus=True,
+                min_basket_participation_ratio=1.0,
+                min_weighted_participation_ratio=0.8,
+                min_active_eligible_wallets=3,
+                min_aligned_wallet_count=3,
+                max_entry_price_band_abs=0.03,
+                max_entry_time_spread_seconds=600,
+            ),
+        )
+    )
+
+    disallowed = disallow_backup_engine.evaluate(
+        trades,
+        {"m1": make_market()},
+        make_qualities(),
+        MembershipStore(memberships),
+    )
+    allowed = allow_backup_engine.evaluate(
+        trades,
+        {"m1": make_market()},
+        make_qualities(),
+        MembershipStore(memberships),
+    )
+
+    assert disallowed == []
+    assert len(allowed) == 1
+    assert allowed[0].source_wallets == ["w2", "w4", "w5"]

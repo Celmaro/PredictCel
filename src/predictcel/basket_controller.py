@@ -30,9 +30,16 @@ def evaluate_basket_consensus_gate(
     aligned_trades: list[WalletTrade],
     wallet_weights: dict[str, float],
     store=None,
+    tracked_wallets: list[str] | None = None,
 ) -> tuple[BasketConsensusGate, str | None]:
     """Evaluate the opt-in live basket controller gate."""
-    tracked_wallets = _tracked_wallets_for_topic(config, topic, basket, store)
+    tracked_wallets = _tracked_wallets_for_topic(
+        config,
+        topic,
+        basket,
+        store,
+        tracked_wallets=tracked_wallets,
+    )
     tracked_wallet_set = set(tracked_wallets)
     participating_wallets = [
         wallet for wallet in tracked_wallets if wallet in wallet_votes
@@ -94,7 +101,11 @@ def _tracked_wallets_for_topic(
     topic: str,
     basket: BasketRule,
     store=None,
+    tracked_wallets: list[str] | None = None,
 ) -> list[str]:
+    if tracked_wallets is not None:
+        return list(tracked_wallets)
+
     if store is None or not hasattr(store, "load_basket_memberships"):
         return list(basket.wallets)
 

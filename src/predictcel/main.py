@@ -38,6 +38,9 @@ from .wallet_discovery import WalletDiscoveryPipeline
 from .wallet_registry import (
     build_live_basket_roster,
     compute_basket_health_from_static_memberships,
+    ingest_wallet_discovery_inputs,
+    rebalance_memberships_from_live_roster,
+    refresh_registry_entries_from_trades,
     seed_memberships_from_config,
     seed_registry_from_config,
 )
@@ -108,6 +111,7 @@ def build_discovery_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PredictCel wallet discovery reports")
     parser.add_argument("--config", required=True, help="Path to config JSON file")
     parser.add_argument("--output-dir", default="data", help="Directory for discovery JSON reports")
+    parser.add_argument("--db", default=None, help="Optional SQLite database path for persisting wallet registry discovery inputs")
     parser.add_argument(
         "--config-output",
         default=None,
@@ -363,16 +367,66 @@ def _run_wallet_discovery(argv: list[str]) -> None:
     started = time.perf_counter()
     args = build_discovery_parser().parse_args(argv)
     config = load_config(args.config)
-    files = WalletDiscoveryPipeline(config).write_reports(
+    pipeline = WalletDiscoveryPipeline(config)
+    results = pipeline.run()
+    files = pipeline.write_reports(
         args.output_dir,
         args.config,
         args.config_output,
+        results=results,
     )
+    candidates, assignments, _ = results
+    registry_ingestion = {
+        "enabled": bool(args.db and getattr(config.wallet_registry, "enabled", False)),
+        "discovered_wallets_ingested": 0,
+        "new_registry_entries": 0,
+        "new_explorer_memberships": 0,
+        "skipped_existing_wallets": 0,
+    }
+    if registry_ingestion["enabled"]:
+        store = SignalStore(args.db)
+        before_registry_wallets = {
+            entry.wallet for entry in store.load_wallet_registry_entries()
+        }
+        before_explorer_memberships = {
+            (membership.topic, membership.wallet)
+            for membership in store.load_basket_memberships()
+            if membership.tier == "explorer"
+        }
+        updated_entries, updated_memberships = ingest_wallet_discovery_inputs(
+            config,
+            store,
+            candidates,
+            assignments,
+        )
+        accepted_wallets = {
+            candidate.wallet_address
+            for candidate in candidates
+            if not candidate.rejected_reasons
+        }
+        after_registry_wallets = {entry.wallet for entry in updated_entries}
+        after_explorer_memberships = {
+            (membership.topic, membership.wallet)
+            for membership in updated_memberships
+            if membership.tier == "explorer"
+        }
+        registry_ingestion = {
+            "enabled": True,
+            "discovered_wallets_ingested": len(accepted_wallets),
+            "new_registry_entries": len(after_registry_wallets - before_registry_wallets),
+            "new_explorer_memberships": len(
+                after_explorer_memberships - before_explorer_memberships
+            ),
+            "skipped_existing_wallets": len(
+                accepted_wallets & before_registry_wallets
+            ),
+        }
     print(
         json.dumps(
             {
                 "mode": "wallet_discovery",
                 "reports": files,
+                "registry_ingestion": registry_ingestion,
                 "latency_ms": {"total_cycle_ms": _elapsed_ms(started)},
             },
             indent=2,
@@ -400,15 +454,31 @@ def _build_wallet_registry_summary(
         seed_registry_from_config(config, store, captured_at=captured_at)
         seed_memberships_from_config(config, store, captured_at=captured_at)
 
-    registry_entries = store.load_wallet_registry_entries()
+    registry_entries = refresh_registry_entries_from_trades(
+        config,
+        store,
+        trades,
+        captured_at=captured_at,
+    ) or store.load_wallet_registry_entries()
     memberships = store.load_basket_memberships()
+    memberships = rebalance_memberships_from_live_roster(
+        config,
+        store,
+        trades,
+        captured_at=captured_at,
+    ) or memberships
     basket_health = compute_basket_health_from_static_memberships(
         config,
         memberships,
         trades,
         captured_at=captured_at,
     )
-    live_roster = build_live_basket_roster(config, memberships, trades)
+    live_roster = build_live_basket_roster(config, memberships, trades, captured_at=captured_at)
+    promotion_watch_by_topic = _promotion_watch_by_topic(
+        memberships,
+        registry_entries,
+        live_roster,
+    )
     store.save_basket_health(basket_health)
     latest_health = store.latest_basket_health()
     return {
@@ -420,6 +490,7 @@ def _build_wallet_registry_summary(
             for topic, health in latest_health.items()
         },
         "live_roster_by_topic": live_roster,
+        "promotion_watch_by_topic": promotion_watch_by_topic,
     }
 
 
@@ -439,6 +510,44 @@ def _basket_health_as_dict(health: BasketHealth) -> dict[str, Any]:
     payload = asdict(health)
     payload["captured_at"] = health.captured_at.isoformat()
     return payload
+
+
+def _promotion_watch_by_topic(
+    memberships: list[Any],
+    registry_entries: list[Any],
+    live_roster_by_topic: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    explorer_counts_by_topic: dict[str, int] = defaultdict(int)
+    discovery_explorer_counts_by_topic: dict[str, int] = defaultdict(int)
+    registry_entries_by_wallet = {
+        entry.wallet: entry for entry in registry_entries
+    }
+    for membership in memberships:
+        if not membership.active or membership.tier != "explorer":
+            continue
+        explorer_counts_by_topic[membership.topic] += 1
+        entry = registry_entries_by_wallet.get(membership.wallet)
+        if entry is not None and entry.source_type == "wallet_discovery":
+            discovery_explorer_counts_by_topic[membership.topic] += 1
+
+    watch: dict[str, dict[str, Any]] = {}
+    for topic, explorer_count in explorer_counts_by_topic.items():
+        roster_entry = live_roster_by_topic.get(topic, {})
+        if not roster_entry:
+            continue
+        if not roster_entry.get("needs_refresh"):
+            continue
+        discovery_explorer_count = discovery_explorer_counts_by_topic.get(topic, 0)
+        if discovery_explorer_count <= 0:
+            continue
+        watch[topic] = {
+            "explorer_wallet_count": explorer_count,
+            "wallet_discovery_explorer_wallet_count": discovery_explorer_count,
+            "live_eligible_wallet_count": int(roster_entry.get("live_eligible_wallet_count", 0)),
+            "fresh_core_wallet_count": int(roster_entry.get("fresh_core_wallet_count", 0)),
+            "reason": "bench_depth_available",
+        }
+    return watch
 
 
 def _mark_execution_intents_seen(store: SignalStore, execution_intents: list) -> None:

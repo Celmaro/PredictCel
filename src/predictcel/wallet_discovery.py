@@ -73,8 +73,16 @@ class WalletDiscoveryPipeline:
         output_dir: str | Path,
         config_path: str | Path | None = None,
         config_output_path: str | Path | None = None,
+        results: tuple[
+            list[WalletDiscoveryCandidate],
+            list[BasketAssignment],
+            list[BasketManagerAction],
+        ] | None = None,
     ) -> dict[str, str]:
-        candidates, assignments, actions = self.run()
+        if results is None:
+            candidates, assignments, actions = self.run()
+        else:
+            candidates, assignments, actions = results
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         files = {
