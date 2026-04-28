@@ -347,7 +347,9 @@ def _load_live_inputs(config):
     relevant_market_keys = {market_key for market_key in (*trade_market_ids, *trade_market_slugs) if market_key in markets}
     if relevant_market_keys:
         relevant_snapshots = {market_id: markets[market_id] for market_id in relevant_market_keys}
-        markets.update(enrich_market_snapshots_with_orderbooks(relevant_snapshots, client))
+        enriched_relevant = enrich_market_snapshots_with_orderbooks(relevant_snapshots, client)
+        markets.update(enriched_relevant)
+        _propagate_canonical_market_updates(markets, enriched_relevant.values())
 
     trade_market_keys = sorted(set(trade_market_ids + trade_market_slugs))
     matched_trade_market_keys = [market_key for market_key in trade_market_keys if market_key in markets]
@@ -392,6 +394,20 @@ def _load_live_inputs(config):
         },
     }
     return trades, markets, diagnostics
+
+
+def _propagate_canonical_market_updates(markets: dict[str, Any], updated_snapshots: Any) -> None:
+    canonical_updates = {
+        snapshot.market_id: snapshot
+        for snapshot in updated_snapshots
+        if getattr(snapshot, "market_id", "")
+    }
+    if not canonical_updates:
+        return
+    for market_key, snapshot in list(markets.items()):
+        canonical_snapshot = canonical_updates.get(getattr(snapshot, "market_id", ""))
+        if canonical_snapshot is not None:
+            markets[market_key] = canonical_snapshot
 
 
 def _build_orderbook_probe_samples(

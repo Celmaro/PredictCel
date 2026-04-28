@@ -8,8 +8,9 @@ from predictcel.main import (
     _mark_execution_intents_seen,
     _probe_token_lookup,
     _probe_token_orderbook,
+    _propagate_canonical_market_updates,
 )
-from predictcel.models import CopyCandidate, ExecutionIntent, ExecutionResult
+from predictcel.models import CopyCandidate, ExecutionIntent, ExecutionResult, MarketSnapshot
 
 
 class FakeStore:
@@ -84,6 +85,26 @@ def make_intent(market_id: str, side: str = "YES") -> ExecutionIntent:
         copyability_score=0.9,
         order_type="FOK",
         reason="test",
+    )
+
+
+def make_snapshot(market_id: str, orderbook_ready: bool = False, yes_ask_size: float = 0.0, no_ask_size: float = 0.0) -> MarketSnapshot:
+    return MarketSnapshot(
+        market_id=market_id,
+        topic="geopolitics",
+        title="One",
+        yes_ask=0.51,
+        no_ask=0.49,
+        best_bid=0.5,
+        liquidity_usd=1000.0,
+        minutes_to_resolution=120,
+        yes_token_id="yes_token",
+        no_token_id="no_token",
+        yes_bid=0.5,
+        no_bid=0.5,
+        yes_ask_size=yes_ask_size,
+        no_ask_size=no_ask_size,
+        orderbook_ready=orderbook_ready,
     )
 
 
@@ -222,3 +243,21 @@ def test_probe_token_lookup_uses_fresh_client(monkeypatch) -> None:
         "token_ids": ["token_yes", "token_no"],
         "matched_input_token": True,
     }
+
+
+def test_propagate_canonical_market_updates_rebinds_stale_aliases() -> None:
+    stale_snapshot = make_snapshot("m1", orderbook_ready=False)
+    enriched_snapshot = make_snapshot("m1", orderbook_ready=True, yes_ask_size=10.0, no_ask_size=20.0)
+    markets = {
+        "m1": stale_snapshot,
+        "slug-1": stale_snapshot,
+        "yes_token": stale_snapshot,
+        "no_token": stale_snapshot,
+    }
+
+    _propagate_canonical_market_updates(markets, [enriched_snapshot])
+
+    assert markets["m1"] is enriched_snapshot
+    assert markets["slug-1"] is enriched_snapshot
+    assert markets["yes_token"] is enriched_snapshot
+    assert markets["no_token"] is enriched_snapshot
