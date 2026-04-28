@@ -111,7 +111,10 @@ class PolymarketPublicClient:
         self.redis_client = None
         self._request_cache: dict[str, Any] = {}
         self._cache_lock = threading.Lock()
-        self._circuit_breaker = CircuitBreaker()
+        self._gamma_circuit_breaker = CircuitBreaker()
+        self._data_circuit_breaker = CircuitBreaker()
+        self._clob_circuit_breaker = CircuitBreaker()
+        self._default_circuit_breaker = CircuitBreaker()
 
         if use_redis:
             try:
@@ -322,6 +325,16 @@ class PolymarketPublicClient:
 
         return results
 
+    def _breaker_for_url(self, url: str) -> CircuitBreaker:
+        """Route requests to an API-family-specific circuit breaker."""
+        if url.startswith(self.gamma_base_url):
+            return self._gamma_circuit_breaker
+        if url.startswith(self.data_base_url):
+            return self._data_circuit_breaker
+        if url.startswith(self.clob_base_url):
+            return self._clob_circuit_breaker
+        return self._default_circuit_breaker
+
     def _get_json(self, url: str) -> Any:
         """Make HTTP GET request with caching and retries."""
         def _fetch_url():
@@ -350,7 +363,7 @@ class PolymarketPublicClient:
 
             return None
 
-        return self._circuit_breaker.call(_fetch_url)
+        return self._breaker_for_url(url).call(_fetch_url)
 
     def _get_cached(self, url: str) -> Any:
         """Get cached response if available and not expired."""
