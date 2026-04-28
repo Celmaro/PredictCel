@@ -115,6 +115,7 @@ class PolymarketPublicClient:
         self._data_circuit_breaker = CircuitBreaker()
         self._clob_circuit_breaker = CircuitBreaker()
         self._default_circuit_breaker = CircuitBreaker()
+        self._circuit_breaker = self._gamma_circuit_breaker
 
         if use_redis:
             try:
