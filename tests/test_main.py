@@ -6,6 +6,8 @@ from predictcel.main import (
     _creates_or_updates_paper_position,
     _filter_duplicate_candidates,
     _mark_execution_intents_seen,
+    _probe_token_lookup,
+    _probe_token_orderbook,
 )
 from predictcel.models import CopyCandidate, ExecutionIntent, ExecutionResult
 
@@ -27,6 +29,15 @@ class FakeStore:
 
     def mark_signals_seen(self, signals) -> None:
         self.marked_signals.extend(list(signals))
+
+
+class ProbeSourceClient:
+    gamma_base_url = "https://gamma-api.polymarket.com"
+    data_base_url = "https://data-api.polymarket.com"
+    clob_base_url = "https://clob.polymarket.com"
+    timeout_seconds = 15
+    max_retries = 1
+    retry_base_delay_seconds = 0.5
 
 
 def make_result(status: str, order_id: str = "order_123") -> ExecutionResult:
@@ -154,4 +165,60 @@ def test_compact_cycle_output_includes_execution_state() -> None:
         "execution_enabled": True,
         "planner_ran": False,
         "diagnostics": {"candidates_seen": 2, "candidates_planned": 0},
+    }
+
+
+def test_probe_token_orderbook_uses_fresh_client(monkeypatch) -> None:
+    observed = {}
+
+    class FreshProbeClient:
+        def __init__(self, gamma_base_url, data_base_url, clob_base_url, timeout_seconds, max_retries, retry_base_delay_seconds):
+            observed["args"] = (
+                gamma_base_url,
+                data_base_url,
+                clob_base_url,
+                timeout_seconds,
+                max_retries,
+                retry_base_delay_seconds,
+            )
+
+        def fetch_order_book(self, token_id: str):
+            raise RuntimeError(f"root cause for {token_id}")
+
+    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FreshProbeClient)
+
+    result = _probe_token_orderbook(ProbeSourceClient(), "token_yes")
+
+    assert result == {"token_id": "token_yes", "error": "RuntimeError: root cause for token_yes"}
+    assert observed["args"] == (
+        "https://gamma-api.polymarket.com",
+        "https://data-api.polymarket.com",
+        "https://clob.polymarket.com",
+        15,
+        1,
+        0.5,
+    )
+
+
+def test_probe_token_lookup_uses_fresh_client(monkeypatch) -> None:
+    class FreshProbeClient:
+        def __init__(self, *args):
+            pass
+
+        def fetch_markets_by_clob_token_ids(self, token_ids: list[str], chunk_size: int = 25):
+            assert token_ids == ["token_yes"]
+            assert chunk_size == 1
+            return [{"conditionId": "cond_1", "question": "Question", "clobTokenIds": ["token_yes", "token_no"]}]
+
+    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FreshProbeClient)
+
+    result = _probe_token_lookup(ProbeSourceClient(), "token_yes")
+
+    assert result == {
+        "matched_rows": 1,
+        "condition_id": "cond_1",
+        "slug": "",
+        "question": "Question",
+        "token_ids": ["token_yes", "token_no"],
+        "matched_input_token": True,
     }

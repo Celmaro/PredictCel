@@ -422,12 +422,24 @@ def _build_orderbook_probe_samples(
     return samples
 
 
+def _make_probe_client(client: PolymarketPublicClient) -> PolymarketPublicClient:
+    return PolymarketPublicClient(
+        client.gamma_base_url,
+        client.data_base_url,
+        client.clob_base_url,
+        client.timeout_seconds,
+        client.max_retries,
+        client.retry_base_delay_seconds,
+    )
+
+
 def _probe_token_orderbook(client: PolymarketPublicClient, token_id: str) -> dict[str, Any]:
     token_id = str(token_id).strip()
     if not token_id:
         return {"missing_token_id": True}
     try:
-        return _summarize_order_book_payload(client.fetch_order_book(token_id))
+        probe_client = _make_probe_client(client)
+        return _summarize_order_book_payload(probe_client.fetch_order_book(token_id))
     except Exception as exc:
         return {"token_id": token_id, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -437,7 +449,8 @@ def _probe_token_lookup(client: PolymarketPublicClient, token_id: str) -> dict[s
     if not token_id:
         return {"missing_token_id": True}
     try:
-        rows = client.fetch_markets_by_clob_token_ids([token_id], chunk_size=1)
+        probe_client = _make_probe_client(client)
+        rows = probe_client.fetch_markets_by_clob_token_ids([token_id], chunk_size=1)
     except Exception as exc:
         return {"token_id": token_id, "error": f"{type(exc).__name__}: {exc}"}
     return _summarize_market_lookup_rows(rows, token_id)
