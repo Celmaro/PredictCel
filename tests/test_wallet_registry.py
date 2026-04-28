@@ -1,11 +1,13 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 
 from predictcel.config import load_config
 from predictcel.models import BasketMembership, WalletTrade
 from predictcel.wallet_registry import (
+    build_live_basket_roster,
     compute_basket_health_from_static_memberships,
     seed_memberships_from_config,
     seed_registry_from_config,
@@ -123,3 +125,131 @@ def test_compute_basket_health_from_static_memberships() -> None:
     assert health[0].stale_ratio == pytest.approx(1 / 3, rel=1e-3)
     assert health[0].clustered_ratio == 0.0
     assert health[0].health_state == "thin"
+
+
+def test_build_live_basket_roster_ranks_recent_wallets_into_live_slots() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=4,
+            core_slots=2,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=0,
+            force_refresh_if_fresh_core_below=1,
+            min_active_eligible_wallets=3,
+        ),
+    )
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w1",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w2",
+            tier="rotating",
+            rank=2,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w3",
+            tier="backup",
+            rank=3,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w4",
+            tier="explorer",
+            rank=4,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+    ]
+    trades = [
+        WalletTrade("w2", "geopolitics", "m1", "YES", 0.5, 20.0, 700),
+        WalletTrade("w2", "geopolitics", "m2", "NO", 0.4, 15.0, 1_400),
+        WalletTrade("w3", "geopolitics", "m3", "YES", 0.6, 12.0, 300),
+        WalletTrade("w4", "geopolitics", "m4", "YES", 0.6, 12.0, 86_000),
+    ]
+
+    roster = build_live_basket_roster(config, memberships, trades)
+
+    assert roster["geopolitics"]["selected_wallets"] == {
+        "core": ["w3", "w2"],
+        "rotating": ["w4"],
+        "backup": ["w1"],
+        "explorer": [],
+    }
+    assert roster["geopolitics"]["fresh_core_wallet_count"] == 2
+    assert roster["geopolitics"]["live_eligible_wallet_count"] == 3
+    assert roster["geopolitics"]["needs_refresh"] is False
+    assert roster["geopolitics"]["refresh_reasons"] == []
+
+
+def test_build_live_basket_roster_flags_refresh_when_core_is_not_fresh_enough() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=4,
+            core_slots=2,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=0,
+            force_refresh_if_fresh_core_below=2,
+            min_active_eligible_wallets=3,
+        ),
+    )
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet=wallet,
+            tier="core",
+            rank=index,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        )
+        for index, wallet in enumerate(["w1", "w2", "w3", "w4"], start=1)
+    ]
+    trades = [
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.5, 20.0, 1_200),
+        WalletTrade("w2", "geopolitics", "m2", "NO", 0.4, 15.0, 90_000),
+    ]
+
+    roster = build_live_basket_roster(config, memberships, trades)
+
+    assert roster["geopolitics"]["selected_wallets"]["core"] == ["w1", "w2"]
+    assert roster["geopolitics"]["fresh_core_wallet_count"] == 1
+    assert roster["geopolitics"]["live_eligible_wallet_count"] == 1
+    assert roster["geopolitics"]["needs_refresh"] is True
+    assert roster["geopolitics"]["refresh_reasons"] == [
+        "fresh_core_below_threshold",
+        "live_eligible_wallets_below_threshold",
+    ]
