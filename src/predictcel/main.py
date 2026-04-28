@@ -167,6 +167,8 @@ def main() -> None:
     close_intents: list = []
     close_results: list = []
     skipped_duplicate_signals = 0
+    execution_diagnostics: dict[str, int] = {}
+    planner_ran = False
 
     started = time.perf_counter()
     if args.live_trading:
@@ -184,12 +186,15 @@ def main() -> None:
             current_exposure_usd = store.get_total_exposure()
 
         fresh_candidates, skipped_duplicate_signals = _filter_duplicate_candidates(store, copy_candidates)
-        execution_intents = ExecutionPlanner(config.execution, config.execution.position).plan(
+        planner = ExecutionPlanner(config.execution, config.execution.position)
+        execution_intents = planner.plan(
             fresh_candidates,
             markets,
             store.get_held_market_ids(),
             current_exposure_usd,
         )
+        execution_diagnostics = planner.last_diagnostics
+        planner_ran = True
         _mark_execution_intents_seen(store, execution_intents)
         execution_results = LiveOrderExecutor(config.execution, config.live_data).execute(execution_intents)
         _persist_execution_side_effects(store, config, execution_results)
@@ -223,6 +228,12 @@ def main() -> None:
         "live_input_diagnostics": live_input_diagnostics,
         "scoring_diagnostics": scoring_diagnostics,
         "copy_engine_diagnostics": copy_engine_diagnostics,
+        "execution": {
+            "live_trading_requested": bool(args.live_trading),
+            "execution_enabled": bool(config.execution and config.execution.enabled),
+            "planner_ran": planner_ran,
+            "diagnostics": execution_diagnostics,
+        },
         "portfolio_summary": _portfolio_summary(store, config),
         "wallet_qualities": {wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()},
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
@@ -244,6 +255,7 @@ def main() -> None:
             "live_input_diagnostics": _compact_live_input_diagnostics(live_input_diagnostics),
             "scoring_diagnostics": _compact_scoring_diagnostics(scoring_diagnostics),
             "copy_engine_diagnostics": copy_engine_diagnostics,
+            "execution": output["execution"],
         },
     )
     logger.info("Cycle complete", extra={"summary": summary, "timings": timings, "metrics": metrics.get_metrics(), "db": db_diagnostics})
@@ -454,6 +466,8 @@ def _compact_cycle_output(output: dict[str, Any]) -> dict[str, Any]:
         compact["scoring_diagnostics"] = _compact_scoring_diagnostics(output["scoring_diagnostics"])
     if output.get("copy_engine_diagnostics"):
         compact["copy_engine_diagnostics"] = output["copy_engine_diagnostics"]
+    if output.get("execution"):
+        compact["execution"] = output["execution"]
     top_wallet_qualities = _top_wallet_qualities(output.get("wallet_qualities", {}))
     if top_wallet_qualities:
         compact["wallet_qualities"] = top_wallet_qualities

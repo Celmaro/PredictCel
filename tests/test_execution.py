@@ -229,6 +229,45 @@ def test_execution_planner_skips_missing_depth_or_token() -> None:
     intents = planner.plan(candidates, markets, held_market_ids=set(), current_exposure_usd=0.0)
 
     assert intents == []
+    assert planner.last_diagnostics["missing_token_id"] == 1
+    assert planner.last_diagnostics["candidates_planned"] == 0
+
+
+def test_execution_planner_reports_skip_reasons() -> None:
+    config = make_execution_config()
+    planner = ExecutionPlanner(config, config.position)
+    candidates = [
+        CopyCandidate("topic", "held", "YES", 1.0, 0.5, 0.51, 10000, ["w1"], 1.0, 0.9, "ok"),
+        CopyCandidate("topic", "no_book", "YES", 1.0, 0.5, 0.51, 10000, ["w2"], 1.0, 0.9, "ok"),
+        CopyCandidate("topic", "resolving", "YES", 1.0, 0.5, 0.51, 10000, ["w3"], 1.0, 0.9, "ok"),
+        CopyCandidate("topic", "shallow", "YES", 1.0, 0.5, 0.51, 10000, ["w4"], 1.0, 0.9, "ok", suggested_position_usd=10.0),
+        CopyCandidate("topic", "late", "YES", 1.0, 0.5, 0.96, 10000, ["w5"], 1.0, 0.9, "ok"),
+        CopyCandidate("topic", "good", "YES", 1.0, 0.5, 0.51, 10000, ["w6"], 1.0, 0.9, "ok"),
+    ]
+    markets = {
+        "held": MarketSnapshot("held", "topic", "Held", 0.51, 0.48, 0.5, 10000, 180, yes_token_id="yes_held", yes_ask_size=200, orderbook_ready=True),
+        "no_book": MarketSnapshot("no_book", "topic", "No Book", 0.51, 0.48, 0.5, 10000, 180, yes_token_id="yes_no_book", yes_ask_size=200, orderbook_ready=False),
+        "resolving": MarketSnapshot("resolving", "topic", "Resolving", 0.51, 0.48, 0.5, 10000, 20, yes_token_id="yes_resolving", yes_ask_size=200, orderbook_ready=True),
+        "shallow": MarketSnapshot("shallow", "topic", "Shallow", 0.51, 0.48, 0.5, 10000, 180, yes_token_id="yes_shallow", yes_ask_size=5, orderbook_ready=True),
+        "late": MarketSnapshot("late", "topic", "Late", 0.96, 0.03, 0.95, 10000, 180, yes_token_id="yes_late", yes_ask_size=200, orderbook_ready=True),
+        "good": MarketSnapshot("good", "topic", "Good", 0.51, 0.48, 0.5, 10000, 180, yes_token_id="yes_good", yes_ask_size=200, orderbook_ready=True),
+    }
+
+    intents = planner.plan(candidates, markets, held_market_ids={"held"}, current_exposure_usd=0.0)
+
+    assert [intent.market_id for intent in intents] == ["good"]
+    assert planner.last_diagnostics == {
+        "candidates_seen": 6,
+        "below_copyability_threshold": 0,
+        "already_held": 1,
+        "orderbook_not_ready": 1,
+        "too_close_to_resolution": 1,
+        "zero_amount": 0,
+        "price_too_high": 1,
+        "missing_token_id": 0,
+        "insufficient_side_depth": 1,
+        "candidates_planned": 1,
+    }
 
 
 def test_execution_planner_skips_markets_resolving_within_30_minutes() -> None:

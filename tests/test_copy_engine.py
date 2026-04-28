@@ -231,6 +231,18 @@ def test_market_regime_detects_trend_and_unstable_books() -> None:
     assert trend.regime_score > unstable.regime_score
 
 
+def test_candidate_reason_describes_scored_orderbook_inputs() -> None:
+    engine = CopyEngine(make_config())
+    trades = [
+        WalletTrade(wallet="w1", topic="geopolitics", market_id="m1", side="YES", price=0.58, size_usd=200, age_seconds=600),
+        WalletTrade(wallet="w2", topic="geopolitics", market_id="m1", side="YES", price=0.6, size_usd=220, age_seconds=800),
+    ]
+
+    candidate = engine.evaluate(trades, {"m1": make_market()}, make_qualities())[0]
+
+    assert candidate.reason == "weighted basket consensus, market regime, confidence, recency, liquidity, drift, and scored orderbook inputs passed"
+
+
 def test_records_market_and_basket_rejections() -> None:
     config = AppConfig(
         baskets=[BasketRule(topic="sports", wallets=["w9"], quorum_ratio=1.0)],

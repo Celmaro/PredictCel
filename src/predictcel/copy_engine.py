@@ -278,7 +278,7 @@ class CopyEngine:
             source_wallets=aligned_wallets,
             wallet_quality_score=wallet_quality_score,
             copyability_score=copyability_score,
-            reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and orderbook filters passed",
+            reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and scored orderbook inputs passed",
             market_title=market.title,
             weighted_consensus=weighted_consensus,
             confidence_score=confidence_score,
