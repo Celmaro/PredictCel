@@ -1472,6 +1472,123 @@ def test_build_wallet_registry_summary_backfills_missing_static_baskets_into_exi
     }
 
 
+def test_build_wallet_registry_summary_promotes_discovery_registry_entry_into_static_basket() -> (
+    None
+):
+    base_config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        base_config,
+        baskets=[
+            BasketRule(topic="geopolitics", wallets=["w_promoted"], quorum_ratio=0.66)
+        ],
+        wallet_registry=replace(
+            base_config.wallet_registry,
+            enabled=True,
+            seed_from_baskets=True,
+        ),
+        filters=replace(base_config.filters, max_trade_age_seconds=3600),
+    )
+    first_seen_at = datetime(2026, 1, 1, tzinfo=UTC)
+    store = RegistrySummaryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet="w_promoted",
+                source_type="wallet_discovery",
+                source_ref="polymarket_data_api",
+                trust_seed=0.62,
+                status="probation",
+                first_seen_at=first_seen_at,
+            )
+        ],
+        memberships=[],
+    )
+
+    _build_wallet_registry_summary(
+        config,
+        store,
+        [WalletTrade("w_promoted", "geopolitics", "m1", "YES", 0.6, 10.0, 300)],
+    )
+
+    assert len(store.registry_entries) == 1
+    entry = store.registry_entries[0]
+    assert entry.wallet == "w_promoted"
+    assert entry.source_type == "static_basket"
+    assert entry.source_ref == "config.baskets"
+    assert entry.trust_seed == 1.0
+    assert entry.first_seen_at == first_seen_at
+    assert entry.status == "active"
+    assert entry.last_scored_at is not None
+    assert entry.last_seen_trade_at is not None
+
+
+def test_build_wallet_registry_summary_reactivates_config_membership_from_discovery_assignment() -> (
+    None
+):
+    base_config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        base_config,
+        baskets=[BasketRule(topic="geopolitics", wallets=["w1"], quorum_ratio=0.66)],
+        wallet_registry=replace(
+            base_config.wallet_registry,
+            enabled=True,
+            seed_from_baskets=True,
+        ),
+    )
+    first_seen_at = datetime(2026, 1, 1, tzinfo=UTC)
+    store = RegistrySummaryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet="w1",
+                source_type="wallet_discovery",
+                source_ref="polymarket_data_api",
+                trust_seed=0.8,
+                status="probation",
+                first_seen_at=first_seen_at,
+            )
+        ],
+        memberships=[
+            BasketMembership(
+                topic="geopolitics",
+                wallet="w1",
+                tier="explorer",
+                rank=9,
+                active=False,
+                joined_at=first_seen_at,
+                effective_until=first_seen_at,
+                promotion_reason="wallet discovery assignment",
+                demotion_reason="aged out",
+            )
+        ],
+    )
+
+    _build_wallet_registry_summary(config, store, [])
+
+    assert [
+        (
+            membership.topic,
+            membership.wallet,
+            membership.tier,
+            membership.rank,
+            membership.active,
+            membership.promotion_reason,
+            membership.demotion_reason,
+            membership.effective_until,
+        )
+        for membership in store.memberships
+    ] == [
+        (
+            "geopolitics",
+            "w1",
+            "core",
+            1,
+            True,
+            "seeded from static basket config",
+            "",
+            None,
+        )
+    ]
+
+
 def test_build_wallet_registry_summary_flags_bench_depth_when_explorer_wallets_exist_but_live_roster_is_thin() -> (
     None
 ):
