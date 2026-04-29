@@ -164,6 +164,66 @@ def test_compute_basket_health_from_static_memberships() -> None:
     assert health[0].health_state == "thin"
 
 
+def test_compute_basket_health_marks_stable_active_topic_as_healthy() -> None:
+    base_config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        base_config,
+        filters=replace(base_config.filters, max_trade_age_seconds=604800),
+    )
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w1",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w2",
+            tier="core",
+            rank=2,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w3",
+            tier="rotating",
+            rank=3,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+    ]
+    trades = [
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.5, 10.0, 3600),
+        WalletTrade("w2", "geopolitics", "m2", "NO", 0.4, 12.0, 172800),
+        WalletTrade("w3", "geopolitics", "m3", "YES", 0.6, 14.0, 7200),
+    ]
+
+    health = compute_basket_health_from_static_memberships(
+        config,
+        memberships,
+        trades,
+        captured_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+
+    assert health[0].fresh_core_wallets_24h == 1
+    assert health[0].active_eligible_wallet_count == 3
+    assert health[0].stale_ratio == 0.0
+    assert health[0].health_state == "healthy"
+
+
 def test_compute_basket_health_respects_registry_statuses() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     memberships = [

@@ -123,6 +123,7 @@ class ExecutionPlanner:
             if candidate.suggested_position_usd > 0
             else self.config.buy_amount_usd
         )
+        suggested_amount = max(suggested_amount, 0.0)
         amount_usd = max(suggested_amount, self.config.min_signal_allocation_usd)
         amount_usd = min(amount_usd, self.config.buy_amount_usd)
         if self.config.exposure is not None:

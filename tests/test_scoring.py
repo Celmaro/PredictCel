@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from predictcel.config import FilterConfig
 from predictcel.models import MarketSnapshot, WalletTrade
 from predictcel.scoring import (
@@ -64,6 +66,37 @@ def test_wallet_quality_scores_eligible_wallet() -> None:
     assert scores["w1"].sample_score > 0
     assert scorer.last_rejection_counts == {}
     assert scorer.last_missing_market_samples == []
+
+
+def test_wallet_quality_zero_max_price_drift_keeps_perfect_matches_at_full_score() -> None:
+    scorer = WalletQualityScorer(replace(make_filters(), max_price_drift=0.0))
+    trades = [
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="m1",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        )
+    ]
+    markets = {
+        "m1": MarketSnapshot(
+            market_id="m1",
+            topic="sports",
+            title="Example",
+            yes_ask=0.55,
+            no_ask=0.4,
+            best_bid=0.55,
+            liquidity_usd=9000,
+            minutes_to_resolution=180,
+        )
+    }
+
+    scores = scorer.score(trades, markets)
+
+    assert scores["w1"].drift_score == 1.0
 
 
 def test_scoring_deduplicates_cross_topic_live_trade_copies() -> None:
@@ -482,6 +515,33 @@ def test_compute_copyability_score_rewards_better_inputs() -> None:
     )
 
     assert strong > weak
+
+
+def test_compute_copyability_score_handles_zero_max_price_drift() -> None:
+    filters = replace(make_filters(), max_price_drift=0.0)
+
+    zero_drift = compute_copyability_score(
+        consensus_ratio=0.8,
+        wallet_quality_score=0.9,
+        average_age_seconds=300,
+        drift=0.0,
+        liquidity_usd=15000,
+        side_spread=0.01,
+        side_depth_usd=250,
+        filters=filters,
+    )
+    non_zero_drift = compute_copyability_score(
+        consensus_ratio=0.8,
+        wallet_quality_score=0.9,
+        average_age_seconds=300,
+        drift=0.01,
+        liquidity_usd=15000,
+        side_spread=0.01,
+        side_depth_usd=250,
+        filters=filters,
+    )
+
+    assert zero_drift > non_zero_drift
 
 
 def test_freshness_decay_uses_true_half_life() -> None:

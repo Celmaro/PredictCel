@@ -111,6 +111,7 @@ class PolymarketPublicClient:
         self.redis_client = None
         self._request_cache: dict[str, Any] = {}
         self._cache_lock = threading.Lock()
+        self._inflight_requests: dict[str, dict[str, Any]] = {}
         self._gamma_circuit_breaker = CircuitBreaker()
         self._data_circuit_breaker = CircuitBreaker()
         self._clob_circuit_breaker = CircuitBreaker()
@@ -381,39 +382,47 @@ class PolymarketPublicClient:
     ) -> None:
         """Subscribe to real-time market updates via WebSocket."""
         ws_url = "wss://ws.polymarket.com"
-        logger.info(
-            f"Connecting to WebSocket at {ws_url} for {len(market_ids)} markets"
-        )
+        reconnect_attempt = 0
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.ws_connect(ws_url) as ws:
-                    logger.info("WebSocket connected successfully")
-                    subscribe_msg = {"type": "subscribe", "markets": market_ids}
-                    await ws.send_json(subscribe_msg)
-                    logger.info(f"Subscribed to market updates for {market_ids}")
+        while True:
+            logger.info(
+                f"Connecting to WebSocket at {ws_url} for {len(market_ids)} markets"
+            )
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.ws_connect(ws_url) as ws:
+                        logger.info("WebSocket connected successfully")
+                        subscribe_msg = {"type": "subscribe", "markets": market_ids}
+                        await ws.send_json(subscribe_msg)
+                        logger.info(f"Subscribed to market updates for {market_ids}")
 
-                    async for msg in ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            data = msg.json()
-                            if data.get("type") == "update":
-                                logger.debug(f"Received market update: {data}")
-                                callback(data)
-                        elif msg.type == aiohttp.WSMsgType.ERROR:
-                            logger.error("WebSocket error encountered")
-                            break
-                        elif msg.type == aiohttp.WSMsgType.CLOSED:
-                            logger.info("WebSocket connection closed")
-                            break
-        except aiohttp.ClientError as e:
-            logger.error(f"WebSocket client error: {e}")
-            raise
-        except asyncio.TimeoutError:
-            logger.error("WebSocket connection timeout")
-            raise
-        except Exception as e:
-            logger.error(f"WebSocket unexpected error: {e}")
-            raise
+                        async for msg in ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                data = msg.json()
+                                if data.get("type") == "update":
+                                    reconnect_attempt = 0
+                                    logger.debug(f"Received market update: {data}")
+                                    callback(data)
+                            elif msg.type == aiohttp.WSMsgType.ERROR:
+                                logger.error("WebSocket error encountered")
+                                break
+                            elif msg.type == aiohttp.WSMsgType.CLOSED:
+                                logger.info("WebSocket connection closed")
+                                break
+            except asyncio.CancelledError:
+                raise
+            except aiohttp.ClientError as e:
+                logger.error(f"WebSocket client error: {e}")
+            except asyncio.TimeoutError:
+                logger.error("WebSocket connection timeout")
+            except Exception as e:
+                logger.error(f"WebSocket unexpected error: {e}")
+                raise
+
+            delay = _retry_delay(self.retry_base_delay_seconds, reconnect_attempt)
+            reconnect_attempt += 1
+            logger.info(f"Reconnecting WebSocket after {delay:.2f}s")
+            await asyncio.sleep(delay)
 
     def _fetch_markets_by_array_filter(
         self, filter_name: str, values: list[str], chunk_size: int
@@ -453,37 +462,85 @@ class PolymarketPublicClient:
 
         def _fetch_url():
             metrics = _get_metrics()
-            metrics["requests"] += 1
 
             cached = self._get_cached(url)
             if cached is not None:
                 return cached
 
+            with self._cache_lock:
+                inflight = self._inflight_requests.get(url)
+                if inflight is None:
+                    inflight = {
+                        "event": threading.Event(),
+                        "followers": 0,
+                        "result": None,
+                        "error": None,
+                    }
+                    self._inflight_requests[url] = inflight
+                    is_leader = True
+                else:
+                    inflight["followers"] += 1
+                    is_leader = False
+
+            if not is_leader:
+                inflight["event"].wait()
+                try:
+                    error = inflight["error"]
+                    if error is not None:
+                        raise error
+                    cached_result = self._get_cached(url)
+                    if cached_result is not None:
+                        return cached_result
+                    return inflight["result"]
+                finally:
+                    with self._cache_lock:
+                        inflight["followers"] -= 1
+                        if inflight["followers"] <= 0 and inflight["event"].is_set():
+                            self._inflight_requests.pop(url, None)
+
+            metrics["requests"] += 1
             request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
 
-            for attempt in range(self.max_retries):
-                try:
-                    with urlopen(request, timeout=self.timeout_seconds) as response:
-                        payload = json.loads(response.read().decode("utf-8"))
-                        self._validate_response(payload, url)
-                        self._set_cached(url, payload)
-                        return payload
-                except HTTPError as error:
-                    if self._is_missing_clob_order_book(url, error):
-                        return {}
-                    metrics["errors"] += 1
-                    if attempt >= self.max_retries - 1:
-                        raise
-                    delay = _retry_delay(self.retry_base_delay_seconds, attempt)
-                    time.sleep(delay)
-                except (URLError, TimeoutError, OSError, json.JSONDecodeError):
-                    metrics["errors"] += 1
-                    if attempt >= self.max_retries - 1:
-                        raise
-                    delay = _retry_delay(self.retry_base_delay_seconds, attempt)
-                    time.sleep(delay)
+            try:
+                for attempt in range(self.max_retries):
+                    try:
+                        with urlopen(request, timeout=self.timeout_seconds) as response:
+                            payload = json.loads(response.read().decode("utf-8"))
+                            self._validate_response(payload, url)
+                            self._set_cached(url, payload)
+                            result = payload
+                            break
+                    except HTTPError as error:
+                        if self._is_missing_clob_order_book(url, error):
+                            result = {}
+                            break
+                        metrics["errors"] += 1
+                        if attempt >= self.max_retries - 1:
+                            raise
+                        delay = _retry_delay(self.retry_base_delay_seconds, attempt)
+                        time.sleep(delay)
+                    except (URLError, TimeoutError, OSError, json.JSONDecodeError):
+                        metrics["errors"] += 1
+                        if attempt >= self.max_retries - 1:
+                            raise
+                        delay = _retry_delay(self.retry_base_delay_seconds, attempt)
+                        time.sleep(delay)
+                else:
+                    raise RuntimeError(f"Request retries exhausted for {url}")
+            except BaseException as error:
+                with self._cache_lock:
+                    inflight["error"] = error
+                    inflight["event"].set()
+                    if inflight["followers"] <= 0:
+                        self._inflight_requests.pop(url, None)
+                raise
 
-            return None
+            with self._cache_lock:
+                inflight["result"] = result
+                inflight["event"].set()
+                if inflight["followers"] <= 0:
+                    self._inflight_requests.pop(url, None)
+            return result
 
         return self._breaker_for_url(url).call(_fetch_url)
 

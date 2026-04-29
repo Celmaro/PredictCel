@@ -1,8 +1,12 @@
+import asyncio
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from urllib.error import HTTPError, URLError
 
 import pytest
+import aiohttp
 
 from predictcel.polymarket import (
     PolymarketPublicClient,
@@ -123,6 +127,61 @@ class FakeHTTPResponse:
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         return False
+
+
+class FakeWSMessage:
+    def __init__(self, message_type, payload=None):
+        self.type = message_type
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class FakeWebSocket:
+    def __init__(self, messages):
+        self._messages = iter(messages)
+        self.sent_messages = []
+
+    async def send_json(self, payload) -> None:
+        self.sent_messages.append(payload)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._messages)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+
+class FakeWebSocketContext:
+    def __init__(self, websocket: FakeWebSocket):
+        self.websocket = websocket
+
+    async def __aenter__(self) -> FakeWebSocket:
+        return self.websocket
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+class FakeClientSession:
+    def __init__(self, websockets: list[FakeWebSocket]):
+        self._websockets = list(websockets)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def ws_connect(self, url: str):
+        assert url == "wss://ws.polymarket.com"
+        if not self._websockets:
+            raise AssertionError("No fake websockets remaining")
+        return FakeWebSocketContext(self._websockets.pop(0))
 
 
 def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None:
@@ -372,6 +431,76 @@ def test_gamma_circuit_breaker_does_not_block_clob_requests(monkeypatch) -> None
 
     with pytest.raises(Exception, match="Circuit breaker is OPEN"):
         client.fetch_active_markets(1)
+
+
+def test_subscribe_market_updates_reconnects_after_closed_socket(monkeypatch) -> None:
+    client = PolymarketPublicClient()
+    first_socket = FakeWebSocket([FakeWSMessage(aiohttp.WSMsgType.CLOSED)])
+    second_socket = FakeWebSocket(
+        [
+            FakeWSMessage(
+                aiohttp.WSMsgType.TEXT,
+                {"type": "update", "market": "m1"},
+            )
+        ]
+    )
+    sleep_calls = []
+    updates = []
+    queued_sockets = [first_socket, second_socket]
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    def fake_client_session():
+        return FakeClientSession([queued_sockets.pop(0)])
+
+    def callback(payload) -> None:
+        updates.append(payload)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr("predictcel.polymarket.aiohttp.ClientSession", fake_client_session)
+    monkeypatch.setattr("predictcel.polymarket._retry_delay", lambda base, attempt: 0.25)
+    monkeypatch.setattr("predictcel.polymarket.asyncio.sleep", fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(client.subscribe_market_updates(["m1"], callback))
+
+    assert sleep_calls == [0.25]
+    assert first_socket.sent_messages == [{"type": "subscribe", "markets": ["m1"]}]
+    assert second_socket.sent_messages == [{"type": "subscribe", "markets": ["m1"]}]
+    assert updates == [{"type": "update", "market": "m1"}]
+
+
+def test_get_json_deduplicates_inflight_requests(monkeypatch) -> None:
+    client = PolymarketPublicClient(max_retries=1)
+    started = threading.Event()
+    release = threading.Event()
+    calls = {"count": 0}
+
+    def fake_urlopen(request, timeout=15):
+        del timeout
+        calls["count"] += 1
+        started.set()
+        release.wait(timeout=1)
+        return FakeHTTPResponse({"markets": [{"conditionId": "cond_1"}]})
+
+    monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
+
+    def fetch():
+        return client._get_json(f"{client.gamma_base_url}/markets?limit=1")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(fetch)
+        assert started.wait(timeout=1)
+        second = executor.submit(fetch)
+        release.set()
+        results = [first.result(), second.result()]
+
+    assert calls["count"] == 1
+    assert results == [
+        {"markets": [{"conditionId": "cond_1"}]},
+        {"markets": [{"conditionId": "cond_1"}]},
+    ]
 
 
 def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:

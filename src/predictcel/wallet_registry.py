@@ -249,7 +249,7 @@ def compute_basket_health_from_static_memberships(
         elif active_eligible_wallet_count < 3:
             health_state = "thin"
         else:
-            health_state = "thin"
+            health_state = "healthy"
 
         health_snapshots.append(
             BasketHealth(

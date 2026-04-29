@@ -17,6 +17,11 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
+try:
+    from Crypto.Hash import keccak
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    keccak = None
+
 from .arb_sidecar import ArbitrageSidecar
 from .basket_manager import BasketManagerPlanner
 from .config import load_config
@@ -1637,13 +1642,33 @@ def _creates_or_updates_paper_position(result) -> bool:
     ).strip().lower() == "dry_run" or _is_trusted_execution_result(result)
 
 
+def _checksummed_evm_address(value: str) -> str | None:
+    if keccak is None:
+        return None
+    normalized = value[2:].lower()
+    digest = keccak.new(digest_bits=256)
+    digest.update(normalized.encode("ascii"))
+    address_hash = digest.hexdigest()
+    checksummed = "".join(
+        char.upper() if char.isalpha() and int(address_hash[index], 16) >= 8 else char
+        for index, char in enumerate(normalized)
+    )
+    return f"0x{checksummed}"
+
+
 def _is_evm_address(value: str) -> bool:
     value = str(value).strip()
-    return (
+    if not (
         len(value) == 42
         and value.startswith("0x")
         and all(char in HEX_CHARS for char in value[2:])
-    )
+    ):
+        return False
+    body = value[2:]
+    if body == body.lower() or body == body.upper():
+        return True
+    checksummed = _checksummed_evm_address(value)
+    return checksummed is not None and value == checksummed
 
 
 def _decorate_positions_with_titles(

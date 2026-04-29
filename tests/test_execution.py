@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from predictcel.config import (
@@ -266,6 +267,31 @@ def test_execution_planner_applies_minimum_signal_allocation() -> None:
     )
 
     assert [intent.amount_usd for intent in intents] == [5.0]
+
+
+def test_execution_planned_amount_clamps_negative_amounts_to_zero() -> None:
+    config = replace(
+        make_execution_config(),
+        buy_amount_usd=-10.0,
+        min_signal_allocation_usd=-5.0,
+    )
+    planner = ExecutionPlanner(config, config.position)
+    candidate = CopyCandidate(
+        "topic",
+        "m1",
+        "YES",
+        1.0,
+        0.5,
+        0.51,
+        10000,
+        ["w1"],
+        1.0,
+        0.9,
+        "ok",
+        suggested_position_usd=-1.0,
+    )
+
+    assert planner._planned_amount_usd(candidate, planned_exposure_usd=0.0) == 0.0
 
 
 def test_execution_planner_respects_exposure_across_planned_orders() -> None:

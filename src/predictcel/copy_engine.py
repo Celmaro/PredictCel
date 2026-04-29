@@ -63,7 +63,12 @@ class CopyEngine:
         try:
             with open(model_path, "rb") as f:
                 self._ml_model = pickle.load(f)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to load ML position sizing model from %s: %s",
+                model_path,
+                exc,
+            )
             self._ml_model = None
         self._ml_model_loaded = True
         return self._ml_model
