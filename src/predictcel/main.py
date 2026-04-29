@@ -729,28 +729,55 @@ def _ensure_static_registry_bootstrap(
 ) -> list[WalletRegistryEntry]:
     entries_by_wallet = {entry.wallet: entry for entry in existing_entries}
     updated_entries = list(existing_entries)
+    updated = False
     for basket in config.baskets:
         for wallet in basket.wallets:
             normalized_wallet = str(wallet).strip()
-            if not normalized_wallet or normalized_wallet in entries_by_wallet:
+            if not normalized_wallet:
                 continue
-            updated_entries.append(
-                WalletRegistryEntry(
-                    wallet=normalized_wallet,
-                    source_type="static_basket",
-                    source_ref="config.baskets",
-                    trust_seed=1.0,
-                    status="active",
-                    first_seen_at=captured_at,
-                    last_seen_trade_at=None,
-                    last_scored_at=None,
-                    notes="seeded from static basket config",
+            existing_entry = entries_by_wallet.get(normalized_wallet)
+            if existing_entry is None:
+                updated_entries.append(
+                    WalletRegistryEntry(
+                        wallet=normalized_wallet,
+                        source_type="static_basket",
+                        source_ref="config.baskets",
+                        trust_seed=1.0,
+                        status="active",
+                        first_seen_at=captured_at,
+                        last_seen_trade_at=None,
+                        last_scored_at=None,
+                        notes="seeded from static basket config",
+                    )
                 )
+                entries_by_wallet[normalized_wallet] = updated_entries[-1]
+                updated = True
+                continue
+
+            if (
+                existing_entry.source_type == "static_basket"
+                and existing_entry.source_ref == "config.baskets"
+                and existing_entry.trust_seed == 1.0
+            ):
+                continue
+
+            entries_by_wallet[normalized_wallet] = WalletRegistryEntry(
+                wallet=existing_entry.wallet,
+                source_type="static_basket",
+                source_ref="config.baskets",
+                trust_seed=1.0,
+                status=existing_entry.status,
+                first_seen_at=existing_entry.first_seen_at,
+                last_seen_trade_at=existing_entry.last_seen_trade_at,
+                last_scored_at=existing_entry.last_scored_at,
+                notes=existing_entry.notes,
             )
-            entries_by_wallet[normalized_wallet] = updated_entries[-1]
-    if len(updated_entries) == len(existing_entries):
+            updated = True
+
+    if not updated:
         return existing_entries
-    updated_entries.sort(key=lambda entry: entry.wallet)
+
+    updated_entries = sorted(entries_by_wallet.values(), key=lambda entry: entry.wallet)
     store.upsert_wallet_registry_entries(updated_entries)
     return updated_entries
 
@@ -776,17 +803,18 @@ def _ensure_static_membership_bootstrap(
         (membership.topic, membership.wallet): membership
         for membership in existing_memberships
     }
-    updated_memberships = list(existing_memberships)
+    updated = False
     for basket in config.baskets:
         if basket.topic in locked_topics:
             continue
         for rank, wallet in enumerate(basket.wallets, start=1):
             normalized_wallet = str(wallet).strip()
             membership_key = (basket.topic, normalized_wallet)
-            if not normalized_wallet or membership_key in memberships_by_key:
+            if not normalized_wallet:
                 continue
-            updated_memberships.append(
-                BasketMembership(
+            existing_membership = memberships_by_key.get(membership_key)
+            if existing_membership is None:
+                memberships_by_key[membership_key] = BasketMembership(
                     topic=basket.topic,
                     wallet=normalized_wallet,
                     tier="core",
@@ -797,12 +825,31 @@ def _ensure_static_membership_bootstrap(
                     promotion_reason="seeded from static basket config",
                     demotion_reason="",
                 )
+                updated = True
+                continue
+
+            normalized_membership = BasketMembership(
+                topic=existing_membership.topic,
+                wallet=existing_membership.wallet,
+                tier="core",
+                rank=rank,
+                active=True,
+                joined_at=existing_membership.joined_at,
+                effective_until=None,
+                promotion_reason="seeded from static basket config",
+                demotion_reason="",
             )
-            memberships_by_key[membership_key] = updated_memberships[-1]
-    if len(updated_memberships) == len(existing_memberships):
+            if normalized_membership == existing_membership:
+                continue
+            memberships_by_key[membership_key] = normalized_membership
+            updated = True
+
+    if not updated:
         return existing_memberships
-    updated_memberships.sort(
-        key=lambda membership: (membership.topic, membership.rank, membership.wallet)
+
+    updated_memberships = sorted(
+        memberships_by_key.values(),
+        key=lambda membership: (membership.topic, membership.rank, membership.wallet),
     )
     store.upsert_basket_memberships(updated_memberships)
     return updated_memberships
