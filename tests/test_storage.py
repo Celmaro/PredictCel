@@ -130,7 +130,9 @@ def test_update_position_can_close_active_position() -> None:
     try:
         store.save_position(make_position("m1", "open", 25.0))
 
-        store.update_position("m1", current_price=0.6, unrealized_pnl=5.0, status="closed")
+        store.update_position(
+            "m1", current_price=0.6, unrealized_pnl=5.0, status="closed"
+        )
 
         assert store.get_held_market_ids() == set()
         assert store.get_total_exposure() == 0.0
@@ -169,9 +171,15 @@ def test_portfolio_summary_tracks_closed_winrate_and_pnl() -> None:
         store.save_position(make_position("winner", "open", 10.0))
         store.save_position(make_position("loser", "open", 10.0))
         store.save_position(make_position("active", "open", 10.0))
-        store.update_position("winner", current_price=0.7, unrealized_pnl=4.0, status="closed")
-        store.update_position("loser", current_price=0.4, unrealized_pnl=-2.0, status="closed")
-        store.update_position("active", current_price=0.55, unrealized_pnl=1.0, status="open")
+        store.update_position(
+            "winner", current_price=0.7, unrealized_pnl=4.0, status="closed"
+        )
+        store.update_position(
+            "loser", current_price=0.4, unrealized_pnl=-2.0, status="closed"
+        )
+        store.update_position(
+            "active", current_price=0.55, unrealized_pnl=1.0, status="open"
+        )
 
         summary = store.get_portfolio_summary(starting_bankroll_usd=100.0)
 
@@ -195,8 +203,12 @@ def test_portfolio_summary_tracks_breakeven_closed_positions_separately() -> Non
     try:
         store.save_position(make_position("winner", "open", 10.0))
         store.save_position(make_position("flat", "open", 10.0))
-        store.update_position("winner", current_price=0.7, unrealized_pnl=4.0, status="closed")
-        store.update_position("flat", current_price=0.5, unrealized_pnl=0.0, status="closed")
+        store.update_position(
+            "winner", current_price=0.7, unrealized_pnl=4.0, status="closed"
+        )
+        store.update_position(
+            "flat", current_price=0.5, unrealized_pnl=0.0, status="closed"
+        )
 
         summary = store.get_portfolio_summary(starting_bankroll_usd=100.0)
 
@@ -225,7 +237,9 @@ def test_signal_fingerprints_prevent_recent_duplicates() -> None:
         db_path.unlink(missing_ok=True)
 
 
-def test_filter_and_mark_candidates_atomically_skips_recent_and_same_batch_duplicates() -> None:
+def test_filter_and_mark_candidates_atomically_skips_recent_and_same_batch_duplicates() -> (
+    None
+):
     store, db_path = make_store()
     try:
         store.mark_signal_seen("m1", "geopolitics", "YES")
@@ -274,7 +288,9 @@ def test_wallet_registry_tables_round_trip_latest_state() -> None:
                 make_registry_entry("w2", status="probation"),
             ]
         )
-        store.upsert_wallet_registry_entries([make_registry_entry("w1", status="suspended")])
+        store.upsert_wallet_registry_entries(
+            [make_registry_entry("w1", status="suspended")]
+        )
         store.upsert_basket_memberships(
             [
                 make_membership("geopolitics", "w1", tier="core", rank=1),

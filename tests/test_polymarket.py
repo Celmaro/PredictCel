@@ -43,7 +43,11 @@ class FakeSlugClient(PolymarketPublicClient):
     def _get_json(self, url: str):
         self.urls.append(url)
         if "/markets/slug/will-event-x-happen" in url:
-            return {"conditionId": "cond_1", "slug": "will-event-x-happen", "outcomePrices": "[0.61, 0.35]"}
+            return {
+                "conditionId": "cond_1",
+                "slug": "will-event-x-happen",
+                "outcomePrices": "[0.61, 0.35]",
+            }
         return {"markets": []}
 
 
@@ -55,7 +59,18 @@ class FakeTradeClient(PolymarketPublicClient):
     def _get_json(self, url: str):
         self.urls.append(url)
         if "user=0xabc" in url and "/trades?" in url:
-            return {"trades": [{"asset": "token_yes", "side": "BUY_YES", "price": "0.54", "sizeUsd": "25", "createdAt": "2025-12-31T23:50:00Z", "user": "0xAbc"}]}
+            return {
+                "trades": [
+                    {
+                        "asset": "token_yes",
+                        "side": "BUY_YES",
+                        "price": "0.54",
+                        "sizeUsd": "25",
+                        "createdAt": "2025-12-31T23:50:00Z",
+                        "user": "0xAbc",
+                    }
+                ]
+            }
         return {"trades": []}
 
 
@@ -66,8 +81,22 @@ class FakeFilteredTradeClient(PolymarketPublicClient):
     def _get_json(self, url: str):
         return {
             "trades": [
-                {"asset": "token_wrong", "side": "BUY_YES", "price": "0.54", "sizeUsd": "25", "createdAt": "2025-12-31T23:50:00Z", "user": "0xdef"},
-                {"asset": "token_right", "side": "BUY_NO", "price": "0.44", "sizeUsd": "30", "createdAt": "2025-12-31T23:52:00Z", "user": "0xabc"},
+                {
+                    "asset": "token_wrong",
+                    "side": "BUY_YES",
+                    "price": "0.54",
+                    "sizeUsd": "25",
+                    "createdAt": "2025-12-31T23:50:00Z",
+                    "user": "0xdef",
+                },
+                {
+                    "asset": "token_right",
+                    "side": "BUY_NO",
+                    "price": "0.44",
+                    "sizeUsd": "30",
+                    "createdAt": "2025-12-31T23:52:00Z",
+                    "user": "0xabc",
+                },
             ]
         }
 
@@ -95,7 +124,7 @@ def test_market_snapshot_from_gamma_parses_string_prices_and_token_ids() -> None
         "liquidityNum": "12000",
         "endDate": "2030-01-01T00:00:00Z",
         "category": "geopolitics",
-        "clobTokenIds": "[\"yes_token\", \"no_token\"]",
+        "clobTokenIds": '["yes_token", "no_token"]',
     }
 
     snapshot = market_snapshot_from_gamma(item)
@@ -124,7 +153,13 @@ def test_fetch_markets_by_slugs_uses_slug_endpoint_and_deduplicates() -> None:
 
     rows = client.fetch_markets_by_slugs(["will-event-x-happen", "will-event-x-happen"])
 
-    assert rows == [{"conditionId": "cond_1", "slug": "will-event-x-happen", "outcomePrices": "[0.61, 0.35]"}]
+    assert rows == [
+        {
+            "conditionId": "cond_1",
+            "slug": "will-event-x-happen",
+            "outcomePrices": "[0.61, 0.35]",
+        }
+    ]
     assert any("/markets/slug/will-event-x-happen" in url for url in client.urls)
 
 
@@ -162,7 +197,7 @@ def test_build_market_snapshots_indexes_common_aliases() -> None:
                 "conditionId": "cond_1",
                 "slug": "will-event-x-happen",
                 "outcomePrices": "[0.61, 0.35]",
-                "clobTokenIds": "[\"yes_token\", \"no_token\"]",
+                "clobTokenIds": '["yes_token", "no_token"]',
             }
         ]
     )
@@ -181,19 +216,27 @@ def test_enrich_market_snapshots_with_orderbooks_adds_spread_and_depth() -> None
         "liquidityNum": "12000",
         "endDate": "2030-01-01T00:00:00Z",
         "category": "geopolitics",
-        "clobTokenIds": "[\"yes_token\", \"no_token\"]",
+        "clobTokenIds": '["yes_token", "no_token"]',
     }
     snapshot = market_snapshot_from_gamma(item)
     assert snapshot is not None
 
     client = FakeClient(
         {
-            "yes_token": {"bids": [{"price": "0.59", "size": "200"}], "asks": [{"price": "0.62", "size": "150"}]},
-            "no_token": {"bids": [{"price": "0.33", "size": "180"}], "asks": [{"price": "0.36", "size": "140"}]},
+            "yes_token": {
+                "bids": [{"price": "0.59", "size": "200"}],
+                "asks": [{"price": "0.62", "size": "150"}],
+            },
+            "no_token": {
+                "bids": [{"price": "0.33", "size": "180"}],
+                "asks": [{"price": "0.36", "size": "140"}],
+            },
         }
     )
 
-    enriched = enrich_market_snapshots_with_orderbooks({"cond_1": snapshot, "yes_token": snapshot}, client)
+    enriched = enrich_market_snapshots_with_orderbooks(
+        {"cond_1": snapshot, "yes_token": snapshot}, client
+    )
 
     assert enriched["cond_1"].yes_bid == 0.59
     assert enriched["cond_1"].no_bid == 0.33
@@ -216,7 +259,7 @@ def test_enrich_market_snapshots_requires_tradable_ask_depth() -> None:
         "liquidityNum": "12000",
         "endDate": "2030-01-01T00:00:00Z",
         "category": "geopolitics",
-        "clobTokenIds": "[\"yes_token\", \"no_token\"]",
+        "clobTokenIds": '["yes_token", "no_token"]',
     }
     snapshot = market_snapshot_from_gamma(item)
     assert snapshot is not None
@@ -237,7 +280,9 @@ def test_enrich_market_snapshots_requires_tradable_ask_depth() -> None:
     assert enriched["cond_1"].orderbook_ready is False
 
 
-def test_fetch_order_book_treats_missing_clob_book_as_empty_payload(monkeypatch) -> None:
+def test_fetch_order_book_treats_missing_clob_book_as_empty_payload(
+    monkeypatch,
+) -> None:
     client = PolymarketPublicClient(max_retries=1)
 
     def fake_urlopen(request, timeout=15):
@@ -257,10 +302,12 @@ def test_missing_clob_book_does_not_block_later_valid_books(monkeypatch) -> None
     def fake_urlopen(request, timeout=15):
         if "missing_token" in request.full_url:
             raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
-        return FakeHTTPResponse({
-            "bids": [{"price": "0.48", "size": "10"}],
-            "asks": [{"price": "0.52", "size": "12"}],
-        })
+        return FakeHTTPResponse(
+            {
+                "bids": [{"price": "0.48", "size": "10"}],
+                "asks": [{"price": "0.52", "size": "12"}],
+            }
+        )
 
     monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
 
@@ -280,10 +327,12 @@ def test_gamma_circuit_breaker_does_not_block_clob_requests(monkeypatch) -> None
         if request.full_url.startswith(client.gamma_base_url):
             raise URLError("gamma down")
         if request.full_url.startswith(client.clob_base_url):
-            return FakeHTTPResponse({
-                "bids": [{"price": "0.48", "size": "10"}],
-                "asks": [{"price": "0.52", "size": "12"}],
-            })
+            return FakeHTTPResponse(
+                {
+                    "bids": [{"price": "0.48", "size": "10"}],
+                    "asks": [{"price": "0.52", "size": "12"}],
+                }
+            )
         raise AssertionError(f"Unexpected URL: {request.full_url}")
 
     monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
@@ -341,10 +390,20 @@ def test_wallet_trade_from_data_accepts_asset_ids_and_buy_yes_side() -> None:
 def test_build_wallet_trades_fans_out_multi_topic_wallets() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     wallet_payloads = {
-        "wallet_a": [{"conditionId": "cond_1", "outcome": "YES", "price": "0.54", "size": "250", "createdAt": "2025-12-31T23:50:00Z"}]
+        "wallet_a": [
+            {
+                "conditionId": "cond_1",
+                "outcome": "YES",
+                "price": "0.54",
+                "size": "250",
+                "createdAt": "2025-12-31T23:50:00Z",
+            }
+        ]
     }
 
-    trades = build_wallet_trades(wallet_payloads, {"wallet_a": ["sports", "macro"]}, now)
+    trades = build_wallet_trades(
+        wallet_payloads, {"wallet_a": ["sports", "macro"]}, now
+    )
 
     assert len(trades) == 2
     assert {trade.topic for trade in trades} == {"sports", "macro"}
@@ -373,13 +432,18 @@ def test_extract_trade_market_slugs_deduplicates_common_shapes() -> None:
         ]
     }
 
-    assert extract_trade_market_slugs(payloads) == ["another-market", "will-event-x-happen"]
+    assert extract_trade_market_slugs(payloads) == [
+        "another-market",
+        "will-event-x-happen",
+    ]
 
 
 def test_gamma_market_array_filter_uses_repeated_query_params() -> None:
     client = FakeGammaClient()
 
-    rows = client._fetch_markets_by_array_filter("clob_token_ids", ["token_a", "token_b"], 25)
+    rows = client._fetch_markets_by_array_filter(
+        "clob_token_ids", ["token_a", "token_b"], 25
+    )
 
     assert rows == [{"conditionId": "cond_1", "outcomePrices": "[0.61, 0.35]"}]
     assert "clob_token_ids=token_a" in client.urls[0]
@@ -389,8 +453,24 @@ def test_gamma_market_array_filter_uses_repeated_query_params() -> None:
 def test_build_wallet_trades_skips_wallets_without_topic_mapping() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     wallet_payloads = {
-        "wallet_a": [{"conditionId": "cond_1", "outcome": "YES", "price": "0.54", "size": "250", "createdAt": "2025-12-31T23:50:00Z"}],
-        "wallet_b": [{"conditionId": "cond_2", "outcome": "NO", "price": "0.44", "size": "150", "createdAt": "2025-12-31T23:55:00Z"}],
+        "wallet_a": [
+            {
+                "conditionId": "cond_1",
+                "outcome": "YES",
+                "price": "0.54",
+                "size": "250",
+                "createdAt": "2025-12-31T23:50:00Z",
+            }
+        ],
+        "wallet_b": [
+            {
+                "conditionId": "cond_2",
+                "outcome": "NO",
+                "price": "0.44",
+                "size": "150",
+                "createdAt": "2025-12-31T23:55:00Z",
+            }
+        ],
     }
 
     trades = build_wallet_trades(wallet_payloads, {"wallet_a": "sports"}, now)

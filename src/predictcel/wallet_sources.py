@@ -11,8 +11,12 @@ from typing import Any
 
 from .polymarket import PolymarketPublicClient
 
-__all__ = ["CuratedWalletFileSource", "DataApiWalletSource", "DataApiMarketTradesWalletSource", "extract_wallet_address"]
-
+__all__ = [
+    "CuratedWalletFileSource",
+    "DataApiWalletSource",
+    "DataApiMarketTradesWalletSource",
+    "extract_wallet_address",
+]
 
 
 class DataApiWalletSource:
@@ -26,7 +30,13 @@ class DataApiWalletSource:
             address = extract_wallet_address(item)
             if not address:
                 continue
-            candidates.append({"address": address.lower(), "source": "polymarket_data_api", "raw": item})
+            candidates.append(
+                {
+                    "address": address.lower(),
+                    "source": "polymarket_data_api",
+                    "raw": item,
+                }
+            )
         return candidates
 
     def fetch_wallet_trades(self, address: str, limit: int) -> list[dict[str, Any]]:
@@ -36,7 +46,9 @@ class DataApiWalletSource:
 class DataApiMarketTradesWalletSource:
     def __init__(self, client: PolymarketPublicClient, market_ids: list[str]) -> None:
         self.client = client
-        self.market_ids = [str(market_id).strip() for market_id in market_ids if str(market_id).strip()]
+        self.market_ids = [
+            str(market_id).strip() for market_id in market_ids if str(market_id).strip()
+        ]
 
     def fetch_candidates(self, limit: int) -> list[dict[str, Any]]:
         if not self.market_ids or limit <= 0:
@@ -66,7 +78,9 @@ class DataApiMarketTradesWalletSource:
 
 
 class CuratedWalletFileSource:
-    def __init__(self, client: PolymarketPublicClient, wallet_candidates_path: str | Path) -> None:
+    def __init__(
+        self, client: PolymarketPublicClient, wallet_candidates_path: str | Path
+    ) -> None:
         self.client = client
         self.wallet_candidates_path = Path(wallet_candidates_path)
 
@@ -102,7 +116,15 @@ class CuratedWalletFileSource:
 
 
 def extract_wallet_address(item: dict[str, Any]) -> str:
-    for key in ("address", "wallet", "walletAddress", "user", "userAddress", "proxyWallet", "proxy_wallet"):
+    for key in (
+        "address",
+        "wallet",
+        "walletAddress",
+        "user",
+        "userAddress",
+        "proxyWallet",
+        "proxy_wallet",
+    ):
         value = item.get(key)
         if value:
             return str(value).strip()

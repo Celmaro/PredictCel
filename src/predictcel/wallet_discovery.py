@@ -18,11 +18,14 @@ from .basket_manager import BasketManagerPlanner
 from .config import AppConfig
 from .models import BasketAssignment, BasketManagerAction, WalletDiscoveryCandidate
 from .polymarket import PolymarketPublicClient, extract_trade_market_ids
-from .wallet_sources import CuratedWalletFileSource, DataApiMarketTradesWalletSource, DataApiWalletSource
+from .wallet_sources import (
+    CuratedWalletFileSource,
+    DataApiMarketTradesWalletSource,
+    DataApiWalletSource,
+)
 from .wallet_topics import classify_wallet_topics
 
 __all__ = ["WalletDiscoveryPipeline"]
-
 
 
 class WalletDiscoveryPipeline:
@@ -30,9 +33,15 @@ class WalletDiscoveryPipeline:
         self.config = config
         live_data = config.live_data
         self.client = PolymarketPublicClient(
-            gamma_base_url=live_data.gamma_base_url if live_data else "https://gamma-api.polymarket.com",
-            data_base_url=live_data.data_base_url if live_data else "https://data-api.polymarket.com",
-            clob_base_url=live_data.clob_base_url if live_data else "https://clob.polymarket.com",
+            gamma_base_url=live_data.gamma_base_url
+            if live_data
+            else "https://gamma-api.polymarket.com",
+            data_base_url=live_data.data_base_url
+            if live_data
+            else "https://data-api.polymarket.com",
+            clob_base_url=live_data.clob_base_url
+            if live_data
+            else "https://clob.polymarket.com",
             timeout_seconds=live_data.request_timeout_seconds if live_data else 15,
         )
         self.source = self._build_source()
@@ -59,8 +68,16 @@ class WalletDiscoveryPipeline:
             current_wallets_by_topic=self.current_wallets_by_topic,
         )
 
-    def run(self) -> tuple[list[WalletDiscoveryCandidate], list[BasketAssignment], list[BasketManagerAction]]:
-        raw_candidates = self.source.fetch_candidates(self.config.wallet_discovery.candidate_limit)
+    def run(
+        self,
+    ) -> tuple[
+        list[WalletDiscoveryCandidate],
+        list[BasketAssignment],
+        list[BasketManagerAction],
+    ]:
+        raw_candidates = self.source.fetch_candidates(
+            self.config.wallet_discovery.candidate_limit
+        )
         existing = self._existing_wallets()
         candidates: list[WalletDiscoveryCandidate] = []
         manager_candidates: list[WalletDiscoveryCandidate] = []
@@ -71,9 +88,14 @@ class WalletDiscoveryPipeline:
             if address in seen:
                 continue
             seen.add(address)
-            candidate = self._build_candidate(address, raw.get("source", "unknown"), self._safe_fetch_trades(address))
+            candidate = self._build_candidate(
+                address, raw.get("source", "unknown"), self._safe_fetch_trades(address)
+            )
             manager_candidates.append(candidate)
-            if self.config.wallet_discovery.exclude_existing_wallets and address in existing:
+            if (
+                self.config.wallet_discovery.exclude_existing_wallets
+                and address in existing
+            ):
                 continue
             candidates.append(candidate)
 
@@ -81,10 +103,20 @@ class WalletDiscoveryPipeline:
             if address in seen:
                 continue
             seen.add(address)
-            manager_candidates.append(self._build_candidate(address, "current_basket", self._safe_fetch_trades(address)))
+            manager_candidates.append(
+                self._build_candidate(
+                    address, "current_basket", self._safe_fetch_trades(address)
+                )
+            )
 
-        accepted = [candidate for candidate in manager_candidates if not candidate.rejected_reasons]
-        assignments = [self.assignment_engine.assign(candidate) for candidate in accepted]
+        accepted = [
+            candidate
+            for candidate in manager_candidates
+            if not candidate.rejected_reasons
+        ]
+        assignments = [
+            self.assignment_engine.assign(candidate) for candidate in accepted
+        ]
         actions = self.manager.plan(assignments)
         return candidates, assignments, actions
 
@@ -97,7 +129,8 @@ class WalletDiscoveryPipeline:
             list[WalletDiscoveryCandidate],
             list[BasketAssignment],
             list[BasketManagerAction],
-        ] | None = None,
+        ]
+        | None = None,
     ) -> dict[str, str]:
         if results is None:
             candidates, assignments, actions = self.run()
@@ -110,23 +143,39 @@ class WalletDiscoveryPipeline:
             "basket_assignments": output_path / "basket_assignments.json",
             "basket_manager_plan": output_path / "basket_manager_plan.json",
         }
-        self._write_json(files["wallet_discovery_report"], [asdict(item) for item in candidates])
-        self._write_json(files["basket_assignments"], [asdict(item) for item in assignments])
-        self._write_json(files["basket_manager_plan"], [asdict(item) for item in actions])
+        self._write_json(
+            files["wallet_discovery_report"], [asdict(item) for item in candidates]
+        )
+        self._write_json(
+            files["basket_assignments"], [asdict(item) for item in assignments]
+        )
+        self._write_json(
+            files["basket_manager_plan"], [asdict(item) for item in actions]
+        )
 
-        mutation_path = self._write_mutated_config_if_enabled(output_path, actions, config_path, config_output_path)
+        mutation_path = self._write_mutated_config_if_enabled(
+            output_path, actions, config_path, config_output_path
+        )
         if mutation_path is not None:
-            key = "updated_config" if self.config.wallet_discovery.mode == "auto_update" else "config_proposal"
+            key = (
+                "updated_config"
+                if self.config.wallet_discovery.mode == "auto_update"
+                else "config_proposal"
+            )
             files[key] = mutation_path
         return {name: str(path) for name, path in files.items()}
 
-    def build_mutated_config(self, payload: dict[str, Any], actions: list[BasketManagerAction]) -> dict[str, Any]:
+    def build_mutated_config(
+        self, payload: dict[str, Any], actions: list[BasketManagerAction]
+    ) -> dict[str, Any]:
         updated = deepcopy(payload)
         baskets = updated.get("baskets")
         if not isinstance(baskets, list):
             return updated
 
-        baskets_by_topic = {str(item.get("topic")): item for item in baskets if isinstance(item, dict)}
+        baskets_by_topic = {
+            str(item.get("topic")): item for item in baskets if isinstance(item, dict)
+        }
         for action in actions:
             basket = baskets_by_topic.get(action.basket)
             if not basket:
@@ -142,7 +191,9 @@ class WalletDiscoveryPipeline:
                     wallets.append(action.wallet_address)
                 continue
             if action.action in {"remove", "suspend"}:
-                basket["wallets"] = [wallet for wallet in wallets if str(wallet).lower() != wallet_key]
+                basket["wallets"] = [
+                    wallet for wallet in wallets if str(wallet).lower() != wallet_key
+                ]
         return updated
 
     def _write_mutated_config_if_enabled(
@@ -162,26 +213,45 @@ class WalletDiscoveryPipeline:
         payload = json.loads(source_path.read_text(encoding="utf-8"))
         mutated = self.build_mutated_config(payload, actions)
         if mode == "auto_update":
-            target_path = Path(config_output_path) if config_output_path else source_path
+            target_path = (
+                Path(config_output_path) if config_output_path else source_path
+            )
         else:
-            target_path = Path(config_output_path) if config_output_path else output_dir / "predictcel.proposed.json"
+            target_path = (
+                Path(config_output_path)
+                if config_output_path
+                else output_dir / "predictcel.proposed.json"
+            )
         self._write_json(target_path, mutated)
         return target_path
 
-    def _build_candidate(self, address: str, source: str, trades: list[dict[str, Any]]) -> WalletDiscoveryCandidate:
+    def _build_candidate(
+        self, address: str, source: str, trades: list[dict[str, Any]]
+    ) -> WalletDiscoveryCandidate:
         profile = classify_wallet_topics(trades, self.config.wallet_discovery.topics)
         total_trades = len(trades)
-        recent_trades = sum(1 for trade in trades if _age_seconds(trade) <= self.config.wallet_discovery.recent_window_seconds)
+        recent_trades = sum(
+            1
+            for trade in trades
+            if _age_seconds(trade) <= self.config.wallet_discovery.recent_window_seconds
+        )
         history_days = _observed_history_days(trades)
         avg_size = _average_trade_size(trades)
-        sample_score = min(total_trades / max(self.config.wallet_discovery.min_trades * 3, 1), 1.0)
-        recency_score = min(recent_trades / max(self.config.wallet_discovery.min_recent_trades * 3, 1), 1.0)
+        sample_score = min(
+            total_trades / max(self.config.wallet_discovery.min_trades * 3, 1), 1.0
+        )
+        recency_score = min(
+            recent_trades / max(self.config.wallet_discovery.min_recent_trades * 3, 1),
+            1.0,
+        )
         history_score = min(
             history_days / max(self.config.wallet_discovery.min_history_days, 1),
             1.0,
         )
         activity_score = _activity_score(trades)
-        size_band_score = _size_band_score(avg_size, self.config.wallet_discovery.min_avg_trade_size_usd)
+        size_band_score = _size_band_score(
+            avg_size, self.config.wallet_discovery.min_avg_trade_size_usd
+        )
         rejected = []
         if total_trades < self.config.wallet_discovery.min_trades:
             rejected.append("not enough total trades")
@@ -241,14 +311,22 @@ class WalletDiscoveryPipeline:
 
     def _safe_fetch_trades(self, address: str) -> list[dict[str, Any]]:
         try:
-            return self.source.fetch_wallet_trades(address, self.config.wallet_discovery.trade_limit_per_wallet)
+            return self.source.fetch_wallet_trades(
+                address, self.config.wallet_discovery.trade_limit_per_wallet
+            )
         except Exception:
             return []
 
-    def _build_source(self) -> DataApiWalletSource | DataApiMarketTradesWalletSource | CuratedWalletFileSource:
+    def _build_source(
+        self,
+    ) -> (
+        DataApiWalletSource | DataApiMarketTradesWalletSource | CuratedWalletFileSource
+    ):
         source = self.config.wallet_discovery.source
         if source == "data_api_market_trades":
-            return DataApiMarketTradesWalletSource(self.client, self._discovery_market_ids())
+            return DataApiMarketTradesWalletSource(
+                self.client, self._discovery_market_ids()
+            )
         if source == "curated_wallet_file":
             return CuratedWalletFileSource(
                 self.client,
@@ -283,7 +361,10 @@ class WalletDiscoveryPipeline:
 
 
 def _average_trade_size(trades: list[dict[str, Any]]) -> float:
-    sizes = [float(trade.get("size") or trade.get("sizeUsd") or trade.get("amount") or 0.0) for trade in trades]
+    sizes = [
+        float(trade.get("size") or trade.get("sizeUsd") or trade.get("amount") or 0.0)
+        for trade in trades
+    ]
     return sum(sizes) / len(sizes) if sizes else 0.0
 
 
@@ -314,9 +395,7 @@ def _estimated_trades_per_day(trades: list[dict[str, Any]]) -> float:
 
 def _observed_history_days(trades: list[dict[str, Any]]) -> int:
     trade_datetimes = [
-        trade_dt
-        for trade in trades
-        if (trade_dt := _trade_datetime(trade)) is not None
+        trade_dt for trade in trades if (trade_dt := _trade_datetime(trade)) is not None
     ]
     if not trade_datetimes:
         return 0

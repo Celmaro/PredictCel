@@ -15,7 +15,6 @@ from .models import MarketSnapshot
 __all__ = ["load_market_snapshots"]
 
 
-
 def load_market_snapshots(path: str) -> dict[str, MarketSnapshot]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     snapshots = {}
@@ -38,7 +37,11 @@ def load_market_snapshots(path: str) -> dict[str, MarketSnapshot]:
             yes_spread=float(item.get("yes_spread", 0.0)),
             no_spread=float(item.get("no_spread", 0.0)),
             orderbook_ready=bool(item.get("orderbook_ready", False)),
-            snapshot_time=_parse_datetime(item.get("snapshot_time") or item.get("timestamp") or item.get("created_at")),
+            snapshot_time=_parse_datetime(
+                item.get("snapshot_time")
+                or item.get("timestamp")
+                or item.get("created_at")
+            ),
             resolved_outcome=_parse_outcome(item),
             resolution_price=_parse_resolution_price(item),
         )

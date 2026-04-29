@@ -4,6 +4,7 @@ PredictCel data models.
 This module defines all data structures used throughout the PredictCel system,
 including wallet trades, market snapshots, quality scores, and execution results.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

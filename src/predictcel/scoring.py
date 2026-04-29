@@ -4,6 +4,7 @@ Wallet quality scoring and copyability calculation.
 This module provides algorithms for scoring wallet trading quality
 and calculating copyability scores for trade candidates.
 """
+
 from __future__ import annotations
 import math
 from collections import Counter, defaultdict
@@ -13,13 +14,13 @@ from .models import MarketSnapshot, WalletQuality, WalletTrade
 
 class WalletQualityScorer:
     """Scores wallets based on their trading activity quality.
-    
+
     Analyzes wallet trades against market data to determine:
     - Trade freshness (recency)
     - Price drift from entry
     - Sample size adequacy
     - Eligibility against filters
-    
+
     Attributes:
         filters: Configuration for trade filtering
         recency_half_life_seconds: Half-life for freshness decay calculation
@@ -27,40 +28,36 @@ class WalletQualityScorer:
         last_wallet_rejection_counts: Per-wallet rejection statistics
         last_missing_market_samples: Sample of markets not found
     """
-    
+
     def __init__(
-        self,
-        filters: FilterConfig,
-        recency_half_life_seconds: int | None = None
+        self, filters: FilterConfig, recency_half_life_seconds: int | None = None
     ) -> None:
         """Initialize the scorer with filter configuration.
-        
+
         Args:
             filters: Configuration for filtering trades
             recency_half_life_seconds: Optional override for freshness decay
         """
         self.filters = filters
-        self.recency_half_life_seconds = (
-            recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1)
+        self.recency_half_life_seconds = recency_half_life_seconds or max(
+            filters.max_trade_age_seconds // 2, 1
         )
         self.last_rejection_counts: dict[str, int] = {}
         self.last_wallet_rejection_counts: dict[str, dict[str, int]] = {}
         self.last_missing_market_samples: list[str] = []
 
     def score(
-        self,
-        trades: list[WalletTrade],
-        markets: dict[str, MarketSnapshot]
+        self, trades: list[WalletTrade], markets: dict[str, MarketSnapshot]
     ) -> dict[str, WalletQuality]:
         """Score all wallets based on their trading activity.
-        
+
         Groups trades by wallet, filters eligible trades, and calculates
         quality scores based on freshness, drift, and sample size.
-        
+
         Args:
             trades: List of all wallet trades to analyze
             markets: Dictionary of market_id -> MarketSnapshot
-            
+
         Returns:
             Dictionary mapping wallet addresses to WalletQuality scores
         """
@@ -99,13 +96,17 @@ class WalletQualityScorer:
                 for trade in eligible
                 if trade.market_id in markets
             ]
-            average_drift = sum(drifts) / len(drifts) if drifts else self.filters.max_price_drift
+            average_drift = (
+                sum(drifts) / len(drifts) if drifts else self.filters.max_price_drift
+            )
 
             freshness_score = freshness_decay(
                 average_age, self.recency_half_life_seconds
             )
             drift_score = (
-                max(0.0, 1.0 - (average_drift / self.filters.max_price_drift)) if self.filters.max_price_drift > 0 else 1.0
+                max(0.0, 1.0 - (average_drift / self.filters.max_price_drift))
+                if self.filters.max_price_drift > 0
+                else 1.0
                 if self.filters.max_price_drift
                 else 0.0
             )
@@ -151,16 +152,14 @@ class WalletQualityScorer:
         return scores
 
     def rejection_reason(
-        self,
-        trade: WalletTrade,
-        markets: dict[str, MarketSnapshot]
+        self, trade: WalletTrade, markets: dict[str, MarketSnapshot]
     ) -> str | None:
         """Determine why a trade is ineligible, if it is.
-        
+
         Args:
             trade: The trade to check
             markets: Available market data
-            
+
         Returns:
             Rejection reason string, or None if trade is eligible
         """
@@ -180,54 +179,43 @@ class WalletQualityScorer:
         return None
 
     def _is_eligible_trade(
-        self,
-        trade: WalletTrade,
-        markets: dict[str, MarketSnapshot]
+        self, trade: WalletTrade, markets: dict[str, MarketSnapshot]
     ) -> bool:
         """Check if a trade passes all eligibility filters.
-        
+
         Args:
             trade: The trade to check
             markets: Available market data
-            
+
         Returns:
             True if trade is eligible, False otherwise
         """
         return self.rejection_reason(trade, markets) is None
 
-    def _trade_drift(
-        self,
-        trade: WalletTrade,
-        market: MarketSnapshot
-    ) -> float:
+    def _trade_drift(self, trade: WalletTrade, market: MarketSnapshot) -> float:
         """Calculate price drift from trade entry to current market.
-        
+
         Args:
             trade: The historical trade
             market: Current market snapshot
-            
+
         Returns:
             Absolute price drift
         """
-        current_price = (
-            market.yes_ask if trade.side.upper() == "YES" else market.no_ask
-        )
+        current_price = market.yes_ask if trade.side.upper() == "YES" else market.no_ask
         return abs(current_price - trade.price)
 
 
-def freshness_decay(
-    age_seconds: float,
-    half_life_seconds: int | float
-) -> float:
+def freshness_decay(age_seconds: float, half_life_seconds: int | float) -> float:
     """Calculate freshness score using exponential decay.
-    
+
     The score decays exponentially based on age relative to half-life.
     At half-life age, score is 0.5. At 2x half-life, score is 0.25, etc.
-    
+
     Args:
         age_seconds: Age of the data in seconds
         half_life_seconds: Half-life for the decay calculation
-        
+
     Returns:
         Freshness score between 0.0 and 1.0
     """
@@ -235,7 +223,7 @@ def freshness_decay(
         return 0.0
     return max(
         0.0,
-        min(1.0, math.exp(-math.log(2) * max(age_seconds, 0.0) / half_life_seconds))
+        min(1.0, math.exp(-math.log(2) * max(age_seconds, 0.0) / half_life_seconds)),
     )
 
 
@@ -251,7 +239,7 @@ def compute_copyability_score(
     recency_half_life_seconds: int | None = None,
 ) -> float:
     """Compute overall copyability score for a trade candidate.
-    
+
     Combines multiple factors into a single copyability score:
     - Consensus ratio (30%): Agreement among source wallets
     - Wallet quality (25%): Average quality of source wallets
@@ -260,7 +248,7 @@ def compute_copyability_score(
     - Liquidity (8%): Market liquidity
     - Spread (7%): Bid-ask spread
     - Depth (5%): Order book depth
-    
+
     Args:
         consensus_ratio: Ratio of wallets agreeing on trade
         wallet_quality_score: Average quality of source wallets
@@ -271,16 +259,18 @@ def compute_copyability_score(
         side_depth_usd: Order book depth for the side
         filters: Configuration for thresholds
         recency_half_life_seconds: Optional override for freshness
-        
+
     Returns:
         Copyability score between 0.0 and 1.0
     """
     freshness_score = freshness_decay(
         average_age_seconds,
-        recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1)
+        recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1),
     )
     drift_score = (
-        max(0.0, 1.0 - (drift / filters.max_price_drift)) if filters.max_price_drift > 0 else 1.0
+        max(0.0, 1.0 - (drift / filters.max_price_drift))
+        if filters.max_price_drift > 0
+        else 1.0
         if filters.max_price_drift
         else 0.0
     )
@@ -290,10 +280,7 @@ def compute_copyability_score(
         else 0.0
     )
     spread_score = max(0.0, 1.0 - (side_spread / 0.1))
-    depth_score = min(
-        side_depth_usd / max(filters.min_position_size_usd, 1.0),
-        1.0
-    )
+    depth_score = min(side_depth_usd / max(filters.min_position_size_usd, 1.0), 1.0)
 
     score = (
         consensus_ratio * 0.3
@@ -307,14 +294,12 @@ def compute_copyability_score(
     return round(score, 4)
 
 
-def _dedupe_wallet_trades(
-    trades: list[WalletTrade]
-) -> list[WalletTrade]:
+def _dedupe_wallet_trades(trades: list[WalletTrade]) -> list[WalletTrade]:
     """Remove duplicate trades based on key fields.
-    
+
     Args:
         trades: List of trades that may contain duplicates
-        
+
     Returns:
         List with duplicates removed, keeping first occurrence
     """
@@ -325,7 +310,7 @@ def _dedupe_wallet_trades(
             trade.side.upper(),
             trade.price,
             trade.size_usd,
-            trade.age_seconds
+            trade.age_seconds,
         )
         deduped.setdefault(key, trade)
     return list(deduped.values())

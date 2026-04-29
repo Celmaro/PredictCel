@@ -14,7 +14,9 @@ class ArbitrageSidecar:
     def __init__(self, config: ArbitrageConfig) -> None:
         self.config = config
 
-    def _unique_markets(self, markets: dict[str, MarketSnapshot]) -> dict[str, MarketSnapshot]:
+    def _unique_markets(
+        self, markets: dict[str, MarketSnapshot]
+    ) -> dict[str, MarketSnapshot]:
         unique: dict[str, MarketSnapshot] = {}
         for market in markets.values():
             if market.market_id not in unique:
@@ -27,11 +29,18 @@ class ArbitrageSidecar:
             opportunity = self._evaluate_market(market)
             if opportunity is not None:
                 opportunities.append(opportunity)
-        return sorted(opportunities, key=lambda item: (item.quality_score, item.net_edge), reverse=True)
+        return sorted(
+            opportunities,
+            key=lambda item: (item.quality_score, item.net_edge),
+            reverse=True,
+        )
 
-    def scan_multi_market(self, markets: dict[str, MarketSnapshot]) -> list[ArbitrageOpportunity]:
+    def scan_multi_market(
+        self, markets: dict[str, MarketSnapshot]
+    ) -> list[ArbitrageOpportunity]:
         """Detect arbitrage opportunities across correlated markets using statistical analysis."""
         import pandas as pd
+
         opportunities = []
         market_list = list(self._unique_markets(markets).values())
 
@@ -59,14 +68,16 @@ class ArbitrageSidecar:
             corr_matrix = df.T.corr()
             high_corr_pairs = []
             for i in range(len(corr_matrix)):
-                for j in range(i+1, len(corr_matrix)):
+                for j in range(i + 1, len(corr_matrix)):
                     corr = corr_matrix.iloc[i, j]
                     if abs(corr) > 0.5:  # High correlation threshold
                         market1 = corr_matrix.index[i]
                         market2 = corr_matrix.index[j]
                         high_corr_pairs.append((market1, market2, corr))
 
-            logger.info(f"Found {len(high_corr_pairs)} highly correlated market pairs in topic {topic}")
+            logger.info(
+                f"Found {len(high_corr_pairs)} highly correlated market pairs in topic {topic}"
+            )
             for market1_id, market2_id, corr in high_corr_pairs:
                 market1 = markets[market1_id]
                 market2 = markets[market2_id]
@@ -78,29 +89,35 @@ class ArbitrageSidecar:
                 if abs(avg_price1 - avg_price2) > 0.1:  # Significant difference
                     combined_cost = avg_price1 + avg_price2
                     if combined_cost < 1.0:
-                        logger.info(f"Cross-asset arbitrage opportunity detected: {market1_id} + {market2_id} with correlation {corr:.2f}")
-                        opportunities.append(ArbitrageOpportunity(
-                            market_id=f"{market1_id}+{market2_id}",
-                            topic=topic,
-                            yes_ask=market1.yes_ask,
-                            no_ask=market1.no_ask,
-                            total_cost=combined_cost,
-                            gross_edge=1.0 - combined_cost,
-                            liquidity_usd=min(market1.liquidity_usd, market2.liquidity_usd),
-                            reason=f"cross-asset arbitrage with correlation {corr:.2f}",
-                            net_edge=1.0 - combined_cost,
-                            annualized_return=0.0,
-                            min_profitable_position=5.0,
-                            safe_position_size=10.0,
-                            quality_score=0.6,
-                            liquidity_score=0.5,
-                            speed_score=0.5,
-                            confidence_score=0.5,
-                            gas_cost_percentage=0.0,
-                            resolution_risk="MEDIUM",
-                            estimated_slippage=0.001,
-                            best_execution_path="multi-market",
-                        ))
+                        logger.info(
+                            f"Cross-asset arbitrage opportunity detected: {market1_id} + {market2_id} with correlation {corr:.2f}"
+                        )
+                        opportunities.append(
+                            ArbitrageOpportunity(
+                                market_id=f"{market1_id}+{market2_id}",
+                                topic=topic,
+                                yes_ask=market1.yes_ask,
+                                no_ask=market1.no_ask,
+                                total_cost=combined_cost,
+                                gross_edge=1.0 - combined_cost,
+                                liquidity_usd=min(
+                                    market1.liquidity_usd, market2.liquidity_usd
+                                ),
+                                reason=f"cross-asset arbitrage with correlation {corr:.2f}",
+                                net_edge=1.0 - combined_cost,
+                                annualized_return=0.0,
+                                min_profitable_position=5.0,
+                                safe_position_size=10.0,
+                                quality_score=0.6,
+                                liquidity_score=0.5,
+                                speed_score=0.5,
+                                confidence_score=0.5,
+                                gas_cost_percentage=0.0,
+                                resolution_risk="MEDIUM",
+                                estimated_slippage=0.001,
+                                best_execution_path="multi-market",
+                            )
+                        )
         return opportunities
 
     def _evaluate_market(self, market: MarketSnapshot) -> ArbitrageOpportunity | None:
@@ -122,20 +139,28 @@ class ArbitrageSidecar:
 
         min_profitable_position = max(
             self.config.min_profitable_position_usd,
-            fixed_cost / net_edge_rate if fixed_cost > 0 else self.config.min_profitable_position_usd,
+            fixed_cost / net_edge_rate
+            if fixed_cost > 0
+            else self.config.min_profitable_position_usd,
         )
         min_profitable_position = round(min_profitable_position, 4)
         if min_profitable_position > self.config.max_position_usd:
             return None
 
-        safe_position_size = min(self.config.max_position_usd, market.liquidity_usd * 0.05)
+        safe_position_size = min(
+            self.config.max_position_usd, market.liquidity_usd * 0.05
+        )
         safe_position_size = round(max(min_profitable_position, safe_position_size), 4)
-        fixed_cost_rate = fixed_cost / safe_position_size if safe_position_size > 0 else 1.0
+        fixed_cost_rate = (
+            fixed_cost / safe_position_size if safe_position_size > 0 else 1.0
+        )
         net_edge = round(net_edge_rate - fixed_cost_rate, 6)
         if net_edge <= 0:
             return None
 
-        annualized_return = self._annualized_return(net_edge, total_cost, market.minutes_to_resolution)
+        annualized_return = self._annualized_return(
+            net_edge, total_cost, market.minutes_to_resolution
+        )
         if annualized_return < self.config.target_annualized_return:
             return None
 
@@ -175,7 +200,9 @@ class ArbitrageSidecar:
             best_execution_path="direct",
         )
 
-    def _annualized_return(self, net_edge: float, total_cost: float, minutes_to_resolution: int) -> float:
+    def _annualized_return(
+        self, net_edge: float, total_cost: float, minutes_to_resolution: int
+    ) -> float:
         minutes = max(minutes_to_resolution, 1)
         capital_required = max(total_cost, 0.000001)
         annualized = (net_edge / capital_required) * (MINUTES_PER_YEAR / minutes)
@@ -200,7 +227,9 @@ class ArbitrageSidecar:
         orderbook_bonus = 0.15 if market.orderbook_ready else 0.0
         spread_penalty = min(max(market.yes_spread, market.no_spread) / 0.10, 0.35)
         edge_component = min(net_edge / max(self.config.min_gross_edge, 0.000001), 0.85)
-        return round(max(0.0, min(edge_component + orderbook_bonus - spread_penalty, 1.0)), 4)
+        return round(
+            max(0.0, min(edge_component + orderbook_bonus - spread_penalty, 1.0)), 4
+        )
 
     def _resolution_risk(self, minutes_to_resolution: int) -> str:
         if minutes_to_resolution <= 0:

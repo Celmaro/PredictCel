@@ -17,7 +17,10 @@ from predictcel.config import (
 )
 from predictcel.models import BasketManagerAction, WalletDiscoveryCandidate
 from predictcel.wallet_discovery import WalletDiscoveryPipeline
-from predictcel.wallet_sources import CuratedWalletFileSource, DataApiMarketTradesWalletSource
+from predictcel.wallet_sources import (
+    CuratedWalletFileSource,
+    DataApiMarketTradesWalletSource,
+)
 
 
 class FakeSource:
@@ -30,21 +33,57 @@ class FakeSource:
     def fetch_wallet_trades(self, address: str, limit: int):
         if address == "0xnew":
             return [
-                {"question": "NBA finals winner", "size": "20", "createdAt": "2999-01-01T00:00:00Z"},
-                {"question": "NFL playoff winner", "size": "30", "createdAt": "2999-01-01T00:00:00Z"},
-                {"question": "NBA MVP", "size": "40", "createdAt": "2999-01-01T00:00:00Z"},
+                {
+                    "question": "NBA finals winner",
+                    "size": "20",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
+                {
+                    "question": "NFL playoff winner",
+                    "size": "30",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
+                {
+                    "question": "NBA MVP",
+                    "size": "40",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
             ]
         if address == "0xregistry":
             return [
-                {"question": "NBA playoff seed", "size": "18", "createdAt": "2999-01-01T00:00:00Z"},
-                {"question": "NFL draft pick", "size": "22", "createdAt": "2999-01-01T00:00:00Z"},
-                {"question": "NBA regular season wins", "size": "28", "createdAt": "2999-01-01T00:00:00Z"},
+                {
+                    "question": "NBA playoff seed",
+                    "size": "18",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
+                {
+                    "question": "NFL draft pick",
+                    "size": "22",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
+                {
+                    "question": "NBA regular season wins",
+                    "size": "28",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
             ]
         if address == "0xexisting":
             return [
-                {"question": "NBA regular season wins", "size": "18", "createdAt": "2999-01-01T00:00:00Z"},
-                {"question": "NFL draft pick", "size": "22", "createdAt": "2999-01-01T00:00:00Z"},
-                {"question": "NBA playoff seed", "size": "28", "createdAt": "2999-01-01T00:00:00Z"},
+                {
+                    "question": "NBA regular season wins",
+                    "size": "18",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
+                {
+                    "question": "NFL draft pick",
+                    "size": "22",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
+                {
+                    "question": "NBA playoff seed",
+                    "size": "28",
+                    "createdAt": "2999-01-01T00:00:00Z",
+                },
             ]
         return []
 
@@ -66,8 +105,30 @@ def make_config(mode: str = "auto_update") -> AppConfig:
         arbitrage=ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000),
         wallet_trades_path="",
         market_snapshots_path="",
-        live_data=LiveDataConfig(False, "https://gamma-api.polymarket.com", "https://data-api.polymarket.com", "https://clob.polymarket.com", 10, 10, 15),
-        execution=ExecutionConfig(False, True, 0.7, 1, 10.0, 0.02, "FOK", 137, 0, PositionConfig(0.3, 0.1, 1440), ExposureConfig(100, 10), 3, 1.0),
+        live_data=LiveDataConfig(
+            False,
+            "https://gamma-api.polymarket.com",
+            "https://data-api.polymarket.com",
+            "https://clob.polymarket.com",
+            10,
+            10,
+            15,
+        ),
+        execution=ExecutionConfig(
+            False,
+            True,
+            0.7,
+            1,
+            10.0,
+            0.02,
+            "FOK",
+            137,
+            0,
+            PositionConfig(0.3, 0.1, 1440),
+            ExposureConfig(100, 10),
+            3,
+            1.0,
+        ),
         consensus=ConsensusConfig(),
         wallet_discovery=discovery,
     )
@@ -76,7 +137,9 @@ def make_config(mode: str = "auto_update") -> AppConfig:
 def make_pipeline(mode: str = "auto_update") -> WalletDiscoveryPipeline:
     pipeline = WalletDiscoveryPipeline(make_config(mode))
     pipeline.source = FakeSource()
-    pipeline.assignment_engine = BasketAssignmentEngine(pipeline.config.wallet_discovery)
+    pipeline.assignment_engine = BasketAssignmentEngine(
+        pipeline.config.wallet_discovery
+    )
     pipeline.manager = BasketManagerPlanner(pipeline.config)
     return pipeline
 
@@ -109,9 +172,14 @@ def test_pipeline_filters_existing_wallets_and_assigns_new_candidate() -> None:
     assert candidates[0].history_score > 0
     assert candidates[0].activity_score > 0
     assert candidates[0].size_band_score > 0
-    new_assignment = next(assignment for assignment in assignments if assignment.wallet_address == "0xnew")
+    new_assignment = next(
+        assignment for assignment in assignments if assignment.wallet_address == "0xnew"
+    )
     assert new_assignment.recommended_baskets == ["sports"]
-    assert any(action.action == "add" and action.wallet_address == "0xnew" for action in actions)
+    assert any(
+        action.action == "add" and action.wallet_address == "0xnew"
+        for action in actions
+    )
 
 
 def test_pipeline_rejects_hyper_fast_wallets() -> None:
@@ -127,7 +195,9 @@ def test_pipeline_rejects_hyper_fast_wallets() -> None:
 
     candidate = pipeline._build_candidate("0xfast", "fake", fast_trades)
 
-    assert "activity cadence looks too fast to copy safely" in candidate.rejected_reasons
+    assert (
+        "activity cadence looks too fast to copy safely" in candidate.rejected_reasons
+    )
     assert candidate.activity_score <= 0.2
 
 
@@ -165,7 +235,9 @@ def test_pipeline_rejects_short_history_wallets() -> None:
         {
             "question": f"NBA prop {index}",
             "size": "25",
-            "createdAt": (base - timedelta(hours=index)).isoformat().replace("+00:00", "Z"),
+            "createdAt": (base - timedelta(hours=index))
+            .isoformat()
+            .replace("+00:00", "Z"),
         }
         for index in range(3)
     ]
@@ -196,7 +268,16 @@ def test_pipeline_can_source_existing_wallets_from_registry_memberships() -> Non
 
 def test_auto_update_mutates_config_path_by_default(tmp_path) -> None:
     config_path = tmp_path / "predictcel.json"
-    config_path.write_text(json.dumps({"baskets": [{"topic": "sports", "wallets": ["0xexisting"], "quorum_ratio": 0.66}]}), encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "baskets": [
+                    {"topic": "sports", "wallets": ["0xexisting"], "quorum_ratio": 0.66}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     pipeline = make_pipeline("auto_update")
 
     reports = pipeline.write_reports(tmp_path / "reports", config_path)
@@ -208,14 +289,27 @@ def test_auto_update_mutates_config_path_by_default(tmp_path) -> None:
 
 def test_propose_config_writes_separate_proposal(tmp_path) -> None:
     config_path = tmp_path / "predictcel.json"
-    config_path.write_text(json.dumps({"baskets": [{"topic": "sports", "wallets": ["0xexisting"], "quorum_ratio": 0.66}]}), encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "baskets": [
+                    {"topic": "sports", "wallets": ["0xexisting"], "quorum_ratio": 0.66}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     pipeline = make_pipeline("propose_config")
 
     reports = pipeline.write_reports(tmp_path / "reports", config_path)
     original = json.loads(config_path.read_text(encoding="utf-8"))
-    proposed = json.loads((tmp_path / "reports" / "predictcel.proposed.json").read_text(encoding="utf-8"))
+    proposed = json.loads(
+        (tmp_path / "reports" / "predictcel.proposed.json").read_text(encoding="utf-8")
+    )
 
-    assert reports["config_proposal"] == str(tmp_path / "reports" / "predictcel.proposed.json")
+    assert reports["config_proposal"] == str(
+        tmp_path / "reports" / "predictcel.proposed.json"
+    )
     assert original["baskets"][0]["wallets"] == ["0xexisting"]
     assert proposed["baskets"][0]["wallets"] == ["0xexisting", "0xnew"]
 
@@ -224,7 +318,11 @@ def test_build_mutated_config_removes_wallets_for_remove_and_suspend_actions() -
     pipeline = make_pipeline()
     payload = {
         "baskets": [
-            {"topic": "sports", "wallets": ["0xexisting", "0xsuspend", "0xremove"], "quorum_ratio": 0.66}
+            {
+                "topic": "sports",
+                "wallets": ["0xexisting", "0xsuspend", "0xremove"],
+                "quorum_ratio": 0.66,
+            }
         ]
     }
     actions = [
@@ -284,7 +382,11 @@ def test_curated_wallet_file_source_collects_unique_wallet_candidates(tmp_path) 
         {
             "address": "0xaaa",
             "source": "polydata",
-            "raw": {"wallet": "0xAAA", "source": "polydata", "dominant_topic": "sports"},
+            "raw": {
+                "wallet": "0xAAA",
+                "source": "polydata",
+                "dominant_topic": "sports",
+            },
         },
         {
             "address": "0xbbb",
@@ -308,7 +410,9 @@ def test_pipeline_uses_market_trade_source_when_configured(monkeypatch) -> None:
         def fetch_wallet_trades(self, address: str, limit: int):
             return []
 
-    monkeypatch.setattr("predictcel.wallet_discovery.DataApiMarketTradesWalletSource", CapturingSource)
+    monkeypatch.setattr(
+        "predictcel.wallet_discovery.DataApiMarketTradesWalletSource", CapturingSource
+    )
     monkeypatch.setattr(
         WalletDiscoveryPipeline,
         "_discovery_market_ids",
@@ -400,7 +504,9 @@ def test_pipeline_uses_curated_wallet_file_source_when_configured(tmp_path) -> N
     pipeline = WalletDiscoveryPipeline(config)
 
     assert isinstance(pipeline.source, CuratedWalletFileSource)
-    assert [candidate["address"] for candidate in pipeline.source.fetch_candidates(10)] == [
+    assert [
+        candidate["address"] for candidate in pipeline.source.fetch_candidates(10)
+    ] == [
         "0xcurated1",
         "0xcurated2",
     ]

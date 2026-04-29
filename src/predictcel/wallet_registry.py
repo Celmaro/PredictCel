@@ -1,4 +1,5 @@
 """Wallet Registry v2 foundation helpers."""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -322,13 +323,17 @@ def build_live_basket_roster(
                 "wallet": membership.wallet,
                 "membership_tier": membership.tier,
                 "membership_rank": membership.rank,
-                "registry_status": registry_status_by_wallet.get(membership.wallet, "active"),
+                "registry_status": registry_status_by_wallet.get(
+                    membership.wallet, "active"
+                ),
                 "trust_seed": registry_trust_seed_by_wallet.get(membership.wallet, 0.0),
                 "selected": False,
                 "selected_tier": None,
                 "eligible_trade_count": sum(
                     1
-                    for trade in trades_by_topic_wallet.get((topic, membership.wallet), [])
+                    for trade in trades_by_topic_wallet.get(
+                        (topic, membership.wallet), []
+                    )
                     if trade.age_seconds <= config.filters.max_trade_age_seconds
                 ),
                 "eligible_market_count": len(
@@ -370,8 +375,12 @@ def build_live_basket_roster(
                     continue
                 if not _quality_allowed_for_tier(
                     tier=tier,
-                    source_type=registry_source_type_by_wallet.get(membership.wallet, "static_basket"),
-                    trust_seed=registry_trust_seed_by_wallet.get(membership.wallet, 0.0),
+                    source_type=registry_source_type_by_wallet.get(
+                        membership.wallet, "static_basket"
+                    ),
+                    trust_seed=registry_trust_seed_by_wallet.get(
+                        membership.wallet, 0.0
+                    ),
                     minimum_quality=config.wallet_discovery.min_assignment_score,
                     backup_is_live=controller.allow_backup_in_live_consensus,
                 ):
@@ -396,7 +405,9 @@ def build_live_basket_roster(
                 decision["selected"] = True
                 decision["selected_tier"] = tier
             selected_memberships[tier] = tier_memberships
-            selected_wallets[tier] = [membership.wallet for membership in tier_memberships]
+            selected_wallets[tier] = [
+                membership.wallet for membership in tier_memberships
+            ]
             if tier in live_tiers:
                 selected_live_wallets.extend(selected_wallets[tier])
             selected_set = {membership.wallet for membership in tier_memberships}
@@ -448,8 +459,7 @@ def build_live_basket_roster(
         roster[topic] = {
             "selected_wallets": selected_wallets,
             "wallet_decisions": [
-                wallet_decisions[membership.wallet]
-                for membership in ranked_memberships
+                wallet_decisions[membership.wallet] for membership in ranked_memberships
             ],
             "fresh_core_wallet_count": fresh_core_wallet_count,
             "live_eligible_wallet_count": live_eligible_wallet_count,
@@ -509,9 +519,7 @@ def recommend_basket_promotions(
         roster = live_roster_by_topic.get(topic, {})
         selected_wallets = roster.get("selected_wallets", {})
         recommended_wallets = tuple(
-            wallet
-            for tier in live_tiers
-            for wallet in selected_wallets.get(tier, [])
+            wallet for tier in live_tiers for wallet in selected_wallets.get(tier, [])
         )
         tracked_wallet_count = health.tracked_wallet_count if health is not None else 0
         fresh_active_wallets_7d = (
@@ -596,7 +604,11 @@ def rebalance_memberships_from_live_roster(
         selected_assignments: dict[str, tuple[str, int]] = {}
         rank = 1
         for tier in TIER_ORDER:
-            wallets = selected_wallets.get(tier, []) if isinstance(selected_wallets, dict) else []
+            wallets = (
+                selected_wallets.get(tier, [])
+                if isinstance(selected_wallets, dict)
+                else []
+            )
             for wallet in wallets:
                 normalized_wallet = str(wallet).strip()
                 if not normalized_wallet:
@@ -643,7 +655,9 @@ def rebalance_memberships_from_live_roster(
                 )
             )
 
-    updated_memberships.sort(key=lambda membership: (membership.topic, membership.rank, membership.wallet))
+    updated_memberships.sort(
+        key=lambda membership: (membership.topic, membership.rank, membership.wallet)
+    )
     if updated_memberships == memberships:
         return memberships
     store.upsert_basket_memberships(updated_memberships)
@@ -666,8 +680,7 @@ def apply_basket_manager_actions_to_memberships(
         else []
     )
     memberships_by_key = {
-        (membership.topic, membership.wallet): membership
-        for membership in memberships
+        (membership.topic, membership.wallet): membership for membership in memberships
     }
     next_rank_by_topic: dict[str, int] = defaultdict(int)
     for membership in memberships:
@@ -691,7 +704,11 @@ def apply_basket_manager_actions_to_memberships(
             if existing_membership is not None and existing_membership.active:
                 continue
             next_rank_by_topic[action.basket] += 1
-            joined_at = captured_at if existing_membership is None else existing_membership.joined_at
+            joined_at = (
+                captured_at
+                if existing_membership is None
+                else existing_membership.joined_at
+            )
             memberships_by_key[membership_key] = BasketMembership(
                 topic=action.basket,
                 wallet=action.wallet_address,
@@ -741,7 +758,9 @@ def apply_basket_manager_actions_to_memberships(
     )
     if updated_memberships:
         store.upsert_basket_memberships(updated_memberships)
-    updated_entries = sorted(registry_by_wallet.values(), key=lambda entry: entry.wallet)
+    updated_entries = sorted(
+        registry_by_wallet.values(), key=lambda entry: entry.wallet
+    )
     if updated_entries and hasattr(store, "upsert_wallet_registry_entries"):
         store.upsert_wallet_registry_entries(updated_entries)
     diagnostics = {
@@ -934,7 +953,8 @@ def _registry_status_from_freshness(
     probation_age_days = (captured_at - entry.first_seen_at).total_seconds() / 86_400
     if (
         probation_age_days < config.wallet_registry.min_probation_days
-        or eligible_trade_count < config.wallet_registry.min_eligible_trades_for_approval
+        or eligible_trade_count
+        < config.wallet_registry.min_eligible_trades_for_approval
     ):
         return "probation"
     if not _meets_registry_quality_floor(config, entry):

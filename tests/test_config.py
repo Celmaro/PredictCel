@@ -25,7 +25,9 @@ def test_example_config_loads() -> None:
 
 
 def test_load_config_rejects_invalid_basket_controller_slot_total(tmp_path) -> None:
-    payload = json.loads(Path("config/predictcel.example.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
     payload["basket_controller"] = {
         "tracked_basket_target": 6,
         "core_slots": 3,
@@ -41,7 +43,9 @@ def test_load_config_rejects_invalid_basket_controller_slot_total(tmp_path) -> N
 
 
 def test_load_config_rejects_invalid_wallet_discovery_source(tmp_path) -> None:
-    payload = json.loads(Path("config/predictcel.example.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
     payload["wallet_discovery"]["source"] = "unsupported_source"
     config_path = tmp_path / "invalid-wallet-discovery-source.json"
     config_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -51,7 +55,9 @@ def test_load_config_rejects_invalid_wallet_discovery_source(tmp_path) -> None:
 
 
 def test_load_config_rejects_curated_wallet_source_without_path(tmp_path) -> None:
-    payload = json.loads(Path("config/predictcel.example.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
     payload["wallet_discovery"]["source"] = "curated_wallet_file"
     payload["wallet_discovery"]["wallet_candidates_path"] = ""
     config_path = tmp_path / "invalid-curated-wallet-source.json"
@@ -62,7 +68,9 @@ def test_load_config_rejects_curated_wallet_source_without_path(tmp_path) -> Non
 
 
 def test_load_config_rejects_invalid_basket_promotion_thresholds(tmp_path) -> None:
-    payload = json.loads(Path("config/predictcel.example.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
     payload["basket_promotion"]["min_live_eligible_wallets"] = 6
     payload["basket_promotion"]["min_tracked_wallets"] = 5
     config_path = tmp_path / "invalid-basket-promotion.json"

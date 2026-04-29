@@ -4,6 +4,7 @@ Configuration loading and validation for PredictCel.
 This module handles loading configuration from JSON files and
 validating all parameters to ensure they meet requirements.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,7 +16,15 @@ from typing import Any
 def _default_topic_keywords() -> dict[str, list[str]]:
     """Default topic keywords for wallet discovery."""
     return {
-        "geopolitics": ["election", "trump", "biden", "war", "federal", "senate", "president"],
+        "geopolitics": [
+            "election",
+            "trump",
+            "biden",
+            "war",
+            "federal",
+            "senate",
+            "president",
+        ],
         "sports": ["nba", "nfl", "mlb", "nhl", "ufc", "soccer", "football", "tennis"],
         "crypto": ["btc", "eth", "sol", "bitcoin", "ethereum", "crypto"],
         "macro": ["economy", "gdp", "inflation", "rates", "stock", "fed", "recession"],
@@ -209,7 +218,6 @@ class ConfigError(ValueError):
     """Raised when configuration validation fails."""
 
 
-
 def _validate_range(
     value: float,
     min_val: float,
@@ -219,7 +227,6 @@ def _validate_range(
     """Validate that a value is within a range."""
     if not min_val <= value <= max_val:
         raise ConfigError(f"{name} must be between {min_val} and {max_val}.")
-
 
 
 def _validate_positive(
@@ -236,7 +243,6 @@ def _validate_positive(
             raise ConfigError(f"{name} must be positive.")
 
 
-
 def _validate_baskets(baskets: list[BasketRule]) -> None:
     """Validate basket configuration."""
     if not baskets:
@@ -249,7 +255,6 @@ def _validate_baskets(baskets: list[BasketRule]) -> None:
             raise ConfigError(f"Basket {basket.topic} has no wallets.")
 
 
-
 def _validate_filters(filters: FilterConfig) -> None:
     """Validate filter configuration."""
     _validate_positive(filters.max_trade_age_seconds, "max_trade_age_seconds")
@@ -259,18 +264,18 @@ def _validate_filters(filters: FilterConfig) -> None:
         raise ConfigError("Resolution window is invalid.")
 
 
-
 def _validate_consensus(config: ConsensusConfig) -> None:
     """Validate consensus configuration."""
     _validate_positive(config.recency_half_life_seconds, "recency_half_life_seconds")
     _validate_range(config.min_weighted_consensus, 0, 1, "min_weighted_consensus")
-    _validate_positive(config.confidence_prior_strength, "confidence_prior_strength", True)
+    _validate_positive(
+        config.confidence_prior_strength, "confidence_prior_strength", True
+    )
     _validate_range(config.min_confidence_score, 0, 1, "min_confidence_score")
     _validate_range(config.conflict_penalty_weight, 0, 1, "conflict_penalty_weight")
     _validate_positive(config.bankroll_usd, "bankroll_usd")
     _validate_range(config.kelly_fraction, 0, 1, "kelly_fraction")
     _validate_positive(config.max_suggested_position_usd, "max_suggested_position_usd")
-
 
 
 def _validate_market_regime(config: MarketRegimeConfig) -> None:
@@ -286,19 +291,27 @@ def _validate_market_regime(config: MarketRegimeConfig) -> None:
         raise ConfigError("unstable_penalty must be non-negative.")
 
 
-
 def _validate_wallet_discovery(config: WalletDiscoveryConfig) -> None:
     """Validate wallet discovery configuration."""
     valid_modes = {"report_only", "propose_config", "auto_update"}
     if config.mode not in valid_modes:
         raise ConfigError(f"mode must be one of: {', '.join(valid_modes)}.")
-    valid_sources = {"data_api_leaderboard", "data_api_market_trades", "curated_wallet_file"}
+    valid_sources = {
+        "data_api_leaderboard",
+        "data_api_market_trades",
+        "curated_wallet_file",
+    }
     if config.source not in valid_sources:
         raise ConfigError(
             f"wallet discovery source must be one of: {', '.join(sorted(valid_sources))}."
         )
-    if config.source == "curated_wallet_file" and not str(config.wallet_candidates_path).strip():
-        raise ConfigError("wallet_candidates_path is required when wallet discovery source is curated_wallet_file.")
+    if (
+        config.source == "curated_wallet_file"
+        and not str(config.wallet_candidates_path).strip()
+    ):
+        raise ConfigError(
+            "wallet_candidates_path is required when wallet discovery source is curated_wallet_file."
+        )
 
     _validate_positive(config.candidate_limit, "candidate_limit")
     _validate_positive(config.trade_limit_per_wallet, "trade_limit_per_wallet")
@@ -310,7 +323,6 @@ def _validate_wallet_discovery(config: WalletDiscoveryConfig) -> None:
     _validate_range(config.min_assignment_score, 0, 1, "min_assignment_score")
     _validate_positive(config.max_wallets_per_basket, "max_wallets_per_basket")
     _validate_positive(config.max_new_wallets_per_run, "max_new_wallets_per_run")
-
 
 
 def _validate_wallet_registry(config: WalletRegistryConfig) -> None:
@@ -331,7 +343,6 @@ def _validate_wallet_registry(config: WalletRegistryConfig) -> None:
 
     if config.suspend_after_hours < config.stale_after_hours:
         raise ConfigError("suspend_after_hours cannot be less than stale_after_hours.")
-
 
 
 def _validate_basket_controller(config: BasketControllerConfig) -> None:
@@ -359,7 +370,9 @@ def _validate_basket_controller(config: BasketControllerConfig) -> None:
         1,
         "min_weighted_participation_ratio",
     )
-    _validate_positive(config.min_active_eligible_wallets, "min_active_eligible_wallets")
+    _validate_positive(
+        config.min_active_eligible_wallets, "min_active_eligible_wallets"
+    )
     _validate_positive(config.min_aligned_wallet_count, "min_aligned_wallet_count")
     _validate_range(config.max_entry_price_band_abs, 0, 1, "max_entry_price_band_abs")
     _validate_positive(
@@ -380,15 +393,21 @@ def _validate_basket_controller(config: BasketControllerConfig) -> None:
     if config.force_refresh_if_fresh_core_below > config.core_slots:
         raise ConfigError("force_refresh_if_fresh_core_below cannot exceed core_slots.")
     if config.min_aligned_wallet_count > config.min_active_eligible_wallets:
-        raise ConfigError("min_aligned_wallet_count cannot exceed min_active_eligible_wallets.")
+        raise ConfigError(
+            "min_aligned_wallet_count cannot exceed min_active_eligible_wallets."
+        )
     if config.min_active_eligible_wallets > config.tracked_basket_target:
-        raise ConfigError("min_active_eligible_wallets cannot exceed tracked_basket_target.")
+        raise ConfigError(
+            "min_active_eligible_wallets cannot exceed tracked_basket_target."
+        )
 
 
 def _validate_basket_promotion(config: BasketPromotionConfig) -> None:
     """Validate basket promotion configuration."""
     _validate_positive(config.min_tracked_wallets, "min_tracked_wallets")
-    _validate_positive(config.min_fresh_active_wallets_7d, "min_fresh_active_wallets_7d")
+    _validate_positive(
+        config.min_fresh_active_wallets_7d, "min_fresh_active_wallets_7d"
+    )
     _validate_positive(config.min_live_eligible_wallets, "min_live_eligible_wallets")
     _validate_positive(config.min_fresh_core_wallets_24h, "min_fresh_core_wallets_24h")
     _validate_positive(config.min_eligible_trades_7d, "min_eligible_trades_7d")
@@ -399,7 +418,9 @@ def _validate_basket_promotion(config: BasketPromotionConfig) -> None:
             "min_fresh_active_wallets_7d cannot exceed min_tracked_wallets."
         )
     if config.min_live_eligible_wallets > config.min_tracked_wallets:
-        raise ConfigError("min_live_eligible_wallets cannot exceed min_tracked_wallets.")
+        raise ConfigError(
+            "min_live_eligible_wallets cannot exceed min_tracked_wallets."
+        )
     if config.min_fresh_core_wallets_24h > config.min_live_eligible_wallets:
         raise ConfigError(
             "min_fresh_core_wallets_24h cannot exceed min_live_eligible_wallets."
@@ -415,8 +436,9 @@ def _validate_registry_controller_compatibility(
     if basket_controller.allow_backup_in_live_consensus:
         live_tier_capacity += basket_controller.backup_slots
     if wallet_registry.max_cluster_members_in_live_tiers > live_tier_capacity:
-        raise ConfigError("max_cluster_members_in_live_tiers cannot exceed live basket capacity.")
-
+        raise ConfigError(
+            "max_cluster_members_in_live_tiers cannot exceed live basket capacity."
+        )
 
 
 def _validate_arbitrage(config: ArbitrageConfig) -> None:
@@ -427,11 +449,14 @@ def _validate_arbitrage(config: ArbitrageConfig) -> None:
     _validate_positive(config.gas_cost_per_tx_usd, "gas_cost_per_tx_usd", True)
     _validate_positive(config.settlement_tx_count, "settlement_tx_count", True)
     _validate_range(config.slippage_rate, 0, 1, "slippage_rate")
-    _validate_positive(config.min_profitable_position_usd, "min_profitable_position_usd", True)
+    _validate_positive(
+        config.min_profitable_position_usd, "min_profitable_position_usd", True
+    )
     _validate_positive(config.max_position_usd, "max_position_usd")
-    _validate_positive(config.target_annualized_return, "target_annualized_return", True)
+    _validate_positive(
+        config.target_annualized_return, "target_annualized_return", True
+    )
     _validate_positive(config.max_annualized_return, "max_annualized_return")
-
 
 
 def _validate_live_data(config: LiveDataConfig | None) -> None:
@@ -442,7 +467,6 @@ def _validate_live_data(config: LiveDataConfig | None) -> None:
     _validate_positive(config.market_limit, "market_limit")
     _validate_positive(config.trade_limit, "trade_limit")
     _validate_positive(config.request_timeout_seconds, "request_timeout_seconds")
-
 
 
 def _validate_execution(config: ExecutionConfig | None) -> None:
@@ -484,7 +508,6 @@ def _validate_execution(config: ExecutionConfig | None) -> None:
         )
 
 
-
 def _build_execution_config(payload: dict[str, Any]) -> ExecutionConfig:
     """Build ExecutionConfig from payload dictionary."""
     position_payload = payload.get("position", {})
@@ -523,10 +546,11 @@ def _build_execution_config(payload: dict[str, Any]) -> ExecutionConfig:
         max_retries=int(payload.get("max_retries", 3)),
         retry_base_delay_seconds=float(payload.get("retry_base_delay_seconds", 1.0)),
         min_signal_allocation_usd=float(
-            payload.get("min_signal_allocation_usd", min(float(payload["buy_amount_usd"]), 5.0))
+            payload.get(
+                "min_signal_allocation_usd", min(float(payload["buy_amount_usd"]), 5.0)
+            )
         ),
     )
-
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -568,7 +592,9 @@ def load_config(path: str | Path) -> AppConfig:
     live_data = LiveDataConfig(**live_data_payload) if live_data_payload else None
 
     execution_payload = payload.get("execution")
-    execution = _build_execution_config(execution_payload) if execution_payload else None
+    execution = (
+        _build_execution_config(execution_payload) if execution_payload else None
+    )
 
     _validate_baskets(baskets)
     _validate_filters(filters)

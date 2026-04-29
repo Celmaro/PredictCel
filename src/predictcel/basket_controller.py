@@ -1,4 +1,5 @@
 """Basket Controller v2 consensus helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -55,17 +56,25 @@ def evaluate_basket_consensus_gate(
         aligned_wallet_count / tracked_wallet_count if tracked_wallet_count else 0.0
     )
 
-    participating_weight = sum(wallet_weights.get(wallet, 0.0) for wallet in participating_wallets)
+    participating_weight = sum(
+        wallet_weights.get(wallet, 0.0) for wallet in participating_wallets
+    )
     aligned_weight = sum(wallet_weights.get(wallet, 0.0) for wallet in aligned_wallets)
     weighted_participation_ratio = (
         aligned_weight / participating_weight if participating_weight else 0.0
     )
 
-    aligned_prices = [trade.price for trade in aligned_trades if trade.wallet in tracked_wallet_set]
+    aligned_prices = [
+        trade.price for trade in aligned_trades if trade.wallet in tracked_wallet_set
+    ]
     price_band_abs = (
         max(aligned_prices) - min(aligned_prices) if len(aligned_prices) >= 2 else 0.0
     )
-    aligned_ages = [trade.age_seconds for trade in aligned_trades if trade.wallet in tracked_wallet_set]
+    aligned_ages = [
+        trade.age_seconds
+        for trade in aligned_trades
+        if trade.wallet in tracked_wallet_set
+    ]
     time_spread_seconds = (
         max(aligned_ages) - min(aligned_ages) if len(aligned_ages) >= 2 else 0
     )

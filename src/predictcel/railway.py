@@ -15,7 +15,9 @@ LIVE_MODES = {"live-data", "dry-run-trading", "live-trading"}
 
 
 def main() -> None:
-    interval_seconds = int(os.getenv("PREDICTCEL_RUN_INTERVAL_SECONDS", str(_default_interval_seconds())))
+    interval_seconds = int(
+        os.getenv("PREDICTCEL_RUN_INTERVAL_SECONDS", str(_default_interval_seconds()))
+    )
     run_once = _env_enabled("PREDICTCEL_RUN_ONCE", default=False)
     interval = max(interval_seconds, 30)
 
@@ -23,7 +25,13 @@ def main() -> None:
         started = time.perf_counter()
         try:
             _run_once_from_env()
-            _log_event("predictcel_run_complete", {"duration_ms": _elapsed_ms(started), "next_interval_seconds": 0 if run_once else interval})
+            _log_event(
+                "predictcel_run_complete",
+                {
+                    "duration_ms": _elapsed_ms(started),
+                    "next_interval_seconds": 0 if run_once else interval,
+                },
+            )
         except Exception as exc:  # pragma: no cover - defensive worker boundary
             _log_event(
                 "predictcel_run_error",
@@ -46,7 +54,9 @@ def _run_once_from_env() -> None:
     argv = ["predictcel", "--config", config_path, "--db", db_path]
     if mode:
         if mode not in VALID_MODES:
-            raise ValueError(f"Invalid PREDICTCEL_MODE={mode!r}. Expected one of {sorted(VALID_MODES)}.")
+            raise ValueError(
+                f"Invalid PREDICTCEL_MODE={mode!r}. Expected one of {sorted(VALID_MODES)}."
+            )
         if mode in LIVE_MODES:
             argv.append("--live-data")
         if mode in {"dry-run-trading", "live-trading"}:
@@ -76,7 +86,9 @@ def _run_once_from_env() -> None:
 
 def _default_interval_seconds() -> int:
     mode = os.getenv("PREDICTCEL_MODE", "").strip().lower()
-    legacy_live = _env_enabled("PREDICTCEL_LIVE_DATA", default=False) or _env_enabled("PREDICTCEL_LIVE_TRADING", default=False)
+    legacy_live = _env_enabled("PREDICTCEL_LIVE_DATA", default=False) or _env_enabled(
+        "PREDICTCEL_LIVE_TRADING", default=False
+    )
     return 60 if mode in LIVE_MODES or legacy_live else 300
 
 
@@ -102,7 +114,13 @@ def _elapsed_ms(started: float) -> int:
 
 
 def _log_event(event: str, payload: dict) -> None:
-    print(json.dumps({"event": event, "ts": datetime.now(UTC).isoformat(), **payload}, sort_keys=True), flush=True)
+    print(
+        json.dumps(
+            {"event": event, "ts": datetime.now(UTC).isoformat(), **payload},
+            sort_keys=True,
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

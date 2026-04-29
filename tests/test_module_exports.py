@@ -5,7 +5,11 @@ def test_public_module_exports_match_defined_symbols() -> None:
     expected_exports = {
         "predictcel.basket_manager": ["BasketManagerPlanner"],
         "predictcel.copy_engine": ["CopyEngine"],
-        "predictcel.discovery": ["WalletCandidate", "score_wallet_candidates", "candidates_as_dicts"],
+        "predictcel.discovery": [
+            "WalletCandidate",
+            "score_wallet_candidates",
+            "candidates_as_dicts",
+        ],
         "predictcel.main": ["main"],
         "predictcel.markets": ["load_market_snapshots"],
         "predictcel.wallet_discovery": ["WalletDiscoveryPipeline"],
