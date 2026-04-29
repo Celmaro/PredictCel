@@ -36,6 +36,7 @@ from .scoring import WalletQualityScorer
 from .storage import SignalStore
 from .wallet_discovery import WalletDiscoveryPipeline
 from .wallet_registry import (
+    apply_basket_manager_actions_to_memberships,
     build_live_basket_roster,
     compute_basket_health_from_static_memberships,
     ingest_wallet_discovery_inputs,
@@ -137,12 +138,13 @@ def main() -> None:
         },
     )
     metrics.increment("cycles_total")
+    store = SignalStore(args.db)
 
     started = time.perf_counter()
     live_input_diagnostics: dict[str, Any] = {}
     if use_live_data:
         try:
-            trades, markets, live_input_diagnostics = _load_live_inputs(config)
+            trades, markets, live_input_diagnostics = _load_live_inputs(config, store)
         except Exception as exc:
             logger.warning(
                 "Live data fetch failed, falling back to file data",
@@ -166,7 +168,6 @@ def main() -> None:
     metrics.set("markets_loaded", len(markets))
     metrics.set("trades_loaded", len(trades))
 
-    store = SignalStore(args.db)
     wallet_discovery_auto_feed = _auto_feed_wallet_registry_from_discovery(config, store)
     wallet_registry_summary = _build_wallet_registry_summary(config, store, trades)
     wallet_registry_summary["auto_feed"] = wallet_discovery_auto_feed
@@ -367,6 +368,9 @@ def _run_wallet_discovery(argv: list[str]) -> None:
     args = build_discovery_parser().parse_args(argv)
     config = load_config(args.config)
     pipeline = WalletDiscoveryPipeline(config)
+    store = SignalStore(args.db) if args.db else None
+    if store is not None:
+        _configure_discovery_pipeline_current_wallets(config, store, pipeline)
     results = pipeline.run()
     files = pipeline.write_reports(
         args.output_dir,
@@ -374,7 +378,7 @@ def _run_wallet_discovery(argv: list[str]) -> None:
         args.config_output,
         results=results,
     )
-    candidates, assignments, _ = results
+    candidates, assignments, actions = results
     registry_ingestion = {
         "enabled": bool(args.db),
         "persisted": False,
@@ -382,10 +386,11 @@ def _run_wallet_discovery(argv: list[str]) -> None:
         "discovered_wallets_ingested": 0,
         "new_registry_entries": 0,
         "new_explorer_memberships": 0,
+        "manager_actions_applied": 0,
+        "manager_action_counts": {},
         "skipped_existing_wallets": 0,
     }
     if args.db and _wallet_discovery_registry_persistence_enabled(config):
-        store = SignalStore(args.db)
         before_registry_wallets = {
             entry.wallet for entry in store.load_wallet_registry_entries()
         }
@@ -411,6 +416,11 @@ def _run_wallet_discovery(argv: list[str]) -> None:
             for membership in updated_memberships
             if membership.tier == "explorer"
         }
+        _, action_diagnostics = apply_basket_manager_actions_to_memberships(
+            config,
+            store,
+            actions,
+        )
         registry_ingestion = {
             "enabled": True,
             "persisted": True,
@@ -420,6 +430,8 @@ def _run_wallet_discovery(argv: list[str]) -> None:
             "new_explorer_memberships": len(
                 after_explorer_memberships - before_explorer_memberships
             ),
+            "manager_actions_applied": int(action_diagnostics["actions_applied"]),
+            "manager_action_counts": action_diagnostics["action_counts"],
             "skipped_existing_wallets": len(
                 accepted_wallets & before_registry_wallets
             ),
@@ -455,6 +467,8 @@ def _auto_feed_wallet_registry_from_discovery(
         "discovered_wallets_ingested": 0,
         "new_registry_entries": 0,
         "new_explorer_memberships": 0,
+        "manager_actions_applied": 0,
+        "manager_action_counts": {},
         "skipped_existing_wallets": 0,
         "error": None,
     }
@@ -463,7 +477,8 @@ def _auto_feed_wallet_registry_from_discovery(
 
     try:
         pipeline = WalletDiscoveryPipeline(config)
-        candidates, assignments, _ = pipeline.run()
+        _configure_discovery_pipeline_current_wallets(config, store, pipeline)
+        candidates, assignments, actions = pipeline.run()
         before_registry_wallets = {
             entry.wallet for entry in store.load_wallet_registry_entries()
         }
@@ -489,6 +504,11 @@ def _auto_feed_wallet_registry_from_discovery(
             for membership in updated_memberships
             if membership.tier == "explorer"
         }
+        _, action_diagnostics = apply_basket_manager_actions_to_memberships(
+            config,
+            store,
+            actions,
+        )
         diagnostics.update(
             {
                 "ran": True,
@@ -497,6 +517,8 @@ def _auto_feed_wallet_registry_from_discovery(
                 "new_explorer_memberships": len(
                     after_explorer_memberships - before_explorer_memberships
                 ),
+                "manager_actions_applied": int(action_diagnostics["actions_applied"]),
+                "manager_action_counts": action_diagnostics["action_counts"],
                 "skipped_existing_wallets": len(
                     accepted_wallets & before_registry_wallets
                 ),
@@ -517,6 +539,76 @@ def _wallet_discovery_registry_persistence_enabled(config: Any) -> bool:
         and getattr(wallet_discovery, "enabled", False)
         and getattr(wallet_discovery, "mode", "auto_update") == "auto_update"
     )
+
+
+def _configure_discovery_pipeline_current_wallets(
+    config: Any,
+    store: SignalStore,
+    pipeline: Any,
+) -> None:
+    if not hasattr(pipeline, "set_current_wallets_by_topic"):
+        return
+    pipeline.set_current_wallets_by_topic(
+        _current_wallets_by_topic_for_discovery(config, store)
+    )
+
+
+def _current_wallets_by_topic_for_discovery(
+    config: Any,
+    store: SignalStore,
+) -> dict[str, set[str]]:
+    if not getattr(config.wallet_registry, "enabled", False):
+        return {
+            basket.topic: {str(wallet).lower() for wallet in basket.wallets}
+            for basket in config.baskets
+        }
+
+    memberships = store.load_basket_memberships()
+    current_by_topic: dict[str, set[str]] = defaultdict(set)
+    for membership in memberships:
+        if membership.active:
+            current_by_topic[membership.topic].add(membership.wallet.lower())
+    if current_by_topic:
+        return dict(current_by_topic)
+    return {
+        basket.topic: {str(wallet).lower() for wallet in basket.wallets}
+        for basket in config.baskets
+    }
+
+
+def _wallet_topics_for_live_inputs(
+    config: Any,
+    store: SignalStore | None = None,
+) -> tuple[dict[str, list[str]], str]:
+    if (
+        getattr(config.wallet_registry, "enabled", False)
+        and store is not None
+        and hasattr(store, "load_basket_memberships")
+    ):
+        memberships = store.load_basket_memberships()
+        raw_topic_by_wallet: dict[str, list[str]] = {}
+        for membership in memberships:
+            if not getattr(membership, "active", False):
+                continue
+            wallet = str(membership.wallet).strip()
+            if not _is_evm_address(wallet):
+                continue
+            topics = raw_topic_by_wallet.setdefault(wallet, [])
+            if membership.topic not in topics:
+                topics.append(membership.topic)
+        if raw_topic_by_wallet:
+            return raw_topic_by_wallet, "registry_memberships"
+
+    raw_topic_by_wallet = {}
+    for basket in config.baskets:
+        for wallet in basket.wallets:
+            normalized_wallet = str(wallet).strip()
+            if not _is_evm_address(normalized_wallet):
+                continue
+            topics = raw_topic_by_wallet.setdefault(normalized_wallet, [])
+            if basket.topic not in topics:
+                topics.append(basket.topic)
+    return raw_topic_by_wallet, "config_baskets"
 
 
 def _build_wallet_registry_summary(
@@ -780,7 +872,7 @@ def _portfolio_summary(store: SignalStore, config: Any) -> dict:
     )
 
 
-def _load_live_inputs(config):
+def _load_live_inputs(config, store: SignalStore | None = None):
     if config.live_data is None:
         raise ValueError("--live-data was requested but live_data is not configured.")
     client = PolymarketPublicClient(
@@ -790,16 +882,18 @@ def _load_live_inputs(config):
         config.live_data.request_timeout_seconds,
     )
 
-    raw_topic_by_wallet: dict[str, list[str]] = {}
     invalid_wallets: list[str] = []
-    for basket in config.baskets:
-        for wallet in basket.wallets:
-            if not _is_evm_address(wallet):
+    raw_topic_by_wallet, wallet_source = _wallet_topics_for_live_inputs(config, store)
+    if wallet_source == "config_baskets":
+        for basket in config.baskets:
+            for wallet in basket.wallets:
+                if not _is_evm_address(wallet):
+                    invalid_wallets.append(wallet)
+    elif store is not None and hasattr(store, "load_basket_memberships"):
+        for membership in store.load_basket_memberships():
+            wallet = str(membership.wallet).strip()
+            if wallet and not _is_evm_address(wallet):
                 invalid_wallets.append(wallet)
-                continue
-            topics = raw_topic_by_wallet.setdefault(wallet, [])
-            if basket.topic not in topics:
-                topics.append(basket.topic)
 
     wallet_payloads = _fetch_wallet_payloads(
         client,
@@ -877,7 +971,8 @@ def _load_live_inputs(config):
             relevant_snapshots,
         )
     diagnostics = {
-        "requested_wallets": sum(len(basket.wallets) for basket in config.baskets),
+        "wallet_source": wallet_source,
+        "requested_wallets": len(raw_topic_by_wallet),
         "valid_wallets": len(raw_topic_by_wallet),
         "skipped_invalid_wallets": len(invalid_wallets),
         "sample_skipped_invalid_wallets": invalid_wallets[:5],

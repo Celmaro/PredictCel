@@ -37,7 +37,27 @@ class WalletDiscoveryPipeline:
         )
         self.source = self._build_source()
         self.assignment_engine = BasketAssignmentEngine(config.wallet_discovery)
-        self.manager = BasketManagerPlanner(config)
+        self.current_wallets_by_topic = {
+            basket.topic: {wallet.lower() for wallet in basket.wallets}
+            for basket in config.baskets
+        }
+        self.manager = BasketManagerPlanner(
+            config,
+            current_wallets_by_topic=self.current_wallets_by_topic,
+        )
+
+    def set_current_wallets_by_topic(
+        self,
+        current_wallets_by_topic: dict[str, set[str] | list[str]],
+    ) -> None:
+        self.current_wallets_by_topic = {
+            str(topic): {str(wallet).lower() for wallet in wallets}
+            for topic, wallets in current_wallets_by_topic.items()
+        }
+        self.manager = BasketManagerPlanner(
+            self.config,
+            current_wallets_by_topic=self.current_wallets_by_topic,
+        )
 
     def run(self) -> tuple[list[WalletDiscoveryCandidate], list[BasketAssignment], list[BasketManagerAction]]:
         raw_candidates = self.source.fetch_candidates(self.config.wallet_discovery.candidate_limit)
@@ -208,7 +228,11 @@ class WalletDiscoveryPipeline:
         return extract_trade_market_ids(wallet_payloads)
 
     def _existing_wallets(self) -> set[str]:
-        return {wallet.lower() for basket in self.config.baskets for wallet in basket.wallets}
+        return {
+            wallet.lower()
+            for wallets in self.current_wallets_by_topic.values()
+            for wallet in wallets
+        }
 
     def _write_json(self, path: Path, payload: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

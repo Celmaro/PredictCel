@@ -18,9 +18,21 @@ logger = logging.getLogger(__name__)
 
 
 class BasketManagerPlanner:
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        current_wallets_by_topic: dict[str, set[str]] | None = None,
+    ) -> None:
         self.config = config
-        self.current_by_topic = {basket.topic: {wallet.lower() for wallet in basket.wallets} for basket in config.baskets}
+        if current_wallets_by_topic is None:
+            current_wallets_by_topic = {
+                basket.topic: {wallet.lower() for wallet in basket.wallets}
+                for basket in config.baskets
+            }
+        self.current_by_topic = {
+            str(topic): {str(wallet).lower() for wallet in wallets}
+            for topic, wallets in current_wallets_by_topic.items()
+        }
 
     def plan(self, assignments: list[BasketAssignment]) -> list[BasketManagerAction]:
         actions: list[BasketManagerAction] = []

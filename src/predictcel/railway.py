@@ -6,7 +6,7 @@ import sys
 import time
 import traceback
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .main import main as run_cli
 
@@ -86,7 +86,7 @@ def _default_db_path() -> str:
         return explicit
     volume_mount = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
     if volume_mount:
-        return str(Path(volume_mount) / "predictcel.db")
+        return str(PurePosixPath(volume_mount) / "predictcel.db")
     return "/tmp/predictcel.db"
 
 

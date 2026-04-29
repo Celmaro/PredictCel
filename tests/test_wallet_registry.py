@@ -7,6 +7,7 @@ import pytest
 from predictcel.config import load_config
 from predictcel.models import (
     BasketAssignment,
+    BasketManagerAction,
     BasketMembership,
     WalletDiscoveryCandidate,
     WalletRegistryEntry,
@@ -14,6 +15,7 @@ from predictcel.models import (
     WalletTrade,
 )
 from predictcel.wallet_registry import (
+    apply_basket_manager_actions_to_memberships,
     build_live_basket_roster,
     compute_basket_health_from_static_memberships,
     ingest_wallet_discovery_inputs,
@@ -537,6 +539,25 @@ def test_build_live_basket_roster_excludes_probation_from_core_and_rotating() ->
         "backup": ["w_probation"],
         "explorer": ["w_active_3"],
     }
+    probation_decision = next(
+        decision
+        for decision in roster["geopolitics"]["wallet_decisions"]
+        if decision["wallet"] == "w_probation"
+    )
+    assert probation_decision == {
+        "wallet": "w_probation",
+        "membership_tier": "core",
+        "membership_rank": 1,
+        "registry_status": "probation",
+        "selected": True,
+        "selected_tier": "backup",
+        "eligible_trade_count": 1,
+        "eligible_market_count": 1,
+        "decision_reasons": [
+            "status_ineligible_for_core",
+            "status_ineligible_for_rotating",
+        ],
+    }
 
 
 def test_build_live_basket_roster_excludes_probation_from_backup_when_backup_is_live() -> None:
@@ -588,6 +609,89 @@ def test_build_live_basket_roster_excludes_probation_from_backup_when_backup_is_
         "backup": ["w_active_3"],
         "explorer": ["w_probation"],
     }
+    probation_decision = next(
+        decision
+        for decision in roster["geopolitics"]["wallet_decisions"]
+        if decision["wallet"] == "w_probation"
+    )
+    assert probation_decision == {
+        "wallet": "w_probation",
+        "membership_tier": "backup",
+        "membership_rank": 3,
+        "registry_status": "probation",
+        "selected": True,
+        "selected_tier": "explorer",
+        "eligible_trade_count": 1,
+        "eligible_market_count": 1,
+        "decision_reasons": [
+            "slots_filled_for_core",
+            "slots_filled_for_rotating",
+            "status_ineligible_for_backup",
+        ],
+    }
+
+
+def test_build_live_basket_roster_reports_cluster_and_slot_exclusions() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    captured_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    config = replace(
+        config,
+        basket_controller=replace(
+            config.basket_controller,
+            core_slots=1,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=0,
+        ),
+        wallet_registry=replace(
+            config.wallet_registry,
+            max_cluster_overlap_ratio=0.8,
+            max_cluster_members_in_live_tiers=1,
+        ),
+    )
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet=wallet,
+            tier="core",
+            rank=index,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        )
+        for index, wallet in enumerate(["w1", "w2", "w3", "w4"], start=1)
+    ]
+    trades = [
+        WalletTrade("w2", "geopolitics", "m1", "YES", 0.51, 20.0, 30),
+        WalletTrade("w2", "geopolitics", "m2", "YES", 0.52, 20.0, 45),
+        WalletTrade("w2", "geopolitics", "m3", "YES", 0.53, 20.0, 75),
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.51, 20.0, 60),
+        WalletTrade("w1", "geopolitics", "m2", "YES", 0.52, 20.0, 90),
+        WalletTrade("w1", "geopolitics", "m3", "YES", 0.53, 20.0, 120),
+        WalletTrade("w3", "geopolitics", "m4", "YES", 0.54, 20.0, 150),
+        WalletTrade("w4", "geopolitics", "m5", "YES", 0.55, 20.0, 180),
+    ]
+
+    roster = build_live_basket_roster(config, memberships, trades, captured_at=captured_at)
+
+    decisions = {
+        decision["wallet"]: decision
+        for decision in roster["geopolitics"]["wallet_decisions"]
+    }
+    assert decisions["w2"]["selected_tier"] == "core"
+    assert decisions["w1"]["selected_tier"] == "backup"
+    assert decisions["w1"]["decision_reasons"] == [
+        "slots_filled_for_core",
+        "cluster_overlap_limit_for_rotating",
+    ]
+    assert decisions["w4"]["selected"] is False
+    assert decisions["w4"]["decision_reasons"] == [
+        "slots_filled_for_core",
+        "slots_filled_for_rotating",
+        "slots_filled_for_backup",
+    ]
 
 
 def test_rebalance_memberships_from_live_roster_rewrites_tiers_and_deactivates_overflow() -> None:
@@ -878,7 +982,80 @@ def test_ingest_wallet_discovery_inputs_adds_registry_entries_and_explorer_membe
     assert new_membership.rank == 2
     assert new_membership.active is True
     assert new_membership.joined_at == captured_at
-    assert new_membership.promotion_reason == "wallet discovery assignment"
+
+
+def test_apply_basket_manager_actions_to_memberships_adds_and_deactivates_registry_memberships() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    captured_at = datetime(2026, 1, 20, tzinfo=UTC)
+    store = FakeStore()
+    store.registry_entries = [
+        WalletRegistryEntry(
+            wallet="w_existing",
+            source_type="static_basket",
+            source_ref="config.baskets",
+            trust_seed=1.0,
+            status="active",
+            first_seen_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    ]
+    store.memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w_existing",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        )
+    ]
+    actions = [
+        BasketManagerAction("add", "geopolitics", "w_new", 0.8, "HIGH", "auto-update eligible recommendation"),
+        BasketManagerAction("suspend", "geopolitics", "w_existing", 0.3, "LOW", "existing wallet confidence fell to LOW"),
+        BasketManagerAction("observe", "geopolitics", "w_observe", 0.2, "LOW", "observe only"),
+    ]
+
+    memberships, diagnostics = apply_basket_manager_actions_to_memberships(
+        config,
+        store,
+        actions,
+        captured_at=captured_at,
+    )
+
+    assert diagnostics == {
+        "actions_applied": 2,
+        "action_counts": {"add": 1, "suspend": 1},
+        "memberships_activated": 1,
+        "memberships_deactivated": 1,
+    }
+    assert {entry.wallet for entry in store.registry_entries} == {"w_existing", "w_new"}
+    assert {
+        (membership.topic, membership.wallet): (
+            membership.tier,
+            membership.active,
+            membership.demotion_reason,
+        )
+        for membership in memberships
+    } == {
+        ("geopolitics", "w_existing"): (
+            "core",
+            False,
+            "existing wallet confidence fell to LOW",
+        ),
+        ("geopolitics", "w_new"): (
+            "explorer",
+            True,
+            "",
+        ),
+    }
+    new_membership = next(
+        membership
+        for membership in memberships
+        if membership.topic == "geopolitics" and membership.wallet == "w_new"
+    )
+    assert new_membership.promotion_reason == "auto-update eligible recommendation"
 
 
 def test_rebalance_memberships_from_live_roster_demotes_stale_wallets_out_of_live_tiers() -> None:

@@ -11,14 +11,17 @@ from predictcel.main import (
     _compact_cycle_output,
     _creates_or_updates_paper_position,
     _filter_duplicate_candidates,
+    _load_live_inputs,
     _mark_execution_intents_seen,
     _probe_token_lookup,
     _probe_token_orderbook,
     _propagate_canonical_market_updates,
     _run_wallet_discovery,
+    _wallet_topics_for_live_inputs,
 )
 from predictcel.models import (
     BasketAssignment,
+    BasketManagerAction,
     BasketHealth,
     BasketMembership,
     CopyCandidate,
@@ -114,6 +117,23 @@ class DiscoveryStore:
         if topic is None:
             return list(self.memberships)
         return [membership for membership in self.memberships if membership.topic == topic]
+
+
+class FakeLiveClient:
+    def __init__(self, *args, **kwargs) -> None:
+        del args, kwargs
+
+    def fetch_active_markets(self, limit: int):
+        del limit
+        return []
+
+    def fetch_markets_by_identifiers(self, identifiers):
+        del identifiers
+        return []
+
+    def fetch_markets_by_slugs(self, slugs):
+        del slugs
+        return []
 
 
 def make_result(status: str, order_id: str = "order_123") -> ExecutionResult:
@@ -251,6 +271,101 @@ def test_discover_wallets_delegates_to_main(monkeypatch) -> None:
     ]
 
 
+def test_wallet_topics_for_live_inputs_prefers_active_registry_memberships() -> None:
+    registry_wallet = "0x1111111111111111111111111111111111111111"
+    static_wallet = "0x2222222222222222222222222222222222222222"
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        baskets=[BasketRule(topic="sports", wallets=[static_wallet], quorum_ratio=0.66)],
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+            seed_from_baskets=False,
+        ),
+    )
+    store = DiscoveryStore(
+        memberships=[
+            BasketMembership(
+                topic="sports",
+                wallet=registry_wallet,
+                tier="core",
+                rank=1,
+                active=True,
+                joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            ),
+            BasketMembership(
+                topic="sports",
+                wallet=static_wallet,
+                tier="backup",
+                rank=2,
+                active=False,
+                joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="inactive",
+            ),
+        ]
+    )
+
+    wallet_topics, source = _wallet_topics_for_live_inputs(config, store)
+
+    assert source == "registry_memberships"
+    assert wallet_topics == {registry_wallet: ["sports"]}
+
+
+def test_load_live_inputs_uses_registry_memberships_for_wallet_fetches(monkeypatch) -> None:
+    registry_wallet = "0x1111111111111111111111111111111111111111"
+    static_wallet = "0x2222222222222222222222222222222222222222"
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        baskets=[BasketRule(topic="sports", wallets=[static_wallet], quorum_ratio=0.66)],
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+            seed_from_baskets=False,
+        ),
+    )
+    store = DiscoveryStore(
+        memberships=[
+            BasketMembership(
+                topic="sports",
+                wallet=registry_wallet,
+                tier="core",
+                rank=1,
+                active=True,
+                joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+        ]
+    )
+    observed: dict[str, object] = {}
+
+    def fake_fetch_wallet_payloads(client, wallets, limit):
+        del client, limit
+        observed["wallets"] = list(wallets)
+        return {wallet: [] for wallet in wallets}
+
+    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FakeLiveClient)
+    monkeypatch.setattr("predictcel.main._fetch_wallet_payloads", fake_fetch_wallet_payloads)
+    monkeypatch.setattr("predictcel.main.build_wallet_trades", lambda payloads, topics: [])
+    monkeypatch.setattr("predictcel.main.extract_trade_market_ids", lambda payloads: [])
+    monkeypatch.setattr("predictcel.main.extract_trade_market_slugs", lambda payloads: [])
+    monkeypatch.setattr("predictcel.main.build_market_snapshots", lambda rows: {})
+
+    trades, markets, diagnostics = _load_live_inputs(config, store)
+
+    assert trades == []
+    assert markets == {}
+    assert observed["wallets"] == [registry_wallet]
+    assert diagnostics["wallet_source"] == "registry_memberships"
+    assert diagnostics["requested_wallets"] == 1
+
+
 def test_run_wallet_discovery_persists_registry_inputs_when_db_is_provided(
     monkeypatch,
     capsys,
@@ -321,6 +436,7 @@ def test_run_wallet_discovery_persists_registry_inputs_when_db_is_provided(
     assert '"mode": "auto_update"' in output
     assert '"new_registry_entries": 1' in output
     assert '"new_explorer_memberships": 1' in output
+    assert '"manager_actions_applied": 0' in output
     assert '"skipped_existing_wallets": 0' in output
 
 
@@ -433,6 +549,7 @@ def test_run_wallet_discovery_skips_existing_and_rejected_wallets(
     assert '"mode": "auto_update"' in output
     assert '"new_registry_entries": 0' in output
     assert '"new_explorer_memberships": 0' in output
+    assert '"manager_actions_applied": 0' in output
     assert '"skipped_existing_wallets": 1' in output
 
 
@@ -569,6 +686,8 @@ def test_auto_feed_wallet_registry_from_discovery_ingests_accepted_candidates(mo
         "discovered_wallets_ingested": 1,
         "new_registry_entries": 1,
         "new_explorer_memberships": 1,
+        "manager_actions_applied": 0,
+        "manager_action_counts": {},
         "skipped_existing_wallets": 0,
         "error": None,
     }
@@ -611,6 +730,8 @@ def test_auto_feed_wallet_registry_from_discovery_skips_report_only_mode(monkeyp
         "discovered_wallets_ingested": 0,
         "new_registry_entries": 0,
         "new_explorer_memberships": 0,
+        "manager_actions_applied": 0,
+        "manager_action_counts": {},
         "skipped_existing_wallets": 0,
         "error": None,
     }
@@ -651,12 +772,116 @@ def test_auto_feed_wallet_registry_from_discovery_skips_propose_config_mode(monk
         "discovered_wallets_ingested": 0,
         "new_registry_entries": 0,
         "new_explorer_memberships": 0,
+        "manager_actions_applied": 0,
+        "manager_action_counts": {},
         "skipped_existing_wallets": 0,
         "error": None,
     }
     assert observed["constructed"] is False
     assert store.registry_entries == []
     assert store.memberships == []
+
+
+def test_auto_feed_wallet_registry_from_discovery_applies_manager_actions_to_memberships(monkeypatch) -> None:
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+        ),
+        wallet_discovery=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_discovery,
+            enabled=True,
+        ),
+    )
+    captured_at = datetime(2026, 1, 1, tzinfo=UTC)
+    store = DiscoveryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet="w_existing",
+                source_type="static_basket",
+                source_ref="config.baskets",
+                trust_seed=1.0,
+                status="active",
+                first_seen_at=captured_at,
+            )
+        ],
+        memberships=[
+            BasketMembership(
+                topic="geopolitics",
+                wallet="w_existing",
+                tier="core",
+                rank=1,
+                active=True,
+                joined_at=captured_at,
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+        ],
+    )
+
+    class FakePipeline:
+        def __init__(self, _config) -> None:
+            self.config = _config
+
+        def set_current_wallets_by_topic(self, current_wallets_by_topic) -> None:
+            self.current_wallets_by_topic = current_wallets_by_topic
+
+        def run(self):
+            candidates = [
+                WalletDiscoveryCandidate(
+                    wallet_address="w_new",
+                    source="polymarket_data_api",
+                    total_trades=25,
+                    recent_trades=10,
+                    avg_trade_size_usd=55.0,
+                    topic_profile=WalletTopicProfile(
+                        topic_affinities={"geopolitics": 0.9},
+                        primary_topic="geopolitics",
+                        specialization_score=0.8,
+                    ),
+                    score=0.74,
+                    confidence="HIGH",
+                    rejected_reasons=[],
+                )
+            ]
+            assignments = [
+                BasketAssignment(
+                    wallet_address="w_new",
+                    primary_topic="geopolitics",
+                    recommended_baskets=["geopolitics"],
+                    topic_affinities={"geopolitics": 0.9},
+                    overall_score=0.74,
+                    confidence="HIGH",
+                    reasons=["strong specialization"],
+                )
+            ]
+            actions = [
+                BasketManagerAction(
+                    "suspend",
+                    "geopolitics",
+                    "w_existing",
+                    0.3,
+                    "LOW",
+                    "existing wallet confidence fell to LOW",
+                )
+            ]
+            return candidates, assignments, actions
+
+    monkeypatch.setattr("predictcel.main.WalletDiscoveryPipeline", FakePipeline)
+
+    diagnostics = _auto_feed_wallet_registry_from_discovery(config, store)
+
+    assert diagnostics["manager_actions_applied"] == 1
+    assert diagnostics["manager_action_counts"] == {"suspend": 1}
+    assert [
+        (membership.wallet, membership.active, membership.demotion_reason)
+        for membership in store.memberships
+    ] == [
+        ("w_existing", False, "existing wallet confidence fell to LOW"),
+        ("w_new", True, ""),
+    ]
 
 
 def test_compact_cycle_output_includes_execution_state() -> None:
@@ -797,6 +1022,60 @@ def test_build_wallet_registry_summary_includes_live_roster() -> None:
             "backup": [],
             "explorer": [],
         },
+        "wallet_decisions": [
+            {
+                "wallet": "w1",
+                "membership_tier": "core",
+                "membership_rank": 1,
+                "registry_status": "active",
+                "selected": True,
+                "selected_tier": "core",
+                "eligible_trade_count": 1,
+                "eligible_market_count": 1,
+                "decision_reasons": [],
+            },
+            {
+                "wallet": "w2",
+                "membership_tier": "core",
+                "membership_rank": 2,
+                "registry_status": "active",
+                "selected": True,
+                "selected_tier": "core",
+                "eligible_trade_count": 1,
+                "eligible_market_count": 1,
+                "decision_reasons": [],
+            },
+            {
+                "wallet": "w3",
+                "membership_tier": "core",
+                "membership_rank": 3,
+                "registry_status": "retired",
+                "selected": False,
+                "selected_tier": None,
+                "eligible_trade_count": 0,
+                "eligible_market_count": 0,
+                "decision_reasons": [
+                    "slots_filled_for_core",
+                    "status_ineligible_for_rotating",
+                    "status_ineligible_for_backup",
+                ],
+            },
+            {
+                "wallet": "w4",
+                "membership_tier": "core",
+                "membership_rank": 4,
+                "registry_status": "retired",
+                "selected": False,
+                "selected_tier": None,
+                "eligible_trade_count": 0,
+                "eligible_market_count": 0,
+                "decision_reasons": [
+                    "slots_filled_for_core",
+                    "status_ineligible_for_rotating",
+                    "status_ineligible_for_backup",
+                ],
+            },
+        ],
         "fresh_core_wallet_count": 2,
         "live_eligible_wallet_count": 2,
         "tracked_wallet_count": 4,

@@ -111,3 +111,24 @@ def test_manager_removes_existing_wallet_when_topic_drift_is_severe() -> None:
 
     assert actions[0].action == "remove"
     assert actions[0].basket == "sports"
+
+
+def test_manager_uses_registry_backed_current_wallets_when_provided() -> None:
+    config = make_config()
+    assignment = BasketAssignment(
+        wallet_address="0xregistry",
+        primary_topic="sports",
+        recommended_baskets=["sports"],
+        topic_affinities={"sports": 1.0},
+        overall_score=0.45,
+        confidence="LOW",
+        reasons=[],
+    )
+
+    actions = BasketManagerPlanner(
+        config,
+        current_wallets_by_topic={"sports": {"0xregistry"}},
+    ).plan([assignment])
+
+    assert actions[0].action == "suspend"
+    assert actions[0].basket == "sports"

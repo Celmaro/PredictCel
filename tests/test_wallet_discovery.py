@@ -33,6 +33,12 @@ class FakeSource:
                 {"question": "NFL playoff winner", "size": "30", "createdAt": "2999-01-01T00:00:00Z"},
                 {"question": "NBA MVP", "size": "40", "createdAt": "2999-01-01T00:00:00Z"},
             ]
+        if address == "0xregistry":
+            return [
+                {"question": "NBA playoff seed", "size": "18", "createdAt": "2999-01-01T00:00:00Z"},
+                {"question": "NFL draft pick", "size": "22", "createdAt": "2999-01-01T00:00:00Z"},
+                {"question": "NBA regular season wins", "size": "28", "createdAt": "2999-01-01T00:00:00Z"},
+            ]
         if address == "0xexisting":
             return [
                 {"question": "NBA regular season wins", "size": "18", "createdAt": "2999-01-01T00:00:00Z"},
@@ -109,6 +115,15 @@ def test_pipeline_still_evaluates_existing_wallets_for_manager_actions() -> None
     _, assignments, _ = pipeline.run()
 
     assert any(assignment.wallet_address == "0xexisting" for assignment in assignments)
+
+
+def test_pipeline_can_source_existing_wallets_from_registry_memberships() -> None:
+    pipeline = make_pipeline()
+    pipeline.set_current_wallets_by_topic({"sports": {"0xregistry"}})
+
+    _, assignments, _ = pipeline.run()
+
+    assert any(assignment.wallet_address == "0xregistry" for assignment in assignments)
 
 
 def test_auto_update_mutates_config_path_by_default(tmp_path) -> None:

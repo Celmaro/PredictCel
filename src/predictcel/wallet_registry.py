@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Iterable
 
 from .models import (
     BasketAssignment,
+    BasketManagerAction,
     BasketHealth,
     BasketMembership,
     WalletDiscoveryCandidate,
@@ -308,6 +309,26 @@ def build_live_basket_roster(
             )
             for membership in ranked_memberships
         }
+        wallet_decisions = {
+            membership.wallet: {
+                "wallet": membership.wallet,
+                "membership_tier": membership.tier,
+                "membership_rank": membership.rank,
+                "registry_status": registry_status_by_wallet.get(membership.wallet, "active"),
+                "selected": False,
+                "selected_tier": None,
+                "eligible_trade_count": sum(
+                    1
+                    for trade in trades_by_topic_wallet.get((topic, membership.wallet), [])
+                    if trade.age_seconds <= config.filters.max_trade_age_seconds
+                ),
+                "eligible_market_count": len(
+                    eligible_market_ids_by_wallet.get(membership.wallet, set())
+                ),
+                "decision_reasons": [],
+            }
+            for membership in ranked_memberships
+        }
 
         selected_wallets: dict[str, list[str]] = {tier: [] for tier in TIER_ORDER}
         selected_memberships: dict[str, list[BasketMembership]] = {
@@ -321,13 +342,22 @@ def build_live_basket_roster(
                 continue
             tier_memberships: list[BasketMembership] = []
             for membership in remaining_memberships:
+                decision = wallet_decisions[membership.wallet]
                 if len(tier_memberships) >= slots:
-                    break
+                    _record_wallet_decision_reason(
+                        decision,
+                        f"slots_filled_for_{tier}",
+                    )
+                    continue
                 if not _status_allowed_for_tier(
                     registry_status_by_wallet.get(membership.wallet, "active"),
                     tier,
                     backup_is_live=controller.allow_backup_in_live_consensus,
                 ):
+                    _record_wallet_decision_reason(
+                        decision,
+                        f"status_ineligible_for_{tier}",
+                    )
                     continue
                 if tier in live_tiers and _exceeds_live_cluster_limit(
                     membership.wallet,
@@ -336,8 +366,14 @@ def build_live_basket_roster(
                     registry_config.max_cluster_overlap_ratio,
                     registry_config.max_cluster_members_in_live_tiers,
                 ):
+                    _record_wallet_decision_reason(
+                        decision,
+                        f"cluster_overlap_limit_for_{tier}",
+                    )
                     continue
                 tier_memberships.append(membership)
+                decision["selected"] = True
+                decision["selected_tier"] = tier
             selected_memberships[tier] = tier_memberships
             selected_wallets[tier] = [membership.wallet for membership in tier_memberships]
             if tier in live_tiers:
@@ -390,6 +426,10 @@ def build_live_basket_roster(
 
         roster[topic] = {
             "selected_wallets": selected_wallets,
+            "wallet_decisions": [
+                wallet_decisions[membership.wallet]
+                for membership in ranked_memberships
+            ],
             "fresh_core_wallet_count": fresh_core_wallet_count,
             "live_eligible_wallet_count": live_eligible_wallet_count,
             "tracked_wallet_count": len(active_memberships_by_topic[topic]),
@@ -494,6 +534,109 @@ def rebalance_memberships_from_live_roster(
         return memberships
     store.upsert_basket_memberships(updated_memberships)
     return updated_memberships
+
+
+def apply_basket_manager_actions_to_memberships(
+    config: AppConfig,
+    store,
+    actions: Iterable[BasketManagerAction],
+    captured_at: datetime | None = None,
+) -> tuple[list[BasketMembership], dict[str, object]]:
+    """Apply actionable basket manager outputs to registry-backed memberships."""
+    del config  # reserved for future policy branching without widening the interface
+    captured_at = captured_at or datetime.now(UTC)
+    memberships = list(store.load_basket_memberships())
+    registry_entries = (
+        list(store.load_wallet_registry_entries())
+        if hasattr(store, "load_wallet_registry_entries")
+        else []
+    )
+    memberships_by_key = {
+        (membership.topic, membership.wallet): membership
+        for membership in memberships
+    }
+    next_rank_by_topic: dict[str, int] = defaultdict(int)
+    for membership in memberships:
+        next_rank_by_topic[membership.topic] = max(
+            next_rank_by_topic[membership.topic],
+            membership.rank,
+        )
+    registry_by_wallet = {entry.wallet: entry for entry in registry_entries}
+
+    action_counts: dict[str, int] = defaultdict(int)
+    memberships_activated = 0
+    memberships_deactivated = 0
+
+    for action in actions:
+        action_name = str(action.action).strip().lower()
+        if action_name not in {"add", "suspend", "remove"}:
+            continue
+        membership_key = (action.basket, action.wallet_address)
+        existing_membership = memberships_by_key.get(membership_key)
+        if action_name == "add":
+            if existing_membership is not None and existing_membership.active:
+                continue
+            next_rank_by_topic[action.basket] += 1
+            joined_at = captured_at if existing_membership is None else existing_membership.joined_at
+            memberships_by_key[membership_key] = BasketMembership(
+                topic=action.basket,
+                wallet=action.wallet_address,
+                tier="explorer",
+                rank=next_rank_by_topic[action.basket],
+                active=True,
+                joined_at=joined_at,
+                effective_until=None,
+                promotion_reason=action.reason,
+                demotion_reason="",
+            )
+            if action.wallet_address not in registry_by_wallet:
+                registry_by_wallet[action.wallet_address] = WalletRegistryEntry(
+                    wallet=action.wallet_address,
+                    source_type="wallet_discovery",
+                    source_ref="basket_manager_action",
+                    trust_seed=action.score,
+                    status="probation",
+                    first_seen_at=captured_at,
+                    last_seen_trade_at=None,
+                    last_scored_at=captured_at,
+                    notes=action.reason,
+                )
+            memberships_activated += 1
+            action_counts[action_name] += 1
+            continue
+
+        if existing_membership is None or not existing_membership.active:
+            continue
+        memberships_by_key[membership_key] = BasketMembership(
+            topic=existing_membership.topic,
+            wallet=existing_membership.wallet,
+            tier=existing_membership.tier,
+            rank=existing_membership.rank,
+            active=False,
+            joined_at=existing_membership.joined_at,
+            effective_until=captured_at,
+            promotion_reason=existing_membership.promotion_reason,
+            demotion_reason=action.reason,
+        )
+        memberships_deactivated += 1
+        action_counts[action_name] += 1
+
+    updated_memberships = sorted(
+        memberships_by_key.values(),
+        key=lambda membership: (membership.topic, membership.rank, membership.wallet),
+    )
+    if updated_memberships:
+        store.upsert_basket_memberships(updated_memberships)
+    updated_entries = sorted(registry_by_wallet.values(), key=lambda entry: entry.wallet)
+    if updated_entries and hasattr(store, "upsert_wallet_registry_entries"):
+        store.upsert_wallet_registry_entries(updated_entries)
+    diagnostics = {
+        "actions_applied": sum(action_counts.values()),
+        "action_counts": dict(sorted(action_counts.items())),
+        "memberships_activated": memberships_activated,
+        "memberships_deactivated": memberships_deactivated,
+    }
+    return updated_memberships, diagnostics
 
 
 def refresh_registry_entries_from_trades(
@@ -697,3 +840,14 @@ def _status_allowed_for_tier(
     if tier == "explorer":
         return normalized_status in {"active", "probation", "stale"}
     return False
+
+
+def _record_wallet_decision_reason(
+    decision: dict[str, object],
+    reason: str,
+) -> None:
+    reasons = decision.setdefault("decision_reasons", [])
+    if not isinstance(reasons, list):
+        return
+    if reason not in reasons:
+        reasons.append(reason)
