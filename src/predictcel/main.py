@@ -376,13 +376,15 @@ def _run_wallet_discovery(argv: list[str]) -> None:
     )
     candidates, assignments, _ = results
     registry_ingestion = {
-        "enabled": bool(args.db and getattr(config.wallet_registry, "enabled", False)),
+        "enabled": bool(args.db),
+        "persisted": False,
+        "mode": getattr(getattr(config, "wallet_discovery", None), "mode", "auto_update"),
         "discovered_wallets_ingested": 0,
         "new_registry_entries": 0,
         "new_explorer_memberships": 0,
         "skipped_existing_wallets": 0,
     }
-    if registry_ingestion["enabled"]:
+    if args.db and _wallet_discovery_registry_persistence_enabled(config):
         store = SignalStore(args.db)
         before_registry_wallets = {
             entry.wallet for entry in store.load_wallet_registry_entries()
@@ -411,6 +413,8 @@ def _run_wallet_discovery(argv: list[str]) -> None:
         }
         registry_ingestion = {
             "enabled": True,
+            "persisted": True,
+            "mode": getattr(config.wallet_discovery, "mode", "auto_update"),
             "discovered_wallets_ingested": len(accepted_wallets),
             "new_registry_entries": len(after_registry_wallets - before_registry_wallets),
             "new_explorer_memberships": len(
@@ -437,12 +441,16 @@ def _auto_feed_wallet_registry_from_discovery(
     config: Any,
     store: SignalStore,
 ) -> dict[str, Any]:
+    mode = getattr(getattr(config, "wallet_discovery", None), "mode", "auto_update")
     enabled = bool(
         getattr(config.wallet_registry, "enabled", False)
         and getattr(config.wallet_discovery, "enabled", False)
     )
+    persisted = bool(enabled and mode == "auto_update")
     diagnostics = {
         "enabled": enabled,
+        "persisted": persisted,
+        "mode": mode,
         "ran": False,
         "discovered_wallets_ingested": 0,
         "new_registry_entries": 0,
@@ -450,7 +458,7 @@ def _auto_feed_wallet_registry_from_discovery(
         "skipped_existing_wallets": 0,
         "error": None,
     }
-    if not enabled:
+    if not persisted:
         return diagnostics
 
     try:
@@ -497,6 +505,18 @@ def _auto_feed_wallet_registry_from_discovery(
     except Exception as exc:
         diagnostics["error"] = f"{type(exc).__name__}: {exc}"
     return diagnostics
+
+
+def _wallet_discovery_registry_persistence_enabled(config: Any) -> bool:
+    wallet_discovery = getattr(config, "wallet_discovery", None)
+    wallet_registry = getattr(config, "wallet_registry", None)
+    if wallet_discovery is None or wallet_registry is None:
+        return False
+    return bool(
+        getattr(wallet_registry, "enabled", False)
+        and getattr(wallet_discovery, "enabled", False)
+        and getattr(wallet_discovery, "mode", "auto_update") == "auto_update"
+    )
 
 
 def _build_wallet_registry_summary(

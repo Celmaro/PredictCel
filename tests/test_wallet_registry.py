@@ -489,6 +489,107 @@ def test_build_live_basket_roster_adds_refresh_reason_when_rotation_is_due() -> 
     assert roster["geopolitics"]["refresh_reasons"] == ["rotation_due"]
 
 
+def test_build_live_basket_roster_excludes_probation_from_core_and_rotating() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        basket_controller=replace(
+            config.basket_controller,
+            core_slots=1,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=1,
+            force_refresh_if_fresh_core_below=1,
+            min_active_eligible_wallets=2,
+        ),
+    )
+    captured_at = datetime(2026, 1, 20, 12, 0, tzinfo=UTC)
+    memberships = [
+        BasketMembership("geopolitics", "w_probation", "core", 1, True, captured_at, None, "discovered", ""),
+        BasketMembership("geopolitics", "w_active_1", "core", 2, True, captured_at, None, "seeded", ""),
+        BasketMembership("geopolitics", "w_active_2", "rotating", 3, True, captured_at, None, "seeded", ""),
+        BasketMembership("geopolitics", "w_active_3", "backup", 4, True, captured_at, None, "seeded", ""),
+    ]
+    registry_entries = [
+        WalletRegistryEntry("w_probation", "wallet_discovery", "polymarket_data_api", 0.8, "probation", captured_at),
+        WalletRegistryEntry("w_active_1", "static_basket", "config.baskets", 1.0, "active", captured_at),
+        WalletRegistryEntry("w_active_2", "static_basket", "config.baskets", 1.0, "active", captured_at),
+        WalletRegistryEntry("w_active_3", "static_basket", "config.baskets", 1.0, "active", captured_at),
+    ]
+    trades = [
+        WalletTrade("w_probation", "geopolitics", "m1", "YES", 0.58, 20.0, 60),
+        WalletTrade("w_active_1", "geopolitics", "m2", "YES", 0.59, 20.0, 90),
+        WalletTrade("w_active_2", "geopolitics", "m3", "YES", 0.60, 20.0, 120),
+        WalletTrade("w_active_3", "geopolitics", "m4", "YES", 0.61, 20.0, 150),
+    ]
+
+    roster = build_live_basket_roster(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=captured_at,
+    )
+
+    assert roster["geopolitics"]["selected_wallets"] == {
+        "core": ["w_active_1"],
+        "rotating": ["w_active_2"],
+        "backup": ["w_probation"],
+        "explorer": ["w_active_3"],
+    }
+
+
+def test_build_live_basket_roster_excludes_probation_from_backup_when_backup_is_live() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        basket_controller=replace(
+            config.basket_controller,
+            core_slots=1,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=1,
+            allow_backup_in_live_consensus=True,
+            force_refresh_if_fresh_core_below=1,
+            min_active_eligible_wallets=3,
+        ),
+    )
+    captured_at = datetime(2026, 1, 20, 12, 0, tzinfo=UTC)
+    memberships = [
+        BasketMembership("geopolitics", "w_active_1", "core", 1, True, captured_at, None, "seeded", ""),
+        BasketMembership("geopolitics", "w_active_2", "rotating", 2, True, captured_at, None, "seeded", ""),
+        BasketMembership("geopolitics", "w_probation", "backup", 3, True, captured_at, None, "discovered", ""),
+        BasketMembership("geopolitics", "w_active_3", "explorer", 4, True, captured_at, None, "seeded", ""),
+    ]
+    registry_entries = [
+        WalletRegistryEntry("w_active_1", "static_basket", "config.baskets", 1.0, "active", captured_at),
+        WalletRegistryEntry("w_active_2", "static_basket", "config.baskets", 1.0, "active", captured_at),
+        WalletRegistryEntry("w_probation", "wallet_discovery", "polymarket_data_api", 0.8, "probation", captured_at),
+        WalletRegistryEntry("w_active_3", "static_basket", "config.baskets", 1.0, "active", captured_at),
+    ]
+    trades = [
+        WalletTrade("w_active_1", "geopolitics", "m1", "YES", 0.58, 20.0, 60),
+        WalletTrade("w_active_2", "geopolitics", "m2", "YES", 0.59, 20.0, 90),
+        WalletTrade("w_probation", "geopolitics", "m3", "YES", 0.60, 20.0, 120),
+        WalletTrade("w_active_3", "geopolitics", "m4", "YES", 0.61, 20.0, 150),
+    ]
+
+    roster = build_live_basket_roster(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=captured_at,
+    )
+
+    assert roster["geopolitics"]["selected_wallets"] == {
+        "core": ["w_active_1"],
+        "rotating": ["w_active_2"],
+        "backup": ["w_active_3"],
+        "explorer": ["w_probation"],
+    }
+
+
 def test_rebalance_memberships_from_live_roster_rewrites_tiers_and_deactivates_overflow() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(

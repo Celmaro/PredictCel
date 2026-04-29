@@ -326,6 +326,7 @@ def build_live_basket_roster(
                 if not _status_allowed_for_tier(
                     registry_status_by_wallet.get(membership.wallet, "active"),
                     tier,
+                    backup_is_live=controller.allow_backup_in_live_consensus,
                 ):
                     continue
                 if tier in live_tiers and _exceeds_live_cluster_limit(
@@ -680,10 +681,19 @@ def _registry_status_from_freshness(
     return "active"
 
 
-def _status_allowed_for_tier(status: str, tier: str) -> bool:
+def _status_allowed_for_tier(
+    status: str,
+    tier: str,
+    *,
+    backup_is_live: bool = False,
+) -> bool:
     normalized_status = str(status).strip().lower() or "active"
     if tier in {"core", "rotating"}:
-        return normalized_status in {"active", "probation"}
-    if tier in {"backup", "explorer"}:
+        return normalized_status == "active"
+    if tier == "backup":
+        if backup_is_live:
+            return normalized_status in {"active", "stale"}
+        return normalized_status in {"active", "probation", "stale"}
+    if tier == "explorer":
         return normalized_status in {"active", "probation", "stale"}
     return False

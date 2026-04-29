@@ -1272,6 +1272,126 @@ def test_basket_controller_live_roster_respects_registry_statuses() -> None:
     assert "w1" not in candidates[0].source_wallets
 
 
+def test_basket_controller_live_roster_excludes_probation_wallets_from_consensus() -> None:
+    engine = CopyEngine(
+        make_config(
+            wallets=["w1", "w2", "w3"],
+            basket_controller=BasketControllerConfig(
+                enabled=True,
+                tracked_basket_target=4,
+                core_slots=1,
+                rotating_slots=1,
+                backup_slots=1,
+                explorer_slots=1,
+                allow_backup_in_live_consensus=True,
+                min_basket_participation_ratio=1.0,
+                min_weighted_participation_ratio=0.8,
+                min_active_eligible_wallets=3,
+                min_aligned_wallet_count=3,
+                max_entry_price_band_abs=0.03,
+                max_entry_time_spread_seconds=600,
+            ),
+        )
+    )
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w1",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w2",
+            tier="rotating",
+            rank=2,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w3",
+            tier="backup",
+            rank=3,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="discovered",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w4",
+            tier="explorer",
+            rank=4,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+    ]
+    registry_entries = [
+        WalletRegistryEntry(
+            wallet="w1",
+            source_type="static_basket",
+            source_ref="config.baskets",
+            trust_seed=1.0,
+            status="active",
+            first_seen_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            wallet="w2",
+            source_type="static_basket",
+            source_ref="config.baskets",
+            trust_seed=1.0,
+            status="active",
+            first_seen_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            wallet="w3",
+            source_type="wallet_discovery",
+            source_ref="polymarket_data_api",
+            trust_seed=0.8,
+            status="probation",
+            first_seen_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            wallet="w4",
+            source_type="static_basket",
+            source_ref="config.baskets",
+            trust_seed=1.0,
+            status="active",
+            first_seen_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+    ]
+    trades = [
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.58, 200, 60),
+        WalletTrade("w2", "geopolitics", "m1", "YES", 0.59, 220, 120),
+        WalletTrade("w3", "geopolitics", "m1", "YES", 0.60, 240, 180),
+        WalletTrade("w4", "geopolitics", "m1", "YES", 0.60, 260, 240),
+    ]
+
+    candidates = engine.evaluate(
+        trades,
+        {"m1": make_market()},
+        make_qualities(),
+        MembershipStore(memberships, registry_entries=registry_entries),
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].source_wallets == ["w1", "w2", "w4"]
+    assert "w3" not in candidates[0].source_wallets
+
+
 def test_basket_controller_only_includes_backup_wallets_when_allowed() -> None:
     memberships = [
         BasketMembership(
