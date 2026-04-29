@@ -158,5 +158,421 @@
     "source": "polymonit",
     "curation_tier": "recent_momentum",
     "reason": "High-ranking monthly whale from public leaderboard data."
+  },
+  {
+    "wallet": "0x36a3f17401e395ef4cb1b7f42bcdb8ab8e15fafb",
+    "username": "gfjoigfsjoigsjoi",
+    "dominant_topic": "sports",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard wallet added during the April 29, 2026 live basket expansion after showing up in the sports-heavy overall pool."
+  },
+  {
+    "wallet": "0x2005d16a84ceefa912d4e380cd32e7ff827875ea",
+    "username": "RN1",
+    "dominant_topic": "global-events",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard generalist used to fill live global-events, politics, and macro-financial coverage."
+  },
+  {
+    "wallet": "0x204f72f35326db932158cba6adff0b9a1da95e14",
+    "username": "swisstony",
+    "dominant_topic": "sports",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "watchlist",
+    "reason": "Official leaderboard wallet from the sports-heavy overall pool retained for continued discovery and basket maintenance."
+  },
+  {
+    "wallet": "0x777d9f00c2b4f7b829c9de0049ca3e707db05143",
+    "username": "05143",
+    "dominant_topic": "sports",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "watchlist",
+    "reason": "Official leaderboard wallet from the sports-heavy overall pool retained as extra live-basket depth."
+  },
+  {
+    "wallet": "0x37c1874a60d348903594a96703e0507c518fc53a",
+    "username": "CemeterySun",
+    "dominant_topic": "sports",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "watchlist",
+    "reason": "Official leaderboard wallet from the sports-heavy overall pool retained as extra live-basket depth."
+  },
+  {
+    "wallet": "0x9495425feeb0c250accb89275c97587011b19a27",
+    "username": "LaBradfordSmith22",
+    "dominant_topic": "sports",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "watchlist",
+    "reason": "Official leaderboard wallet from the sports-heavy overall pool retained as extra live-basket depth."
+  },
+  {
+    "wallet": "0xdc876e6873772d38716fda7f2452a78d426d7ab6",
+    "username": "432614799197",
+    "dominant_topic": "global-events",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard generalist used to seed live global-events and culture coverage."
+  },
+  {
+    "wallet": "0xf195721ad850377c96cd634457c70cd9e8308057",
+    "username": "lo34567Taipe",
+    "dominant_topic": "sports",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "watchlist",
+    "reason": "Official leaderboard wallet from the sports-heavy overall pool retained as extra live-basket depth."
+  },
+  {
+    "wallet": "0x9f2fe025f84839ca81dd8e0338892605702d2ca8",
+    "username": "surfandturf",
+    "dominant_topic": "sports",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "watchlist",
+    "reason": "Official leaderboard wallet from the sports-heavy overall pool retained as extra live-basket depth."
+  },
+  {
+    "wallet": "0xe8dd7741ccb12350957ec71e9ee332e0d1e6ec86",
+    "username": "influenz.eth",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard cross-category whale used to strengthen live politics, geopolitics, global-events, and macro-financial coverage."
+  },
+  {
+    "wallet": "0xbaa2bcb5439e985ce4ccf815b4700027d1b92c73",
+    "username": "denizz",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0x8c80d213c0cbad777d06ee3f58f6ca4bc03102c3",
+    "username": "SecondWindCapital",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0xc6587b11a2209e46dfe3928b31c5514a8e33b784",
+    "username": "Erasmus.",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0xffa6b3c90514d7b861c87d7e51cc35fff34530fe",
+    "username": "CypherCapital",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0x1cc16713196d456f86fa9c7387dd326a7f73b8df",
+    "username": "Wickier",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0xde7be6d489bce070a959e0cb813128ae659b5f4b",
+    "username": "wan123",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0x629bc4a1e53e1d475beb7ea3d388791e96dd995a",
+    "username": "lava-lava",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0xf0d9af9effd0b4a039899901ba19a05ea1a3e4ee",
+    "username": "polywog",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0xd5196bdf50199e195c58a6aff2114cc0e455932c",
+    "username": "UpDownUpDown",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics coverage."
+  },
+  {
+    "wallet": "0xd7375270e4769d3cc31885773070a5f12d5bbe95",
+    "username": "Fernandoinfante",
+    "dominant_topic": "politics",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard politics wallet promoted directly into live politics and geopolitics coverage."
+  },
+  {
+    "wallet": "0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee",
+    "username": "kch123",
+    "dominant_topic": "sports",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard sports wallet used to complete the live sports basket."
+  },
+  {
+    "wallet": "0xe1d6b51521bd4365769199f392f9818661bd907c",
+    "username": "",
+    "dominant_topic": "crypto",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard crypto wallet promoted directly into the live crypto basket."
+  },
+  {
+    "wallet": "0xde17f7144fbd0eddb2679132c10ff5e74b120988",
+    "username": "",
+    "dominant_topic": "crypto",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard crypto wallet promoted directly into the live crypto basket."
+  },
+  {
+    "wallet": "0xd84c2b6d65dc596f49c7b6aadd6d74ca91e407b9",
+    "username": "BoneReader",
+    "dominant_topic": "crypto",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard crypto wallet promoted directly into the live crypto basket."
+  },
+  {
+    "wallet": "0x6e1d5040d0ac73709b0621f620d2a60b80d2d0fa",
+    "username": "",
+    "dominant_topic": "crypto",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard crypto wallet promoted directly into the live crypto basket."
+  },
+  {
+    "wallet": "0xd0d6053c3c37e727402d84c14069780d360993aa",
+    "username": "k9Q2mX4L8A7ZP3R",
+    "dominant_topic": "crypto",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard crypto wallet promoted directly into the live crypto basket."
+  },
+  {
+    "wallet": "0x63ce342161250d705dc0b16df89036c8e5f9ba9a",
+    "username": "0x8dxd",
+    "dominant_topic": "crypto",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard crypto wallet promoted directly into the live crypto basket."
+  },
+  {
+    "wallet": "0xb27bc932bf8110d8f78e55da7d5f0497a18b5b82",
+    "username": "",
+    "dominant_topic": "crypto",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard crypto wallet promoted directly into the live crypto basket."
+  },
+  {
+    "wallet": "0x2d8b401d2f0e6937afebf18e19e11ca568a5260a",
+    "username": "vidarx",
+    "dominant_topic": "crypto",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard crypto wallet promoted directly into the live crypto basket."
+  },
+  {
+    "wallet": "0xed107a85a4585a381e48c7f7ca4144909e7dd2e5",
+    "username": "bobe2",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard economics wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0x12d6cccfc7470a3f4bafc53599a4779cbf2cf2a8",
+    "username": "classified",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard economics wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0xdc4f08727c65afc4731b75cf1ed265666b7b4652",
+    "username": "third-eye",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard economics wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0x9d84ce0306f8551e02efef1680475fc0f1dc1344",
+    "username": "ImJustKen",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard economics wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0x034475def048324ad32d87c5fd90e99f0f7b2538",
+    "username": "Yeueu",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard economics wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0x0e5bd76779e74304d08e759072abf126d87da593",
+    "username": "JAHODA",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard economics wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0x5bffcf561bcae83af680ad600cb99f1184d6ffbe",
+    "username": "YatSen",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard economics wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0x24c8cf69a0e0a17eee21f69d29752bfa32e823e1",
+    "username": "debased",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard economics wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0xa80e3fe5e7a445fa047fe6de1e27f9a15217b94b",
+    "username": "bin8888",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard finance wallet used for live macro-financial depth and crypto-basket fill."
+  },
+  {
+    "wallet": "0x32b484581fc5606de9c1e43af4636b6be9bc8b21",
+    "username": "",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard finance wallet used to launch the live macro-financial basket."
+  },
+  {
+    "wallet": "0x17559efac103ac7f361be37ec0b93888d4c55aac",
+    "username": "CamelUp",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard finance wallet used for live macro-financial depth and crypto-basket fill."
+  },
+  {
+    "wallet": "0xd1a63a243042d864520512fbdbd2fd20e0ab1507",
+    "username": "DkOYL",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard finance wallet used for live macro-financial depth and crypto-basket fill."
+  },
+  {
+    "wallet": "0x6adcccb0ea0b93a66e67f0d7b2b625b135a8beba",
+    "username": "pikachusplace",
+    "dominant_topic": "macro-financial",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard finance wallet used for live macro-financial depth and crypto-basket fill."
+  },
+  {
+    "wallet": "0x96489abcb9f583d6835c8ef95ffc923d05a86825",
+    "username": "anoin123",
+    "dominant_topic": "tech",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard tech wallet used to launch the live tech basket."
+  },
+  {
+    "wallet": "0xaa91e0555348cf683b542ddb55ac22a5c5d9b2f0",
+    "username": "",
+    "dominant_topic": "tech",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard tech wallet used to launch the live tech basket."
+  },
+  {
+    "wallet": "0x2af01ed18869d9b35f9a7de71c7a565d806fb2a8",
+    "username": "",
+    "dominant_topic": "tech",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard tech wallet used to launch the live tech basket."
+  },
+  {
+    "wallet": "0x2ce69d54f4d4a2602ca378d71b59ebe9a927e378",
+    "username": "gaojinxiaodao",
+    "dominant_topic": "tech",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard tech wallet used to launch the live tech basket."
+  },
+  {
+    "wallet": "0x0fe9a395a0be3a7c8337a135a5c469d5f985d372",
+    "username": "vodzjP",
+    "dominant_topic": "tech",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard tech wallet used to launch the live tech basket."
+  },
+  {
+    "wallet": "0x8ace6b1016214876667444d2b3055065da996069",
+    "username": "wastrel",
+    "dominant_topic": "tech",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard tech wallet used to launch the live tech basket."
+  },
+  {
+    "wallet": "0x689ae12e11aa489adb3605afd8f39040ff52779e",
+    "username": "Annica",
+    "dominant_topic": "culture",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard culture wallet used to launch the live culture basket."
+  },
+  {
+    "wallet": "0xc4d1a863e9cc45d02ba22d3a1ae9ba7822018ce8",
+    "username": "rdba",
+    "dominant_topic": "culture",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard culture wallet used to launch the live culture basket."
+  },
+  {
+    "wallet": "0x75253f58071564ba95f36258fcfb1e918552cde1",
+    "username": "cynical.reason",
+    "dominant_topic": "culture",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard culture wallet used to launch the live culture basket."
+  },
+  {
+    "wallet": "0x44c1dfe43260c94ed4f1d00de2e1f80fb113ebc1",
+    "username": "aenews2",
+    "dominant_topic": "culture",
+    "source": "polymarket_official_leaderboard",
+    "curation_tier": "core",
+    "reason": "Official leaderboard culture wallet used to launch the live culture basket."
   }
 ]
