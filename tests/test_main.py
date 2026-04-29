@@ -1235,9 +1235,7 @@ def test_build_wallet_registry_summary_keeps_memberships_read_only() -> None:
     }
 
 
-def test_build_wallet_registry_summary_does_not_reseed_manually_curated_topic() -> (
-    None
-):
+def test_build_wallet_registry_summary_does_not_reseed_manually_curated_topic() -> None:
     base_config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         base_config,
