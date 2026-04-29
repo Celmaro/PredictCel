@@ -6,6 +6,7 @@ from pathlib import Path
 from predictcel.config import BasketRule, load_config
 from predictcel import discover_wallets
 from predictcel.main import (
+    _analysis_trades,
     _auto_feed_wallet_registry_from_discovery,
     _build_wallet_registry_summary,
     _compact_scoring_diagnostics,
@@ -17,6 +18,7 @@ from predictcel.main import (
     _probe_token_lookup,
     _probe_token_orderbook,
     _propagate_canonical_market_updates,
+    _recover_unresolved_token_market_rows,
     _run_wallet_discovery,
     _wallet_topics_for_live_inputs,
 )
@@ -142,6 +144,14 @@ class FakeLiveClient:
 
     def fetch_markets_by_slugs(self, slugs):
         del slugs
+        return []
+
+    def fetch_markets_by_clob_token_ids(
+        self,
+        token_ids: list[str],
+        chunk_size: int = 25,
+    ):
+        del token_ids, chunk_size
         return []
 
 
@@ -435,6 +445,98 @@ def test_load_live_inputs_uses_registry_memberships_for_wallet_fetches(
     assert observed["wallets"] == [registry_wallet]
     assert diagnostics["wallet_source"] == "registry_memberships"
     assert diagnostics["requested_wallets"] == 1
+
+
+def test_load_live_inputs_recovers_unresolved_token_markets(monkeypatch) -> None:
+    registry_wallet = "0x1111111111111111111111111111111111111111"
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+            seed_from_baskets=False,
+        ),
+    )
+    store = DiscoveryStore(
+        memberships=[
+            BasketMembership(
+                topic="sports",
+                wallet=registry_wallet,
+                tier="core",
+                rank=1,
+                active=True,
+                joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+        ]
+    )
+
+    class TokenProbeClient(FakeLiveClient):
+        gamma_base_url = "https://gamma-api.polymarket.com"
+        data_base_url = "https://data-api.polymarket.com"
+        clob_base_url = "https://clob.polymarket.com"
+        timeout_seconds = 15
+        max_retries = 1
+        retry_base_delay_seconds = 0.5
+
+        def fetch_markets_by_clob_token_ids(
+            self,
+            token_ids: list[str],
+            chunk_size: int = 25,
+        ):
+            assert chunk_size == 1
+            if token_ids == ["token_yes"]:
+                return [
+                    {
+                        "conditionId": "cond_1",
+                        "question": "Recovered Question",
+                        "clobTokenIds": ["token_yes", "token_no"],
+                        "outcomePrices": "[0.55, 0.41]",
+                        "active": True,
+                        "closed": False,
+                        "liquidity": 9000,
+                        "endDate": "2026-12-31T00:00:00Z",
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", TokenProbeClient)
+    monkeypatch.setattr(
+        "predictcel.main._fetch_wallet_payloads",
+        lambda client, wallets, limit: {wallets[0]: [{"asset": "token_yes"}]},
+    )
+    monkeypatch.setattr(
+        "predictcel.main.build_wallet_trades",
+        lambda payloads, topics: [
+            WalletTrade(
+                registry_wallet,
+                "sports",
+                "token_yes",
+                "YES",
+                0.55,
+                25.0,
+                300,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "predictcel.main.extract_trade_market_ids", lambda payloads: ["token_yes"]
+    )
+    monkeypatch.setattr(
+        "predictcel.main.extract_trade_market_slugs", lambda payloads: []
+    )
+
+    trades, markets, diagnostics = _load_live_inputs(config, store)
+
+    assert len(trades) == 1
+    assert "cond_1" in markets
+    assert "token_yes" in markets
+    assert diagnostics["token_probe_requested"] == 1
+    assert diagnostics["token_probe_tokens_matched"] == 1
+    assert diagnostics["token_probe_tokens_unmatched"] == 0
+    assert diagnostics["token_probe_rows_loaded"] == 1
 
 
 def test_run_wallet_discovery_persists_registry_inputs_when_db_is_provided(
@@ -1083,6 +1185,8 @@ def test_compact_scoring_diagnostics_includes_attrition_and_missing_breakdown() 
                 "wallets_scored": 2,
                 "wallets_fully_rejected": 3,
             },
+            "analysis_trade_count": 7,
+            "pre_scoring_too_old_filtered": 4,
             "missing_market_breakdown": {"token_id_like": 2, "slug_like": 1},
             "missing_market_samples": ["0xabc", "slug-1"],
         }
@@ -1095,11 +1199,25 @@ def test_compact_scoring_diagnostics_includes_attrition_and_missing_breakdown() 
         "wallets_scored": 2,
         "wallets_fully_rejected": 3,
     }
+    assert diagnostics["analysis_trade_count"] == 7
+    assert diagnostics["pre_scoring_too_old_filtered"] == 4
     assert diagnostics["missing_market_breakdown"] == {
         "token_id_like": 2,
         "slug_like": 1,
     }
     assert diagnostics["missing_market_samples"] == ["0xabc", "slug-1"]
+
+
+def test_analysis_trades_filters_too_old_rows() -> None:
+    trades = [
+        WalletTrade("w1", "sports", "m1", "YES", 0.5, 10.0, 300),
+        WalletTrade("w1", "sports", "m2", "YES", 0.5, 10.0, 3600),
+        WalletTrade("w1", "sports", "m3", "YES", 0.5, 10.0, 3601),
+    ]
+
+    filtered = _analysis_trades(trades, 3600)
+
+    assert [trade.market_id for trade in filtered] == ["m1", "m2"]
 
 
 def test_build_wallet_registry_summary_includes_live_roster() -> None:
@@ -2087,6 +2205,47 @@ def test_probe_token_lookup_uses_fresh_client(monkeypatch) -> None:
         "token_ids": ["token_yes", "token_no"],
         "matched_input_token": True,
     }
+
+
+def test_recover_unresolved_token_market_rows_uses_single_token_probes(
+    monkeypatch,
+) -> None:
+    class FreshProbeClient:
+        def __init__(self, *args):
+            pass
+
+        def fetch_markets_by_clob_token_ids(
+            self,
+            token_ids: list[str],
+            chunk_size: int = 25,
+        ):
+            assert chunk_size == 1
+            if token_ids == ["token_yes"]:
+                return [
+                    {
+                        "conditionId": "cond_1",
+                        "question": "Question",
+                        "clobTokenIds": ["token_yes", "token_no"],
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FreshProbeClient)
+
+    rows, stats, unresolved = _recover_unresolved_token_market_rows(
+        ProbeSourceClient(),
+        ["token_yes", "token_missing"],
+    )
+
+    assert rows == [
+        {
+            "conditionId": "cond_1",
+            "question": "Question",
+            "clobTokenIds": ["token_yes", "token_no"],
+        }
+    ]
+    assert stats == {"requested": 2, "matched": 1, "unmatched": 1}
+    assert unresolved == ["token_missing"]
 
 
 def test_propagate_canonical_market_updates_rebinds_stale_aliases() -> None:

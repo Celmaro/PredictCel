@@ -187,6 +187,7 @@ def main() -> None:
         trades,
         persist_rebalance=True,
     )
+    analysis_trades = _analysis_trades(trades, config.filters.max_trade_age_seconds)
     wallet_registry_summary["auto_feed"] = wallet_discovery_auto_feed
     open_positions_at_start = store.get_open_positions()
     db_diagnostics = {
@@ -211,19 +212,26 @@ def main() -> None:
         config.filters,
         config.consensus.recency_half_life_seconds,
     )
-    wallet_qualities = scorer.score(trades, markets)
+    wallet_qualities = scorer.score(analysis_trades, markets)
     scoring_diagnostics = {
         "rejection_counts": scorer.last_rejection_counts,
         "wallet_rejection_counts": scorer.last_wallet_rejection_counts,
         "missing_market_samples": scorer.last_missing_market_samples,
         "missing_market_breakdown": scorer.last_missing_market_breakdown,
         "wallet_attrition": scorer.last_wallet_attrition,
+        "analysis_trade_count": len(analysis_trades),
+        "pre_scoring_too_old_filtered": max(0, len(trades) - len(analysis_trades)),
     }
     timings["wallet_scoring_ms"] = _elapsed_ms(started)
 
     started = time.perf_counter()
     copy_engine = CopyEngine(config)
-    copy_candidates = copy_engine.evaluate(trades, markets, wallet_qualities, store)
+    copy_candidates = copy_engine.evaluate(
+        analysis_trades,
+        markets,
+        wallet_qualities,
+        store,
+    )
     copy_engine_diagnostics = getattr(copy_engine, "last_diagnostics", {})
     timings["copy_engine_ms"] = _elapsed_ms(started)
 
@@ -1047,6 +1055,18 @@ def _load_live_inputs(config, store: SignalStore | None = None):
     if supplemental_rows:
         markets.update(build_market_snapshots(supplemental_rows))
 
+    unresolved_trade_market_ids = [
+        market_id for market_id in missing_trade_market_ids if market_id not in markets
+    ]
+    token_probe_rows, token_probe_stats, unresolved_token_samples = (
+        _recover_unresolved_token_market_rows(
+            client,
+            unresolved_trade_market_ids,
+        )
+    )
+    if token_probe_rows:
+        markets.update(build_market_snapshots(token_probe_rows))
+
     missing_trade_market_slugs = [
         market_slug for market_slug in trade_market_slugs if market_slug not in markets
     ]
@@ -1120,6 +1140,12 @@ def _load_live_inputs(config, store: SignalStore | None = None):
         "trade_market_slugs_seen": len(trade_market_slugs),
         "supplemental_market_ids_requested": len(missing_trade_market_ids),
         "supplemental_market_rows_loaded": len(supplemental_rows),
+        "unresolved_market_ids_after_supplemental": len(unresolved_trade_market_ids),
+        "token_probe_requested": token_probe_stats["requested"],
+        "token_probe_rows_loaded": len(token_probe_rows),
+        "token_probe_tokens_matched": token_probe_stats["matched"],
+        "token_probe_tokens_unmatched": token_probe_stats["unmatched"],
+        "sample_unresolved_token_ids": unresolved_token_samples,
         "supplemental_market_slugs_requested": len(missing_trade_market_slugs),
         "supplemental_slug_rows_loaded": len(supplemental_slug_rows),
         "market_cache_entries": len(markets),
@@ -1159,6 +1185,66 @@ def _propagate_canonical_market_updates(
         canonical_snapshot = canonical_updates.get(getattr(snapshot, "market_id", ""))
         if canonical_snapshot is not None:
             markets[market_key] = canonical_snapshot
+
+
+def _recover_unresolved_token_market_rows(
+    client: PolymarketPublicClient,
+    token_ids: list[str],
+    max_workers: int = 8,
+) -> tuple[list[dict[str, Any]], dict[str, int], list[str]]:
+    unique_token_ids = sorted(
+        {str(token_id).strip() for token_id in token_ids if str(token_id).strip()}
+    )
+    if not unique_token_ids:
+        return [], {"requested": 0, "matched": 0, "unmatched": 0}, []
+
+    rows: list[dict[str, Any]] = []
+    recovered_token_ids: set[str] = set()
+    unresolved_samples: list[str] = []
+    workers = max(1, min(max_workers, len(unique_token_ids)))
+
+    def fetch_one(token_id: str) -> list[dict[str, Any]]:
+        probe_client = _make_probe_client(client)
+        return probe_client.fetch_markets_by_clob_token_ids([token_id], chunk_size=1)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(fetch_one, token_id): token_id
+            for token_id in unique_token_ids
+        }
+        for future in as_completed(futures):
+            token_id = futures[future]
+            try:
+                token_rows = future.result()
+            except Exception:
+                token_rows = []
+            if token_rows:
+                rows.extend(token_rows)
+                recovered_token_ids.add(token_id)
+            elif len(unresolved_samples) < 10:
+                unresolved_samples.append(token_id)
+
+    return (
+        rows,
+        {
+            "requested": len(unique_token_ids),
+            "matched": len(recovered_token_ids),
+            "unmatched": max(0, len(unique_token_ids) - len(recovered_token_ids)),
+        },
+        unresolved_samples,
+    )
+
+
+def _analysis_trades(
+    trades: list[Any],
+    max_trade_age_seconds: int,
+) -> list[Any]:
+    return [
+        trade
+        for trade in trades
+        if getattr(trade, "age_seconds", max_trade_age_seconds + 1)
+        <= max_trade_age_seconds
+    ]
 
 
 def _build_orderbook_probe_samples(
@@ -1458,6 +1544,24 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
             "supplemental_market_rows_loaded",
             0,
         ),
+        "unresolved_market_ids_after_supplemental": diagnostics.get(
+            "unresolved_market_ids_after_supplemental",
+            0,
+        ),
+        "unresolved_token_ids_after_supplemental": diagnostics.get(
+            "unresolved_token_ids_after_supplemental",
+            0,
+        ),
+        "token_probe_requested": diagnostics.get("token_probe_requested", 0),
+        "token_probe_rows_loaded": diagnostics.get("token_probe_rows_loaded", 0),
+        "token_probe_tokens_matched": diagnostics.get(
+            "token_probe_tokens_matched",
+            0,
+        ),
+        "token_probe_tokens_unmatched": diagnostics.get(
+            "token_probe_tokens_unmatched",
+            0,
+        ),
         "supplemental_market_slugs_requested": diagnostics.get(
             "supplemental_market_slugs_requested",
             0,
@@ -1482,6 +1586,9 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
             "sample_skipped_invalid_wallets",
             [],
         )[:3]
+    unresolved_token_samples = diagnostics.get("sample_unresolved_token_ids", [])
+    if unresolved_token_samples:
+        compact["sample_unresolved_token_ids"] = unresolved_token_samples[:5]
     return compact
 
 
@@ -1509,6 +1616,13 @@ def _compact_scoring_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
     wallet_attrition = diagnostics.get("wallet_attrition", {})
     if wallet_attrition:
         compact["wallet_attrition"] = wallet_attrition
+    if "analysis_trade_count" in diagnostics:
+        compact["analysis_trade_count"] = diagnostics.get("analysis_trade_count", 0)
+    if "pre_scoring_too_old_filtered" in diagnostics:
+        compact["pre_scoring_too_old_filtered"] = diagnostics.get(
+            "pre_scoring_too_old_filtered",
+            0,
+        )
     missing_market_breakdown = diagnostics.get("missing_market_breakdown", {})
     if missing_market_breakdown:
         compact["missing_market_breakdown"] = missing_market_breakdown

@@ -201,10 +201,6 @@ class WalletQualityScorer:
             return "too_small"
         if market.liquidity_usd < self.filters.min_liquidity_usd:
             return "low_liquidity"
-        if market.minutes_to_resolution < self.filters.min_minutes_to_resolution:
-            return "too_close_to_resolution"
-        if market.minutes_to_resolution > self.filters.max_minutes_to_resolution:
-            return "too_far_from_resolution"
         return None
 
     def _is_eligible_trade(
