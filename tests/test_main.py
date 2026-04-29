@@ -1397,7 +1397,7 @@ def test_build_wallet_registry_summary_refreshes_registry_statuses_from_trade_fr
 
     assert {entry.wallet: entry.status for entry in store.registry_entries} == {
         "w_active": "active",
-        "w_probation": "probation",
+        "w_probation": "active",
         "w_stale": "stale",
     }
 

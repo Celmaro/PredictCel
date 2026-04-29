@@ -949,6 +949,8 @@ def _registry_status_from_freshness(
         return "suspended"
     if freshest_age_seconds > config.wallet_registry.stale_after_hours * 3_600:
         return "stale"
+    if entry.source_type == "static_basket":
+        return "active"
 
     probation_age_days = (captured_at - entry.first_seen_at).total_seconds() / 86_400
     if (
