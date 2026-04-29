@@ -8,6 +8,7 @@ from predictcel import discover_wallets
 from predictcel.main import (
     _auto_feed_wallet_registry_from_discovery,
     _build_wallet_registry_summary,
+    _compact_scoring_diagnostics,
     _compact_cycle_output,
     _creates_or_updates_paper_position,
     _filter_duplicate_candidates,
@@ -328,6 +329,52 @@ def test_wallet_topics_for_live_inputs_prefers_active_registry_memberships() -> 
 
     assert source == "registry_memberships"
     assert wallet_topics == {registry_wallet: ["sports"]}
+
+
+def test_wallet_topics_for_live_inputs_skips_ineligible_registry_statuses() -> None:
+    registry_wallet = "0x1111111111111111111111111111111111111111"
+    static_wallet = "0x2222222222222222222222222222222222222222"
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        baskets=[
+            BasketRule(topic="sports", wallets=[static_wallet], quorum_ratio=0.66)
+        ],
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+            seed_from_baskets=False,
+        ),
+    )
+    store = DiscoveryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet=registry_wallet,
+                source_type="static_basket",
+                source_ref="config.baskets",
+                trust_seed=1.0,
+                status="suspended",
+                first_seen_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        ],
+        memberships=[
+            BasketMembership(
+                topic="sports",
+                wallet=registry_wallet,
+                tier="core",
+                rank=1,
+                active=True,
+                joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+        ],
+    )
+
+    wallet_topics, source = _wallet_topics_for_live_inputs(config, store)
+
+    assert source == "registry_memberships"
+    assert wallet_topics == {}
 
 
 def test_load_live_inputs_uses_registry_memberships_for_wallet_fetches(
@@ -1023,6 +1070,38 @@ def test_compact_cycle_output_includes_wallet_registry_summary() -> None:
     }
 
 
+def test_compact_scoring_diagnostics_includes_attrition_and_missing_breakdown() -> None:
+    diagnostics = _compact_scoring_diagnostics(
+        {
+            "rejection_counts": {"missing_market": 3, "too_old": 1},
+            "wallet_rejection_counts": {
+                "w1": {"missing_market": 2},
+                "w2": {"missing_market": 1, "too_old": 1},
+            },
+            "wallet_attrition": {
+                "wallets_seen": 5,
+                "wallets_scored": 2,
+                "wallets_fully_rejected": 3,
+            },
+            "missing_market_breakdown": {"token_id_like": 2, "slug_like": 1},
+            "missing_market_samples": ["0xabc", "slug-1"],
+        }
+    )
+
+    assert diagnostics["rejection_counts"] == {"missing_market": 3, "too_old": 1}
+    assert diagnostics["wallets_with_rejections"] == 2
+    assert diagnostics["wallet_attrition"] == {
+        "wallets_seen": 5,
+        "wallets_scored": 2,
+        "wallets_fully_rejected": 3,
+    }
+    assert diagnostics["missing_market_breakdown"] == {
+        "token_id_like": 2,
+        "slug_like": 1,
+    }
+    assert diagnostics["missing_market_samples"] == ["0xabc", "slug-1"]
+
+
 def test_build_wallet_registry_summary_includes_live_roster() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
@@ -1226,6 +1305,82 @@ def test_build_wallet_registry_summary_keeps_memberships_read_only() -> None:
         ("w3", "rotating", 3, True),
         ("w4", "backup", 4, True),
         ("w5", "explorer", 5, True),
+    ]
+    assert summary["live_roster_by_topic"]["geopolitics"]["selected_wallets"] == {
+        "core": ["w5", "w4"],
+        "rotating": ["w3"],
+        "backup": ["w2"],
+        "explorer": [],
+    }
+
+
+def test_build_wallet_registry_summary_persists_rebalance_when_requested() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        wallet_registry=replace(
+            config.wallet_registry, enabled=True, seed_from_baskets=False
+        ),
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=4,
+            core_slots=2,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=0,
+        ),
+    )
+    captured_at = datetime.now(UTC)
+    store = RegistrySummaryStore(
+        registry_entries=[],
+        memberships=[
+            BasketMembership(
+                topic="geopolitics",
+                wallet=wallet,
+                tier=tier,
+                rank=index,
+                active=True,
+                joined_at=captured_at,
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+            for index, (wallet, tier) in enumerate(
+                [
+                    ("w1", "core"),
+                    ("w2", "core"),
+                    ("w3", "rotating"),
+                    ("w4", "backup"),
+                    ("w5", "explorer"),
+                ],
+                start=1,
+            )
+        ],
+    )
+    trades = [
+        WalletTrade("w5", "geopolitics", "m1", "YES", 0.6, 15.0, 60),
+        WalletTrade("w5", "geopolitics", "m2", "YES", 0.59, 15.0, 120),
+        WalletTrade("w4", "geopolitics", "m3", "YES", 0.58, 15.0, 180),
+        WalletTrade("w3", "geopolitics", "m4", "YES", 0.57, 15.0, 240),
+        WalletTrade("w2", "geopolitics", "m5", "YES", 0.56, 15.0, 300),
+    ]
+
+    summary = _build_wallet_registry_summary(
+        config,
+        store,
+        trades,
+        persist_rebalance=True,
+    )
+
+    assert [
+        (membership.wallet, membership.tier, membership.rank, membership.active)
+        for membership in store.memberships
+    ] == [
+        ("w5", "core", 1, True),
+        ("w4", "core", 2, True),
+        ("w3", "rotating", 3, True),
+        ("w2", "backup", 4, True),
+        ("w1", "core", 5, False),
     ]
     assert summary["live_roster_by_topic"]["geopolitics"]["selected_wallets"] == {
         "core": ["w5", "w4"],

@@ -174,6 +174,16 @@ class PolymarketPublicClient:
         )
         return payload if isinstance(payload, dict) else {}
 
+    def fetch_event_by_slug(self, slug: str) -> dict[str, Any]:
+        """Fetch event by slug."""
+        normalized_slug = str(slug).strip()
+        if not normalized_slug:
+            return {}
+        payload = self._get_json(
+            f"{self.gamma_base_url}/events/slug/{quote(normalized_slug, safe='')}"
+        )
+        return payload if isinstance(payload, dict) else {}
+
     def fetch_markets_by_slugs(
         self, slugs: list[str], max_workers: int = 8
     ) -> list[dict[str, Any]]:
@@ -194,17 +204,30 @@ class PolymarketPublicClient:
                 for slug in unique_slugs
             }
             for future in as_completed(futures):
+                slug = futures[future]
                 try:
                     payload = future.result()
                 except Exception as e:
-                    logger.debug(
-                        f"Failed to fetch market for slug {futures[future]}: {e}"
-                    )
+                    logger.debug(f"Failed to fetch market for slug {slug}: {e}")
                     continue
 
                 rows = _extract_list(payload)
-                if not rows and payload:
+                if (
+                    not rows
+                    and isinstance(payload, dict)
+                    and any(
+                        payload.get(key) is not None and str(payload.get(key)).strip()
+                        for key in ("conditionId", "condition_id", "id", "slug")
+                    )
+                ):
                     rows = [payload]
+                if not rows:
+                    try:
+                        event_payload = self.fetch_event_by_slug(slug)
+                    except Exception as e:
+                        logger.debug(f"Failed to fetch event for slug {slug}: {e}")
+                    else:
+                        rows = _extract_list(event_payload)
 
                 for row in rows:
                     key = str(
@@ -848,8 +871,25 @@ def _trade_market_id(item: dict[str, Any]) -> str:
         "clob_token_id",
     ):
         value = item.get(key)
+        if isinstance(value, dict):
+            continue
         if value is not None and str(value).strip():
             return str(value).strip()
+
+    nested_market = item.get("market")
+    if isinstance(nested_market, dict):
+        for key in (
+            "conditionId",
+            "condition_id",
+            "conditionID",
+            "condition",
+            "market_id",
+            "marketId",
+            "id",
+        ):
+            value = nested_market.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
     return ""
 
 

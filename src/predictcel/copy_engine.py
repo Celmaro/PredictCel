@@ -248,6 +248,8 @@ class CopyEngine:
     ) -> str:
         market = markets.get(market_id)
         if market is None:
+            market = markets.get(str(market_id).strip().lower())
+        if market is None:
             return market_id
         return market.market_id
 

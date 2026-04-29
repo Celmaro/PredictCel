@@ -48,6 +48,16 @@ class FakeSlugClient(PolymarketPublicClient):
                 "slug": "will-event-x-happen",
                 "outcomePrices": "[0.61, 0.35]",
             }
+        if "/events/slug/event-slug-only" in url:
+            return {
+                "markets": [
+                    {
+                        "conditionId": "cond_event",
+                        "slug": "market-from-event",
+                        "outcomePrices": "[0.55, 0.41]",
+                    }
+                ]
+            }
         return {"markets": []}
 
 
@@ -161,6 +171,22 @@ def test_fetch_markets_by_slugs_uses_slug_endpoint_and_deduplicates() -> None:
         }
     ]
     assert any("/markets/slug/will-event-x-happen" in url for url in client.urls)
+
+
+def test_fetch_markets_by_slugs_falls_back_to_event_slug() -> None:
+    client = FakeSlugClient()
+
+    rows = client.fetch_markets_by_slugs(["event-slug-only"])
+
+    assert rows == [
+        {
+            "conditionId": "cond_event",
+            "slug": "market-from-event",
+            "outcomePrices": "[0.55, 0.41]",
+        }
+    ]
+    assert any("/markets/slug/event-slug-only" in url for url in client.urls)
+    assert any("/events/slug/event-slug-only" in url for url in client.urls)
 
 
 def test_fetch_wallet_trades_accepts_asset_backed_trade_rows() -> None:
@@ -416,11 +442,17 @@ def test_extract_trade_market_ids_deduplicates_common_shapes() -> None:
             {"condition_id": "cond_1"},
             {"marketSlug": "ignored"},
             {"market": "market_2"},
+            {"market": {"slug": "ignored-nested-slug", "id": "market_3"}},
             {"asset": "token_yes"},
         ]
     }
 
-    assert extract_trade_market_ids(payloads) == ["cond_1", "market_2", "token_yes"]
+    assert extract_trade_market_ids(payloads) == [
+        "cond_1",
+        "market_2",
+        "market_3",
+        "token_yes",
+    ]
 
 
 def test_extract_trade_market_slugs_deduplicates_common_shapes() -> None:

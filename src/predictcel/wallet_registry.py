@@ -186,6 +186,7 @@ def compute_basket_health_from_static_memberships(
     config: AppConfig,
     memberships: Iterable[BasketMembership],
     trades: Iterable[WalletTrade],
+    registry_entries: Iterable[WalletRegistryEntry] | None = None,
     captured_at: datetime | None = None,
 ) -> list[BasketHealth]:
     """Compute lightweight health diagnostics for seeded basket memberships."""
@@ -199,6 +200,11 @@ def compute_basket_health_from_static_memberships(
     for trade in trades:
         trades_by_topic_wallet[(trade.topic, trade.wallet)].append(trade)
 
+    registry_status_by_wallet = {
+        entry.wallet: str(entry.status).strip().lower() or "active"
+        for entry in (registry_entries or [])
+    }
+
     health_snapshots: list[BasketHealth] = []
     for topic in sorted(active_memberships_by_topic):
         topic_memberships = active_memberships_by_topic[topic]
@@ -211,20 +217,22 @@ def compute_basket_health_from_static_memberships(
 
         for membership in topic_memberships:
             wallet_trades = trades_by_topic_wallet.get((topic, membership.wallet), [])
+            registry_status = registry_status_by_wallet.get(membership.wallet, "active")
             has_trade_24h = any(trade.age_seconds <= 86_400 for trade in wallet_trades)
             has_trade_7d = any(trade.age_seconds <= 604_800 for trade in wallet_trades)
             has_eligible_trade = any(
                 trade.age_seconds <= config.filters.max_trade_age_seconds
                 for trade in wallet_trades
             )
+            is_live_eligible_status = registry_status == "active"
 
-            if membership.tier == "core" and has_trade_24h:
+            if membership.tier == "core" and is_live_eligible_status and has_trade_24h:
                 fresh_core_wallets_24h += 1
-            if has_trade_7d:
+            if is_live_eligible_status and has_trade_7d:
                 fresh_active_wallets_7d += 1
             else:
                 stale_wallet_count += 1
-            if has_eligible_trade:
+            if is_live_eligible_status and has_eligible_trade:
                 active_eligible_wallet_count += 1
 
             eligible_trades_7d += sum(

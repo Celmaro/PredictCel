@@ -164,6 +164,116 @@ def test_compute_basket_health_from_static_memberships() -> None:
     assert health[0].health_state == "thin"
 
 
+def test_compute_basket_health_respects_registry_statuses() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w1",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w2",
+            tier="core",
+            rank=2,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w3",
+            tier="rotating",
+            rank=3,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+    ]
+    trades = [
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.5,
+            size_usd=20.0,
+            age_seconds=3600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m2",
+            side="NO",
+            price=0.4,
+            size_usd=15.0,
+            age_seconds=172800,
+        ),
+        WalletTrade(
+            wallet="w3",
+            topic="geopolitics",
+            market_id="m3",
+            side="YES",
+            price=0.6,
+            size_usd=12.0,
+            age_seconds=691200,
+        ),
+    ]
+    registry_entries = [
+        WalletRegistryEntry(
+            "w1",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w2",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "stale",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w3",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "retired",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+    ]
+
+    health = compute_basket_health_from_static_memberships(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+
+    assert len(health) == 1
+    assert health[0].fresh_core_wallets_24h == 1
+    assert health[0].fresh_active_wallets_7d == 1
+    assert health[0].active_eligible_wallet_count == 1
+    assert health[0].eligible_trades_7d == 2
+    assert health[0].stale_ratio == pytest.approx(2 / 3, rel=1e-3)
+    assert health[0].health_state == "stale"
+
+
 def test_build_live_basket_roster_ranks_recent_wallets_into_live_slots() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     captured_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
