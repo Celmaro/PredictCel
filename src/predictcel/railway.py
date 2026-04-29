@@ -6,7 +6,7 @@ import sys
 import time
 import traceback
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from .main import main as run_cli
 
