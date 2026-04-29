@@ -51,13 +51,27 @@ def test_seed_registry_and_memberships_from_static_baskets() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     store = FakeStore()
     captured_at = datetime(2026, 1, 1, tzinfo=UTC)
+    expected_wallet_count = len(
+        {
+            wallet
+            for basket in config.baskets
+            for wallet in basket.wallets
+            if str(wallet).strip()
+        }
+    )
+    expected_membership_count = sum(
+        1
+        for basket in config.baskets
+        for wallet in basket.wallets
+        if str(wallet).strip()
+    )
 
     entries = seed_registry_from_config(config, store, captured_at=captured_at)
     memberships = seed_memberships_from_config(config, store, captured_at=captured_at)
 
-    assert len(entries) == 9
-    assert len(store.registry_entries) == 9
-    assert len(memberships) == 9
+    assert len(entries) == expected_wallet_count
+    assert len(store.registry_entries) == expected_wallet_count
+    assert len(memberships) == expected_membership_count
     assert all(entry.first_seen_at == captured_at for entry in entries)
     assert all(membership.tier == "core" for membership in memberships)
 
