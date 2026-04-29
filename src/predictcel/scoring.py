@@ -46,6 +46,8 @@ class WalletQualityScorer:
         self.last_wallet_rejection_counts: dict[str, dict[str, int]] = {}
         self.last_missing_market_samples: list[str] = []
         self.last_missing_market_breakdown: dict[str, int] = {}
+        self.last_missing_market_by_wallet: dict[str, int] = {}
+        self.last_missing_market_samples_by_wallet: dict[str, list[str]] = {}
         self.last_wallet_attrition: dict[str, int] = {}
 
     def score(
@@ -68,6 +70,8 @@ class WalletQualityScorer:
         wallet_rejections: dict[str, Counter[str]] = defaultdict(Counter)
         missing_market_samples: list[str] = []
         missing_market_breakdown: Counter[str] = Counter()
+        missing_market_by_wallet: Counter[str] = Counter()
+        missing_market_samples_by_wallet: dict[str, list[str]] = defaultdict(list)
         market_lookup = _build_market_lookup(markets)
 
         for trade in trades:
@@ -95,6 +99,15 @@ class WalletQualityScorer:
                         missing_market_breakdown[
                             _classify_missing_market_id(trade.market_id)
                         ] += 1
+                        missing_market_by_wallet[wallet] += 1
+                        if (
+                            trade.market_id
+                            not in missing_market_samples_by_wallet[wallet]
+                            and len(missing_market_samples_by_wallet[wallet]) < 5
+                        ):
+                            missing_market_samples_by_wallet[wallet].append(
+                                trade.market_id
+                            )
 
             if not eligible:
                 continue
@@ -164,6 +177,14 @@ class WalletQualityScorer:
         self.last_missing_market_breakdown = dict(
             sorted(missing_market_breakdown.items())
         )
+        self.last_missing_market_by_wallet = dict(
+            sorted(missing_market_by_wallet.items())
+        )
+        self.last_missing_market_samples_by_wallet = {
+            wallet: samples
+            for wallet, samples in sorted(missing_market_samples_by_wallet.items())
+            if samples
+        }
         self.last_wallet_attrition = {
             "wallets_seen": len(grouped),
             "wallets_scored": len(scores),

@@ -9,8 +9,10 @@ from predictcel.main import (
     _analysis_trades,
     _auto_feed_wallet_registry_from_discovery,
     _build_wallet_registry_summary,
-    _compact_scoring_diagnostics,
     _compact_cycle_output,
+    _compact_live_input_diagnostics,
+    _compact_scoring_diagnostics,
+    _classify_unmatched_token_ids,
     _creates_or_updates_paper_position,
     _filter_duplicate_candidates,
     _load_live_inputs,
@@ -447,6 +449,73 @@ def test_load_live_inputs_uses_registry_memberships_for_wallet_fetches(
     assert diagnostics["requested_wallets"] == 1
 
 
+def test_load_live_inputs_tracks_trade_market_id_source_breakdown(monkeypatch) -> None:
+    registry_wallet = "0x1111111111111111111111111111111111111111"
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+            seed_from_baskets=False,
+        ),
+    )
+    store = DiscoveryStore(
+        memberships=[
+            BasketMembership(
+                topic="sports",
+                wallet=registry_wallet,
+                tier="core",
+                rank=1,
+                active=True,
+                joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+        ]
+    )
+
+    def fake_fetch_wallet_payloads(client, wallets, limit):
+        del client, limit
+        return {
+            wallets[0]: [
+                {
+                    "asset": "token_yes",
+                    "market": {"id": "market_123", "slug": "will-x-happen"},
+                },
+                {
+                    "clobTokenId": "token_no",
+                    "market": {"conditionId": "cond_1"},
+                },
+                {"asset": "token_fallback"},
+            ]
+        }
+
+    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FakeLiveClient)
+    monkeypatch.setattr(
+        "predictcel.main._fetch_wallet_payloads", fake_fetch_wallet_payloads
+    )
+    monkeypatch.setattr(
+        "predictcel.main.build_wallet_trades", lambda payloads, topics: []
+    )
+    monkeypatch.setattr(
+        "predictcel.main.extract_trade_market_ids",
+        lambda payloads: ["market_123", "cond_1", "token_fallback"],
+    )
+    monkeypatch.setattr(
+        "predictcel.main.extract_trade_market_slugs", lambda payloads: ["will-x-happen"]
+    )
+    monkeypatch.setattr("predictcel.main.build_market_snapshots", lambda rows: {})
+
+    _, _, diagnostics = _load_live_inputs(config, store)
+
+    assert diagnostics["trade_market_id_source_breakdown"] == {
+        "asset": 1,
+        "market.conditionId": 1,
+        "market.id": 1,
+    }
+
+
 def test_load_live_inputs_recovers_unresolved_token_markets(monkeypatch) -> None:
     registry_wallet = "0x1111111111111111111111111111111111111111"
     config = replace(
@@ -537,6 +606,138 @@ def test_load_live_inputs_recovers_unresolved_token_markets(monkeypatch) -> None
     assert diagnostics["token_probe_tokens_matched"] == 1
     assert diagnostics["token_probe_tokens_unmatched"] == 0
     assert diagnostics["token_probe_rows_loaded"] == 1
+
+
+def test_load_live_inputs_indexes_token_aliases_from_loaded_market_rows(
+    monkeypatch,
+) -> None:
+    registry_wallet = "0x1111111111111111111111111111111111111111"
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+            seed_from_baskets=False,
+        ),
+    )
+    store = DiscoveryStore(
+        memberships=[
+            BasketMembership(
+                topic="sports",
+                wallet=registry_wallet,
+                tier="core",
+                rank=1,
+                active=True,
+                joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+        ]
+    )
+
+    class AliasRichClient(FakeLiveClient):
+        def fetch_active_markets(self, limit: int):
+            del limit
+            return [
+                {
+                    "conditionId": "cond_1",
+                    "question": "Recovered From Active Rows",
+                    "tokens": [
+                        {"asset_id": "token_yes"},
+                        {"assetId": "token_no"},
+                    ],
+                    "outcomePrices": "[0.55, 0.41]",
+                    "active": True,
+                    "closed": False,
+                    "liquidity": 9000,
+                    "endDate": "2026-12-31T00:00:00Z",
+                }
+            ]
+
+    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", AliasRichClient)
+    monkeypatch.setattr(
+        "predictcel.main._fetch_wallet_payloads",
+        lambda client, wallets, limit: {wallets[0]: [{"asset": "token_yes"}]},
+    )
+    monkeypatch.setattr(
+        "predictcel.main.build_wallet_trades",
+        lambda payloads, topics: [
+            WalletTrade(
+                registry_wallet,
+                "sports",
+                "token_yes",
+                "YES",
+                0.55,
+                25.0,
+                300,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "predictcel.main.extract_trade_market_ids", lambda payloads: ["token_yes"]
+    )
+    monkeypatch.setattr(
+        "predictcel.main.extract_trade_market_slugs", lambda payloads: []
+    )
+
+    trades, markets, diagnostics = _load_live_inputs(config, store)
+
+    assert len(trades) == 1
+    assert "cond_1" in markets
+    assert "token_yes" in markets
+    assert diagnostics["supplemental_market_ids_requested"] == 0
+    assert diagnostics["token_probe_requested"] == 0
+    assert diagnostics["token_aliases_added_from_rows"] >= 2
+
+
+def test_classify_unmatched_token_ids_breaks_down_gap_types() -> None:
+    loaded_market_rows = [
+        {
+            "conditionId": "cond_present",
+            "question": "Present In Loaded Rows",
+            "tokens": [
+                {"asset_id": "token_present"},
+                {"assetId": "token_present_no"},
+            ],
+            "outcomePrices": "[0.60, 0.35]",
+            "active": True,
+            "closed": False,
+            "liquidity": 5000,
+            "endDate": "2026-12-31T00:00:00Z",
+        }
+    ]
+    markets = {"cond_present": make_snapshot("cond_present")}
+    token_probe_rows = [
+        {
+            "conditionId": "cond_outside",
+            "question": "Outside Loaded Universe",
+            "clobTokenIds": ["token_outside", "token_outside_no"],
+            "outcomePrices": "[0.62, 0.31]",
+            "active": True,
+            "closed": False,
+            "liquidity": 7000,
+            "endDate": "2026-12-31T00:00:00Z",
+        }
+    ]
+
+    diagnostics = _classify_unmatched_token_ids(
+        ["token_present", "token_outside", "token_absent"],
+        loaded_market_rows,
+        markets,
+        token_probe_rows,
+    )
+
+    assert diagnostics["breakdown"] == {
+        "absent_from_loaded_market_rows": 1,
+        "market_outside_loaded_universe": 1,
+        "present_on_loaded_row_missing_crossref": 1,
+    }
+    assert diagnostics["samples"] == {
+        "absent_from_loaded_market_rows": ["token_absent"],
+        "market_outside_loaded_universe": ["token_outside"],
+        "present_on_loaded_row_missing_crossref": ["token_present"],
+    }
 
 
 def test_run_wallet_discovery_persists_registry_inputs_when_db_is_provided(
@@ -1172,6 +1373,59 @@ def test_compact_cycle_output_includes_wallet_registry_summary() -> None:
     }
 
 
+def test_compact_live_input_diagnostics_includes_unmatched_token_breakdown() -> None:
+    diagnostics = _compact_live_input_diagnostics(
+        {
+            "requested_wallets": 3,
+            "valid_wallets": 3,
+            "wallet_payloads_loaded": 12,
+            "wallets_with_parsed_trades": 2,
+            "parsed_trade_count": 9,
+            "active_market_rows_loaded": 4,
+            "trade_market_ids_seen": 5,
+            "trade_market_slugs_seen": 2,
+            "supplemental_market_ids_requested": 1,
+            "supplemental_market_rows_loaded": 1,
+            "unresolved_market_ids_after_supplemental": 2,
+            "unresolved_token_ids_after_supplemental": 2,
+            "token_probe_requested": 2,
+            "token_probe_rows_loaded": 1,
+            "token_probe_tokens_matched": 1,
+            "token_probe_tokens_unmatched": 1,
+            "supplemental_market_slugs_requested": 0,
+            "supplemental_slug_rows_loaded": 0,
+            "market_cache_entries": 6,
+            "relevant_markets_enriched": 3,
+            "orderbook_ready_markets": 2,
+            "markets_with_yes_depth": 2,
+            "markets_with_no_depth": 1,
+            "market_crossref": {"matched_count": 4},
+            "trade_market_id_source_breakdown": {"asset": 1, "market.id": 2},
+            "token_aliases_added_from_rows": 3,
+            "unmatched_token_breakdown": {
+                "absent_from_loaded_market_rows": 1,
+                "market_outside_loaded_universe": 1,
+            },
+            "sample_unmatched_tokens_by_class": {
+                "absent_from_loaded_market_rows": ["token_absent"],
+            },
+        }
+    )
+
+    assert diagnostics["token_aliases_added_from_rows"] == 3
+    assert diagnostics["unmatched_token_breakdown"] == {
+        "absent_from_loaded_market_rows": 1,
+        "market_outside_loaded_universe": 1,
+    }
+    assert diagnostics["trade_market_id_source_breakdown"] == {
+        "asset": 1,
+        "market.id": 2,
+    }
+    assert diagnostics["sample_unmatched_tokens_by_class"] == {
+        "absent_from_loaded_market_rows": ["token_absent"]
+    }
+
+
 def test_compact_scoring_diagnostics_includes_attrition_and_missing_breakdown() -> None:
     diagnostics = _compact_scoring_diagnostics(
         {
@@ -1189,6 +1443,11 @@ def test_compact_scoring_diagnostics_includes_attrition_and_missing_breakdown() 
             "pre_scoring_too_old_filtered": 4,
             "missing_market_breakdown": {"token_id_like": 2, "slug_like": 1},
             "missing_market_samples": ["0xabc", "slug-1"],
+            "missing_market_by_wallet": {"w_hot": 4, "w_mid": 2, "w_low": 1},
+            "missing_market_samples_by_wallet": {
+                "w_hot": ["0xabc", "0xdef"],
+                "w_mid": ["slug-1"],
+            },
         }
     )
 
@@ -1206,6 +1465,15 @@ def test_compact_scoring_diagnostics_includes_attrition_and_missing_breakdown() 
         "slug_like": 1,
     }
     assert diagnostics["missing_market_samples"] == ["0xabc", "slug-1"]
+    assert diagnostics["missing_market_by_wallet"] == {
+        "w_hot": 4,
+        "w_mid": 2,
+        "w_low": 1,
+    }
+    assert diagnostics["missing_market_samples_by_wallet"] == {
+        "w_hot": ["0xabc", "0xdef"],
+        "w_mid": ["slug-1"],
+    }
 
 
 def test_analysis_trades_filters_too_old_rows() -> None:

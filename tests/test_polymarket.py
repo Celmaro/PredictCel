@@ -455,6 +455,24 @@ def test_extract_trade_market_ids_deduplicates_common_shapes() -> None:
     ]
 
 
+def test_extract_trade_market_ids_prefers_nested_market_id_over_token_fields() -> None:
+    payloads = {
+        "wallet_a": [
+            {
+                "asset": "token_yes",
+                "tokenId": "token_yes",
+                "market": {"id": "market_123", "slug": "will-x-happen"},
+            },
+            {
+                "clobTokenId": "token_no",
+                "market": {"conditionId": "cond_1"},
+            },
+        ]
+    }
+
+    assert extract_trade_market_ids(payloads) == ["cond_1", "market_123"]
+
+
 def test_extract_trade_market_slugs_deduplicates_common_shapes() -> None:
     payloads = {
         "wallet_a": [
@@ -468,6 +486,20 @@ def test_extract_trade_market_slugs_deduplicates_common_shapes() -> None:
         "another-market",
         "will-event-x-happen",
     ]
+
+
+def test_extract_trade_market_slugs_prefers_nested_market_slug() -> None:
+    payloads = {
+        "wallet_a": [
+            {
+                "asset": "token_yes",
+                "marketSlug": "stale-slug",
+                "market": {"conditionId": "cond_1", "slug": "canonical-slug"},
+            }
+        ]
+    }
+
+    assert extract_trade_market_slugs(payloads) == ["canonical-slug"]
 
 
 def test_gamma_market_array_filter_uses_repeated_query_params() -> None:
