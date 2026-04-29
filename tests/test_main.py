@@ -83,10 +83,14 @@ class RegistrySummaryStore:
     def load_wallet_registry_entries(self) -> list[WalletRegistryEntry]:
         return list(self.registry_entries)
 
-    def load_basket_memberships(self, topic: str | None = None) -> list[BasketMembership]:
+    def load_basket_memberships(
+        self, topic: str | None = None
+    ) -> list[BasketMembership]:
         if topic is None:
             return list(self.memberships)
-        return [membership for membership in self.memberships if membership.topic == topic]
+        return [
+            membership for membership in self.memberships if membership.topic == topic
+        ]
 
     def save_basket_health(self, health_snapshots: list[BasketHealth]) -> None:
         self.saved_health = list(health_snapshots)
@@ -113,10 +117,14 @@ class DiscoveryStore:
     def load_wallet_registry_entries(self) -> list[WalletRegistryEntry]:
         return list(self.registry_entries)
 
-    def load_basket_memberships(self, topic: str | None = None) -> list[BasketMembership]:
+    def load_basket_memberships(
+        self, topic: str | None = None
+    ) -> list[BasketMembership]:
         if topic is None:
             return list(self.memberships)
-        return [membership for membership in self.memberships if membership.topic == topic]
+        return [
+            membership for membership in self.memberships if membership.topic == topic
+        ]
 
 
 class FakeLiveClient:
@@ -214,7 +222,9 @@ def test_submitted_order_does_not_create_position() -> None:
 
 def test_filled_and_dry_run_results_create_positions() -> None:
     assert _creates_or_updates_paper_position(make_result("filled")) is True
-    assert _creates_or_updates_paper_position(make_result("dry_run", order_id="")) is True
+    assert (
+        _creates_or_updates_paper_position(make_result("dry_run", order_id="")) is True
+    )
 
 
 def test_filter_duplicate_candidates_skips_recent_and_same_batch_duplicates() -> None:
@@ -240,7 +250,9 @@ def test_filter_duplicate_candidates_skips_recent_and_same_batch_duplicates() ->
 def test_mark_execution_intents_seen_only_marks_planned_intents() -> None:
     store = FakeStore()
 
-    _mark_execution_intents_seen(store, [make_intent("m2", "YES"), make_intent("m3", "NO")])
+    _mark_execution_intents_seen(
+        store, [make_intent("m2", "YES"), make_intent("m3", "NO")]
+    )
 
     assert store.marked_signals == [
         ("m2", "geopolitics", "YES"),
@@ -276,7 +288,9 @@ def test_wallet_topics_for_live_inputs_prefers_active_registry_memberships() -> 
     static_wallet = "0x2222222222222222222222222222222222222222"
     config = replace(
         load_config(Path("config/predictcel.example.json")),
-        baskets=[BasketRule(topic="sports", wallets=[static_wallet], quorum_ratio=0.66)],
+        baskets=[
+            BasketRule(topic="sports", wallets=[static_wallet], quorum_ratio=0.66)
+        ],
         wallet_registry=replace(
             load_config(Path("config/predictcel.example.json")).wallet_registry,
             enabled=True,
@@ -316,12 +330,16 @@ def test_wallet_topics_for_live_inputs_prefers_active_registry_memberships() -> 
     assert wallet_topics == {registry_wallet: ["sports"]}
 
 
-def test_load_live_inputs_uses_registry_memberships_for_wallet_fetches(monkeypatch) -> None:
+def test_load_live_inputs_uses_registry_memberships_for_wallet_fetches(
+    monkeypatch,
+) -> None:
     registry_wallet = "0x1111111111111111111111111111111111111111"
     static_wallet = "0x2222222222222222222222222222222222222222"
     config = replace(
         load_config(Path("config/predictcel.example.json")),
-        baskets=[BasketRule(topic="sports", wallets=[static_wallet], quorum_ratio=0.66)],
+        baskets=[
+            BasketRule(topic="sports", wallets=[static_wallet], quorum_ratio=0.66)
+        ],
         wallet_registry=replace(
             load_config(Path("config/predictcel.example.json")).wallet_registry,
             enabled=True,
@@ -351,10 +369,16 @@ def test_load_live_inputs_uses_registry_memberships_for_wallet_fetches(monkeypat
         return {wallet: [] for wallet in wallets}
 
     monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FakeLiveClient)
-    monkeypatch.setattr("predictcel.main._fetch_wallet_payloads", fake_fetch_wallet_payloads)
-    monkeypatch.setattr("predictcel.main.build_wallet_trades", lambda payloads, topics: [])
+    monkeypatch.setattr(
+        "predictcel.main._fetch_wallet_payloads", fake_fetch_wallet_payloads
+    )
+    monkeypatch.setattr(
+        "predictcel.main.build_wallet_trades", lambda payloads, topics: []
+    )
     monkeypatch.setattr("predictcel.main.extract_trade_market_ids", lambda payloads: [])
-    monkeypatch.setattr("predictcel.main.extract_trade_market_slugs", lambda payloads: [])
+    monkeypatch.setattr(
+        "predictcel.main.extract_trade_market_slugs", lambda payloads: []
+    )
     monkeypatch.setattr("predictcel.main.build_market_snapshots", lambda rows: {})
 
     trades, markets, diagnostics = _load_live_inputs(config, store)
@@ -415,14 +439,25 @@ def test_run_wallet_discovery_persists_registry_inputs_when_db_is_provided(
             return candidates, assignments, []
 
         def write_reports(self, output_dir, config_path, config_output, results=None):
-            return {"wallet_discovery_report": str(Path(output_dir) / "wallet_discovery_report.json")}
+            return {
+                "wallet_discovery_report": str(
+                    Path(output_dir) / "wallet_discovery_report.json"
+                )
+            }
 
     monkeypatch.setattr("predictcel.main.load_config", lambda _: config)
     monkeypatch.setattr("predictcel.main.WalletDiscoveryPipeline", FakePipeline)
     monkeypatch.setattr("predictcel.main.SignalStore", lambda db_path: store)
 
     _run_wallet_discovery(
-        ["--config", "config/predictcel.example.json", "--db", "predictcel.db", "--output-dir", "data"]
+        [
+            "--config",
+            "config/predictcel.example.json",
+            "--db",
+            "predictcel.db",
+            "--output-dir",
+            "data",
+        ]
     )
 
     output = capsys.readouterr().out
@@ -528,14 +563,25 @@ def test_run_wallet_discovery_skips_existing_and_rejected_wallets(
             return candidates, assignments, []
 
         def write_reports(self, output_dir, config_path, config_output, results=None):
-            return {"wallet_discovery_report": str(Path(output_dir) / "wallet_discovery_report.json")}
+            return {
+                "wallet_discovery_report": str(
+                    Path(output_dir) / "wallet_discovery_report.json"
+                )
+            }
 
     monkeypatch.setattr("predictcel.main.load_config", lambda _: config)
     monkeypatch.setattr("predictcel.main.WalletDiscoveryPipeline", FakePipeline)
     monkeypatch.setattr("predictcel.main.SignalStore", lambda db_path: store)
 
     _run_wallet_discovery(
-        ["--config", "config/predictcel.example.json", "--db", "predictcel.db", "--output-dir", "data"]
+        [
+            "--config",
+            "config/predictcel.example.json",
+            "--db",
+            "predictcel.db",
+            "--output-dir",
+            "data",
+        ]
     )
 
     output = capsys.readouterr().out
@@ -607,14 +653,25 @@ def test_run_wallet_discovery_report_only_does_not_persist_when_db_is_provided(
             return candidates, assignments, []
 
         def write_reports(self, output_dir, config_path, config_output, results=None):
-            return {"wallet_discovery_report": str(Path(output_dir) / "wallet_discovery_report.json")}
+            return {
+                "wallet_discovery_report": str(
+                    Path(output_dir) / "wallet_discovery_report.json"
+                )
+            }
 
     monkeypatch.setattr("predictcel.main.load_config", lambda _: config)
     monkeypatch.setattr("predictcel.main.WalletDiscoveryPipeline", FakePipeline)
     monkeypatch.setattr("predictcel.main.SignalStore", lambda db_path: store)
 
     _run_wallet_discovery(
-        ["--config", "config/predictcel.example.json", "--db", "predictcel.db", "--output-dir", "data"]
+        [
+            "--config",
+            "config/predictcel.example.json",
+            "--db",
+            "predictcel.db",
+            "--output-dir",
+            "data",
+        ]
     )
 
     output = capsys.readouterr().out
@@ -625,7 +682,9 @@ def test_run_wallet_discovery_report_only_does_not_persist_when_db_is_provided(
     assert '"discovered_wallets_ingested": 0' in output
 
 
-def test_auto_feed_wallet_registry_from_discovery_ingests_accepted_candidates(monkeypatch) -> None:
+def test_auto_feed_wallet_registry_from_discovery_ingests_accepted_candidates(
+    monkeypatch,
+) -> None:
     config = replace(
         load_config(Path("config/predictcel.example.json")),
         wallet_registry=replace(
@@ -698,7 +757,9 @@ def test_auto_feed_wallet_registry_from_discovery_ingests_accepted_candidates(mo
     ] == [("geopolitics", "w_new", "explorer")]
 
 
-def test_auto_feed_wallet_registry_from_discovery_skips_report_only_mode(monkeypatch) -> None:
+def test_auto_feed_wallet_registry_from_discovery_skips_report_only_mode(
+    monkeypatch,
+) -> None:
     config = replace(
         load_config(Path("config/predictcel.example.json")),
         wallet_registry=replace(
@@ -740,7 +801,9 @@ def test_auto_feed_wallet_registry_from_discovery_skips_report_only_mode(monkeyp
     assert store.memberships == []
 
 
-def test_auto_feed_wallet_registry_from_discovery_skips_propose_config_mode(monkeypatch) -> None:
+def test_auto_feed_wallet_registry_from_discovery_skips_propose_config_mode(
+    monkeypatch,
+) -> None:
     config = replace(
         load_config(Path("config/predictcel.example.json")),
         wallet_registry=replace(
@@ -782,7 +845,9 @@ def test_auto_feed_wallet_registry_from_discovery_skips_propose_config_mode(monk
     assert store.memberships == []
 
 
-def test_auto_feed_wallet_registry_from_discovery_applies_manager_actions_to_memberships(monkeypatch) -> None:
+def test_auto_feed_wallet_registry_from_discovery_applies_manager_actions_to_memberships(
+    monkeypatch,
+) -> None:
     config = replace(
         load_config(Path("config/predictcel.example.json")),
         wallet_registry=replace(
@@ -1103,7 +1168,9 @@ def test_build_wallet_registry_summary_keeps_memberships_read_only() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
-        wallet_registry=replace(config.wallet_registry, enabled=True, seed_from_baskets=False),
+        wallet_registry=replace(
+            config.wallet_registry, enabled=True, seed_from_baskets=False
+        ),
         basket_controller=replace(
             config.basket_controller,
             tracked_basket_target=4,
@@ -1129,7 +1196,13 @@ def test_build_wallet_registry_summary_keeps_memberships_read_only() -> None:
                 demotion_reason="",
             )
             for index, (wallet, tier) in enumerate(
-                [("w1", "core"), ("w2", "core"), ("w3", "rotating"), ("w4", "backup"), ("w5", "explorer")],
+                [
+                    ("w1", "core"),
+                    ("w2", "core"),
+                    ("w3", "rotating"),
+                    ("w4", "backup"),
+                    ("w5", "explorer"),
+                ],
                 start=1,
             )
         ],
@@ -1144,7 +1217,10 @@ def test_build_wallet_registry_summary_keeps_memberships_read_only() -> None:
 
     summary = _build_wallet_registry_summary(config, store, trades)
 
-    assert [(membership.wallet, membership.tier, membership.rank, membership.active) for membership in store.memberships] == [
+    assert [
+        (membership.wallet, membership.tier, membership.rank, membership.active)
+        for membership in store.memberships
+    ] == [
         ("w1", "core", 1, True),
         ("w2", "core", 2, True),
         ("w3", "rotating", 3, True),
@@ -1163,7 +1239,9 @@ def test_build_wallet_registry_summary_does_not_reseed_existing_memberships() ->
     base_config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         base_config,
-        wallet_registry=replace(base_config.wallet_registry, enabled=True, seed_from_baskets=True),
+        wallet_registry=replace(
+            base_config.wallet_registry, enabled=True, seed_from_baskets=True
+        ),
     )
     captured_at = datetime.now(UTC)
     store = RegistrySummaryStore(
@@ -1194,17 +1272,31 @@ def test_build_wallet_registry_summary_does_not_reseed_existing_memberships() ->
 
     _build_wallet_registry_summary(config, store, [])
 
-    assert [(membership.wallet, membership.tier, membership.rank, membership.promotion_reason) for membership in store.memberships] == [
+    assert [
+        (
+            membership.wallet,
+            membership.tier,
+            membership.rank,
+            membership.promotion_reason,
+        )
+        for membership in store.memberships
+    ] == [
         ("w1", "explorer", 7, "manual override"),
     ]
 
 
-def test_build_wallet_registry_summary_bootstraps_static_baskets_after_discovery_auto_feed() -> None:
+def test_build_wallet_registry_summary_bootstraps_static_baskets_after_discovery_auto_feed() -> (
+    None
+):
     base_config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         base_config,
-        baskets=[BasketRule(topic="geopolitics", wallets=["w_seed"], quorum_ratio=0.66)],
-        wallet_registry=replace(base_config.wallet_registry, enabled=True, seed_from_baskets=True),
+        baskets=[
+            BasketRule(topic="geopolitics", wallets=["w_seed"], quorum_ratio=0.66)
+        ],
+        wallet_registry=replace(
+            base_config.wallet_registry, enabled=True, seed_from_baskets=True
+        ),
     )
     captured_at = datetime.now(UTC)
     store = RegistrySummaryStore(
@@ -1236,14 +1328,19 @@ def test_build_wallet_registry_summary_bootstraps_static_baskets_after_discovery
     summary = _build_wallet_registry_summary(config, store, [])
 
     assert {entry.wallet for entry in store.registry_entries} == {"w_new", "w_seed"}
-    assert [(membership.topic, membership.wallet, membership.tier) for membership in store.memberships] == [
+    assert [
+        (membership.topic, membership.wallet, membership.tier)
+        for membership in store.memberships
+    ] == [
         ("geopolitics", "w_seed", "core"),
         ("geopolitics", "w_new", "explorer"),
     ]
     assert summary["registry_wallet_count"] == 2
 
 
-def test_build_wallet_registry_summary_refreshes_registry_statuses_from_trade_freshness() -> None:
+def test_build_wallet_registry_summary_refreshes_registry_statuses_from_trade_freshness() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -1293,7 +1390,9 @@ def test_build_wallet_registry_summary_refreshes_registry_statuses_from_trade_fr
     }
 
 
-def test_build_wallet_registry_summary_flags_bench_depth_when_explorer_wallets_exist_but_live_roster_is_thin() -> None:
+def test_build_wallet_registry_summary_flags_bench_depth_when_explorer_wallets_exist_but_live_roster_is_thin() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -1320,7 +1419,9 @@ def test_build_wallet_registry_summary_flags_bench_depth_when_explorer_wallets_e
             WalletRegistryEntry(
                 wallet=wallet,
                 source_type="wallet_discovery" if wallet == "w3" else "static_basket",
-                source_ref="polymarket_data_api" if wallet == "w3" else "config.baskets",
+                source_ref="polymarket_data_api"
+                if wallet == "w3"
+                else "config.baskets",
                 trust_seed=1.0,
                 status="active",
                 first_seen_at=first_seen_at,
@@ -1380,7 +1481,9 @@ def test_build_wallet_registry_summary_flags_bench_depth_when_explorer_wallets_e
     }
 
 
-def test_build_wallet_registry_summary_includes_basket_promotion_recommendations() -> None:
+def test_build_wallet_registry_summary_includes_basket_promotion_recommendations() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -1425,10 +1528,34 @@ def test_build_wallet_registry_summary_includes_basket_promotion_recommendations
             for wallet in ["w1", "w2", "w3", "w4"]
         ],
         memberships=[
-            BasketMembership("esports", "w1", "core", 1, True, captured_at, None, "discovered", ""),
-            BasketMembership("esports", "w2", "core", 2, True, captured_at, None, "discovered", ""),
-            BasketMembership("esports", "w3", "rotating", 3, True, captured_at, None, "discovered", ""),
-            BasketMembership("esports", "w4", "explorer", 4, True, captured_at, None, "discovered", ""),
+            BasketMembership(
+                "esports", "w1", "core", 1, True, captured_at, None, "discovered", ""
+            ),
+            BasketMembership(
+                "esports", "w2", "core", 2, True, captured_at, None, "discovered", ""
+            ),
+            BasketMembership(
+                "esports",
+                "w3",
+                "rotating",
+                3,
+                True,
+                captured_at,
+                None,
+                "discovered",
+                "",
+            ),
+            BasketMembership(
+                "esports",
+                "w4",
+                "explorer",
+                4,
+                True,
+                captured_at,
+                None,
+                "discovered",
+                "",
+            ),
         ],
     )
     trades = [
@@ -1454,11 +1581,15 @@ def test_build_wallet_registry_summary_includes_basket_promotion_recommendations
     }
 
 
-def test_build_wallet_registry_summary_ignores_static_explorer_bench_depth_for_promotion_watch() -> None:
+def test_build_wallet_registry_summary_ignores_static_explorer_bench_depth_for_promotion_watch() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
-        wallet_registry=replace(config.wallet_registry, enabled=True, seed_from_baskets=False),
+        wallet_registry=replace(
+            config.wallet_registry, enabled=True, seed_from_baskets=False
+        ),
         basket_controller=replace(
             config.basket_controller,
             core_slots=1,

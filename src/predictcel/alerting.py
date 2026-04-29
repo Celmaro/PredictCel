@@ -42,7 +42,11 @@ class SlackFormatter:
         blocks = [
             {
                 "type": "header",
-                "text": {"type": "plain_text", "text": f"🔔 {payload.title}", "emoji": True},
+                "text": {
+                    "type": "plain_text",
+                    "text": f"🔔 {payload.title}",
+                    "emoji": True,
+                },
             },
             {
                 "type": "section",
@@ -51,7 +55,10 @@ class SlackFormatter:
             {
                 "type": "context",
                 "elements": [
-                    {"type": "mrkdwn", "text": f"*Severity:* {payload.severity.upper()} | *Time:* {payload.timestamp}"}
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Severity:* {payload.severity.upper()} | *Time:* {payload.timestamp}",
+                    }
                 ],
             },
         ]
@@ -62,7 +69,14 @@ class SlackFormatter:
             ]
             blocks.append({"type": "section", "fields": fields})
         if payload.cycle_id:
-            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"*Cycle ID:* `{payload.cycle_id}`"}]})
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {"type": "mrkdwn", "text": f"*Cycle ID:* `{payload.cycle_id}`"}
+                    ],
+                }
+            )
         return {"attachments": [{"color": color, "blocks": blocks}]}
 
 
@@ -73,9 +87,13 @@ class DiscordFormatter:
 
     @classmethod
     def format(cls, payload: AlertPayload) -> dict[str, Any]:
-        fields = [{"name": "Severity", "value": payload.severity.upper(), "inline": True}]
+        fields = [
+            {"name": "Severity", "value": payload.severity.upper(), "inline": True}
+        ]
         if payload.cycle_id:
-            fields.append({"name": "Cycle ID", "value": payload.cycle_id, "inline": True})
+            fields.append(
+                {"name": "Cycle ID", "value": payload.cycle_id, "inline": True}
+            )
         if payload.metadata:
             fields.extend(
                 {"name": str(key), "value": str(value), "inline": True}
@@ -99,8 +117,12 @@ class AlertManager:
     """Centralized alerting manager for PredictCel."""
 
     def __init__(self):
-        self.slack_url = os.environ.get("SLACK_WEBHOOK_URL") or os.environ.get("SLACK_WEBHOOK")
-        self.discord_url = os.environ.get("DISCORD_WEBHOOK_URL") or os.environ.get("DISCORD_WEBHOOK")
+        self.slack_url = os.environ.get("SLACK_WEBHOOK_URL") or os.environ.get(
+            "SLACK_WEBHOOK"
+        )
+        self.discord_url = os.environ.get("DISCORD_WEBHOOK_URL") or os.environ.get(
+            "DISCORD_WEBHOOK"
+        )
         self.generic_url = os.environ.get("ALERT_WEBHOOK_URL")
         self._setup_logging()
 
@@ -119,7 +141,12 @@ class AlertManager:
     def _send_webhook(self, url: str, payload: dict[str, Any]) -> bool:
         try:
             body = json.dumps(payload).encode("utf-8")
-            request = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+            request = Request(
+                url,
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
             with urlopen(request, timeout=10) as resp:
                 return 200 <= resp.status < 300
         except Exception as e:
@@ -175,7 +202,9 @@ class AlertManager:
     def alert_info(self, title: str, message: str, **kwargs) -> bool:
         return self.send("info", title, message, **kwargs)
 
-    def alert_cycle_failure(self, cycle_id: str, stage: str, error: str, **kwargs) -> bool:
+    def alert_cycle_failure(
+        self, cycle_id: str, stage: str, error: str, **kwargs
+    ) -> bool:
         meta = kwargs.get("metadata", {})
         meta.update({"stage": stage, "error_type": "cycle_failure"})
         return self.alert_critical(
@@ -192,7 +221,9 @@ class AlertManager:
             metadata={"endpoint": endpoint, "retry_count": retry_count},
         )
 
-    def alert_no_signals(self, cycle_id: str, reason: str = "No signals generated") -> bool:
+    def alert_no_signals(
+        self, cycle_id: str, reason: str = "No signals generated"
+    ) -> bool:
         return self.alert_warning(
             title="No Signals Generated",
             message=f"Cycle `{cycle_id}` produced no trading signals.\n\n*Reason:* {reason}",
@@ -200,7 +231,9 @@ class AlertManager:
             metadata={"reason": reason},
         )
 
-    def alert_cycle_success(self, cycle_id: str, signals_count: int, metadata: dict[str, Any] | None = None) -> bool:
+    def alert_cycle_success(
+        self, cycle_id: str, signals_count: int, metadata: dict[str, Any] | None = None
+    ) -> bool:
         meta = metadata or {}
         meta["signals_count"] = signals_count
         return self.alert_info(
@@ -222,4 +255,10 @@ def get_alert_manager() -> AlertManager:
     return _alert_manager
 
 
-__all__ = ["AlertManager", "AlertPayload", "DiscordFormatter", "SlackFormatter", "get_alert_manager"]
+__all__ = [
+    "AlertManager",
+    "AlertPayload",
+    "DiscordFormatter",
+    "SlackFormatter",
+    "get_alert_manager",
+]

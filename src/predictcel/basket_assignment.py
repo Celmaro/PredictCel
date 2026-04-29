@@ -14,7 +14,10 @@ class BasketAssignmentEngine:
             for topic, affinity in candidate.topic_profile.topic_affinities.items()
             if topic in self.config.topics and affinity >= 0.15
         ]
-        if not recommended and candidate.topic_profile.primary_topic in self.config.topics:
+        if (
+            not recommended
+            and candidate.topic_profile.primary_topic in self.config.topics
+        ):
             recommended = [candidate.topic_profile.primary_topic]
 
         confidence = self._confidence(candidate.score)

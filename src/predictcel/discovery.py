@@ -13,7 +13,6 @@ from typing import Any
 __all__ = ["WalletCandidate", "score_wallet_candidates", "candidates_as_dicts"]
 
 
-
 @dataclass(frozen=True)
 class WalletCandidate:
     wallet: str
@@ -45,14 +44,23 @@ def score_wallet_candidates(
 
         topics = [_classify_topic(trade) for trade in trades]
         topic_counts = Counter(topic for topic in topics if topic != "unknown")
-        dominant_topic, dominant_count = topic_counts.most_common(1)[0] if topic_counts else ("unknown", 0)
+        dominant_topic, dominant_count = (
+            topic_counts.most_common(1)[0] if topic_counts else ("unknown", 0)
+        )
         trade_count = len(trades)
-        unique_markets = len({str(trade.get("conditionId") or trade.get("slug") or trade.get("title")) for trade in trades})
+        unique_markets = len(
+            {
+                str(trade.get("conditionId") or trade.get("slug") or trade.get("title"))
+                for trade in trades
+            }
+        )
         focus_ratio = dominant_count / trade_count if trade_count else 0.0
         average_trade_size = _average_trade_size(trades)
         pnl = float(row.get("pnl") or 0.0)
         volume = float(row.get("vol") or row.get("volume") or 0.0)
-        score = _candidate_score(focus_ratio, trade_count, average_trade_size, pnl, volume)
+        score = _candidate_score(
+            focus_ratio, trade_count, average_trade_size, pnl, volume
+        )
 
         candidates.append(
             WalletCandidate(
@@ -89,7 +97,13 @@ def _candidate_score(
     size_component = min(average_trade_size / 500, 1.0) * 0.15
     pnl_component = min(max(pnl, 0.0) / 100_000, 1.0) * 0.15
     efficiency_component = min(max(pnl / volume if volume else 0.0, 0.0), 1.0) * 0.05
-    return focus_component + activity_component + size_component + pnl_component + efficiency_component
+    return (
+        focus_component
+        + activity_component
+        + size_component
+        + pnl_component
+        + efficiency_component
+    )
 
 
 def _classify_topic(trade: dict[str, Any]) -> str:
@@ -99,7 +113,16 @@ def _classify_topic(trade: dict[str, Any]) -> str:
     )
     sports_markers = ("nba", "nfl", "nhl", "mlb", "soccer", "ufc", "tennis", "vs.")
     crypto_markers = ("btc", "bitcoin", "eth", "ethereum", "solana", "xrp", "crypto")
-    politics_markers = ("election", "trump", "biden", "senate", "congress", "president", "fed", "rates")
+    politics_markers = (
+        "election",
+        "trump",
+        "biden",
+        "senate",
+        "congress",
+        "president",
+        "fed",
+        "rates",
+    )
     weather_markers = ("weather", "rain", "snow", "temperature", "hurricane")
 
     if any(marker in text for marker in sports_markers):
@@ -114,5 +137,8 @@ def _classify_topic(trade: dict[str, Any]) -> str:
 
 
 def _average_trade_size(trades: list[dict[str, Any]]) -> float:
-    sizes = [float(trade.get("size") or trade.get("sizeUsd") or trade.get("amount") or 0.0) for trade in trades]
+    sizes = [
+        float(trade.get("size") or trade.get("sizeUsd") or trade.get("amount") or 0.0)
+        for trade in trades
+    ]
     return sum(sizes) / len(sizes) if sizes else 0.0

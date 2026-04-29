@@ -88,18 +88,68 @@ class TestWalletDiscoveryPipeline:
 
         trades_by_wallet = {
             "0xwallet1abcdef": [
-                {"conditionId": "0xabc123def456", "outcome": "YES", "price": "0.61", "size": "500"},
-                {"conditionId": "0xabc123def456", "outcome": "NO", "price": "0.37", "size": "300"},
-                {"conditionId": "0xabc123def456", "outcome": "YES", "price": "0.60", "size": "450"},
-                {"conditionId": "0xabc123def456", "outcome": "YES", "price": "0.62", "size": "600"},
-                {"conditionId": "0xabc123def456", "outcome": "YES", "price": "0.59", "size": "550"},
+                {
+                    "conditionId": "0xabc123def456",
+                    "outcome": "YES",
+                    "price": "0.61",
+                    "size": "500",
+                },
+                {
+                    "conditionId": "0xabc123def456",
+                    "outcome": "NO",
+                    "price": "0.37",
+                    "size": "300",
+                },
+                {
+                    "conditionId": "0xabc123def456",
+                    "outcome": "YES",
+                    "price": "0.60",
+                    "size": "450",
+                },
+                {
+                    "conditionId": "0xabc123def456",
+                    "outcome": "YES",
+                    "price": "0.62",
+                    "size": "600",
+                },
+                {
+                    "conditionId": "0xabc123def456",
+                    "outcome": "YES",
+                    "price": "0.59",
+                    "size": "550",
+                },
             ],
             "0xwallet2ghijkl": [
-                {"conditionId": "0xdef789abc012", "outcome": "YES", "price": "0.46", "size": "100"},
-                {"conditionId": "0xdef789abc012", "outcome": "NO", "price": "0.55", "size": "80"},
-                {"conditionId": "0xdef789abc012", "outcome": "YES", "price": "0.44", "size": "120"},
-                {"conditionId": "0xdef789abc012", "outcome": "YES", "price": "0.47", "size": "90"},
-                {"conditionId": "0xdef789abc012", "outcome": "YES", "price": "0.45", "size": "110"},
+                {
+                    "conditionId": "0xdef789abc012",
+                    "outcome": "YES",
+                    "price": "0.46",
+                    "size": "100",
+                },
+                {
+                    "conditionId": "0xdef789abc012",
+                    "outcome": "NO",
+                    "price": "0.55",
+                    "size": "80",
+                },
+                {
+                    "conditionId": "0xdef789abc012",
+                    "outcome": "YES",
+                    "price": "0.44",
+                    "size": "120",
+                },
+                {
+                    "conditionId": "0xdef789abc012",
+                    "outcome": "YES",
+                    "price": "0.47",
+                    "size": "90",
+                },
+                {
+                    "conditionId": "0xdef789abc012",
+                    "outcome": "YES",
+                    "price": "0.45",
+                    "size": "110",
+                },
             ],
         }
 
@@ -166,8 +216,14 @@ class TestMarketSnapshotPipeline:
         class FakeBookClient:
             def fetch_order_book(self, token_id: str):
                 books = {
-                    "yes_test": {"bids": [{"price": "0.59", "size": "500"}], "asks": [{"price": "0.62", "size": "400"}]},
-                    "no_test": {"bids": [{"price": "0.38", "size": "600"}], "asks": [{"price": "0.42", "size": "350"}]},
+                    "yes_test": {
+                        "bids": [{"price": "0.59", "size": "500"}],
+                        "asks": [{"price": "0.62", "size": "400"}],
+                    },
+                    "no_test": {
+                        "bids": [{"price": "0.38", "size": "600"}],
+                        "asks": [{"price": "0.42", "size": "350"}],
+                    },
                 }
                 return books.get(token_id, {})
 

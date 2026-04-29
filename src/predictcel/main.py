@@ -109,8 +109,14 @@ def build_parser() -> argparse.ArgumentParser:
 def build_discovery_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="PredictCel wallet discovery reports")
     parser.add_argument("--config", required=True, help="Path to config JSON file")
-    parser.add_argument("--output-dir", default="data", help="Directory for discovery JSON reports")
-    parser.add_argument("--db", default=None, help="Optional SQLite database path for persisting wallet registry discovery inputs")
+    parser.add_argument(
+        "--output-dir", default="data", help="Directory for discovery JSON reports"
+    )
+    parser.add_argument(
+        "--db",
+        default=None,
+        help="Optional SQLite database path for persisting wallet registry discovery inputs",
+    )
     parser.add_argument(
         "--config-output",
         default=None,
@@ -128,7 +134,9 @@ def main() -> None:
     timings: dict[str, int] = {}
     args = build_parser().parse_args()
     config = load_config(args.config)
-    use_live_data = bool(args.live_data or (config.live_data and config.live_data.enabled))
+    use_live_data = bool(
+        args.live_data or (config.live_data and config.live_data.enabled)
+    )
 
     logger.info(
         "Starting PredictCel cycle",
@@ -169,7 +177,9 @@ def main() -> None:
     metrics.set("markets_loaded", len(markets))
     metrics.set("trades_loaded", len(trades))
 
-    wallet_discovery_auto_feed = _auto_feed_wallet_registry_from_discovery(config, store)
+    wallet_discovery_auto_feed = _auto_feed_wallet_registry_from_discovery(
+        config, store
+    )
     wallet_registry_summary = _build_wallet_registry_summary(config, store, trades)
     wallet_registry_summary["auto_feed"] = wallet_discovery_auto_feed
     open_positions_at_start = store.get_open_positions()
@@ -235,7 +245,9 @@ def main() -> None:
                 config.live_data,
             ).evaluate_and_close(open_positions, markets)
             close_results = (
-                LiveOrderExecutor(config.execution, config.live_data).execute(close_intents)
+                LiveOrderExecutor(config.execution, config.live_data).execute(
+                    close_intents
+                )
                 if close_intents
                 else []
             )
@@ -286,7 +298,9 @@ def main() -> None:
         arbitrage_opportunities,
         execution_results + close_results,
     )
-    open_positions = _decorate_positions_with_titles(store.get_open_positions(), markets)
+    open_positions = _decorate_positions_with_titles(
+        store.get_open_positions(), markets
+    )
     db_diagnostics["open_position_count_at_end"] = len(open_positions)
     timings["storage_ms"] = _elapsed_ms(started)
     timings["total_cycle_ms"] = _elapsed_ms(cycle_started)
@@ -321,8 +335,7 @@ def main() -> None:
         },
         "portfolio_summary": _portfolio_summary(store, config),
         "wallet_qualities": {
-            wallet: quality.__dict__
-            for wallet, quality in wallet_qualities.items()
+            wallet: quality.__dict__ for wallet, quality in wallet_qualities.items()
         },
         "copy_candidates": [candidate.__dict__ for candidate in copy_candidates],
         "arbitrage_opportunities": [
@@ -361,7 +374,10 @@ def main() -> None:
             "wallet_registry": wallet_registry_summary,
         },
     )
-    print(json.dumps(_compact_cycle_output(output), sort_keys=True, default=str), flush=True)
+    print(
+        json.dumps(_compact_cycle_output(output), sort_keys=True, default=str),
+        flush=True,
+    )
 
 
 def _run_wallet_discovery(argv: list[str]) -> None:
@@ -383,7 +399,9 @@ def _run_wallet_discovery(argv: list[str]) -> None:
     registry_ingestion = {
         "enabled": bool(args.db),
         "persisted": False,
-        "mode": getattr(getattr(config, "wallet_discovery", None), "mode", "auto_update"),
+        "mode": getattr(
+            getattr(config, "wallet_discovery", None), "mode", "auto_update"
+        ),
         "discovered_wallets_ingested": 0,
         "new_registry_entries": 0,
         "new_explorer_memberships": 0,
@@ -427,15 +445,15 @@ def _run_wallet_discovery(argv: list[str]) -> None:
             "persisted": True,
             "mode": getattr(config.wallet_discovery, "mode", "auto_update"),
             "discovered_wallets_ingested": len(accepted_wallets),
-            "new_registry_entries": len(after_registry_wallets - before_registry_wallets),
+            "new_registry_entries": len(
+                after_registry_wallets - before_registry_wallets
+            ),
             "new_explorer_memberships": len(
                 after_explorer_memberships - before_explorer_memberships
             ),
             "manager_actions_applied": int(action_diagnostics["actions_applied"]),
             "manager_action_counts": action_diagnostics["action_counts"],
-            "skipped_existing_wallets": len(
-                accepted_wallets & before_registry_wallets
-            ),
+            "skipped_existing_wallets": len(accepted_wallets & before_registry_wallets),
         }
     print(
         json.dumps(
@@ -514,7 +532,9 @@ def _auto_feed_wallet_registry_from_discovery(
             {
                 "ran": True,
                 "discovered_wallets_ingested": len(accepted_wallets),
-                "new_registry_entries": len(after_registry_wallets - before_registry_wallets),
+                "new_registry_entries": len(
+                    after_registry_wallets - before_registry_wallets
+                ),
                 "new_explorer_memberships": len(
                     after_explorer_memberships - before_explorer_memberships
                 ),
@@ -646,12 +666,15 @@ def _build_wallet_registry_summary(
             captured_at=captured_at,
         )
 
-    registry_entries = refresh_registry_entries_from_trades(
-        config,
-        store,
-        trades,
-        captured_at=captured_at,
-    ) or existing_registry_entries
+    registry_entries = (
+        refresh_registry_entries_from_trades(
+            config,
+            store,
+            trades,
+            captured_at=captured_at,
+        )
+        or existing_registry_entries
+    )
     memberships = store.load_basket_memberships() or existing_memberships
     basket_health = compute_basket_health_from_static_memberships(
         config,
@@ -749,7 +772,8 @@ def _ensure_static_membership_bootstrap(
         return existing_memberships
 
     memberships_by_key = {
-        (membership.topic, membership.wallet): membership for membership in existing_memberships
+        (membership.topic, membership.wallet): membership
+        for membership in existing_memberships
     }
     updated_memberships = list(existing_memberships)
     for basket in config.baskets:
@@ -813,9 +837,7 @@ def _promotion_watch_by_topic(
 ) -> dict[str, dict[str, Any]]:
     explorer_counts_by_topic: dict[str, int] = defaultdict(int)
     discovery_explorer_counts_by_topic: dict[str, int] = defaultdict(int)
-    registry_entries_by_wallet = {
-        entry.wallet: entry for entry in registry_entries
-    }
+    registry_entries_by_wallet = {entry.wallet: entry for entry in registry_entries}
     for membership in memberships:
         if not membership.active or membership.tier != "explorer":
             continue
@@ -837,8 +859,12 @@ def _promotion_watch_by_topic(
         watch[topic] = {
             "explorer_wallet_count": explorer_count,
             "wallet_discovery_explorer_wallet_count": discovery_explorer_count,
-            "live_eligible_wallet_count": int(roster_entry.get("live_eligible_wallet_count", 0)),
-            "fresh_core_wallet_count": int(roster_entry.get("fresh_core_wallet_count", 0)),
+            "live_eligible_wallet_count": int(
+                roster_entry.get("live_eligible_wallet_count", 0)
+            ),
+            "fresh_core_wallet_count": int(
+                roster_entry.get("fresh_core_wallet_count", 0)
+            ),
             "reason": "bench_depth_available",
         }
     return watch
@@ -964,7 +990,9 @@ def _load_live_inputs(config, store: SignalStore | None = None):
     ]
     wallets_with_payloads = sum(1 for items in wallet_payloads.values() if items)
     wallets_with_parsed_trades = len({trade.wallet for trade in trades})
-    unique_market_snapshots = {snapshot.market_id: snapshot for snapshot in markets.values()}
+    unique_market_snapshots = {
+        snapshot.market_id: snapshot for snapshot in markets.values()
+    }
     relevant_canonical_market_ids = {
         markets[market_key].market_id for market_key in relevant_market_keys
     }
@@ -1031,7 +1059,9 @@ def _load_live_inputs(config, store: SignalStore | None = None):
     return trades, markets, diagnostics
 
 
-def _propagate_canonical_market_updates(markets: dict[str, Any], updated_snapshots: Any) -> None:
+def _propagate_canonical_market_updates(
+    markets: dict[str, Any], updated_snapshots: Any
+) -> None:
     canonical_updates = {
         snapshot.market_id: snapshot
         for snapshot in updated_snapshots
@@ -1084,7 +1114,9 @@ def _make_probe_client(client: PolymarketPublicClient) -> PolymarketPublicClient
     )
 
 
-def _probe_token_orderbook(client: PolymarketPublicClient, token_id: str) -> dict[str, Any]:
+def _probe_token_orderbook(
+    client: PolymarketPublicClient, token_id: str
+) -> dict[str, Any]:
     token_id = str(token_id).strip()
     if not token_id:
         return {"missing_token_id": True}
@@ -1095,7 +1127,9 @@ def _probe_token_orderbook(client: PolymarketPublicClient, token_id: str) -> dic
         return {"token_id": token_id, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _probe_token_lookup(client: PolymarketPublicClient, token_id: str) -> dict[str, Any]:
+def _probe_token_lookup(
+    client: PolymarketPublicClient, token_id: str
+) -> dict[str, Any]:
     token_id = str(token_id).strip()
     if not token_id:
         return {"missing_token_id": True}
@@ -1134,7 +1168,9 @@ def _first_book_level_value(levels: Any, key: str) -> float:
     return float(best.get(key) or 0.0)
 
 
-def _summarize_market_lookup_rows(rows: list[dict[str, Any]], token_id: str) -> dict[str, Any]:
+def _summarize_market_lookup_rows(
+    rows: list[dict[str, Any]], token_id: str
+) -> dict[str, Any]:
     if not rows:
         return {"matched_rows": 0}
     row = rows[0]
@@ -1199,13 +1235,20 @@ def _fetch_wallet_payloads(
     return payloads
 
 
-def _filter_duplicate_candidates(store: SignalStore, candidates: list) -> tuple[list, int]:
+def _filter_duplicate_candidates(
+    store: SignalStore, candidates: list
+) -> tuple[list, int]:
     fingerprints = [
-        store.make_signal_fingerprint(candidate.market_id, candidate.topic, candidate.side)
+        store.make_signal_fingerprint(
+            candidate.market_id, candidate.topic, candidate.side
+        )
         for candidate in candidates
     ]
     recent_fingerprints = store.has_recent_signals(
-        [(candidate.market_id, candidate.topic, candidate.side) for candidate in candidates]
+        [
+            (candidate.market_id, candidate.topic, candidate.side)
+            for candidate in candidates
+        ]
     )
     fresh = []
     seen_in_batch: set[str] = set()
@@ -1224,15 +1267,17 @@ def _is_trusted_execution_result(result) -> bool:
 
 
 def _creates_or_updates_paper_position(result) -> bool:
-    return str(result.status).strip().lower() == "dry_run" or _is_trusted_execution_result(
-        result
-    )
+    return str(
+        result.status
+    ).strip().lower() == "dry_run" or _is_trusted_execution_result(result)
 
 
 def _is_evm_address(value: str) -> bool:
     value = str(value).strip()
-    return len(value) == 42 and value.startswith("0x") and all(
-        char in HEX_CHARS for char in value[2:]
+    return (
+        len(value) == 42
+        and value.startswith("0x")
+        and all(char in HEX_CHARS for char in value[2:])
     )
 
 

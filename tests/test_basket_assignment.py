@@ -12,7 +12,11 @@ from predictcel.config import (
     PositionConfig,
     WalletDiscoveryConfig,
 )
-from predictcel.models import BasketAssignment, WalletDiscoveryCandidate, WalletTopicProfile
+from predictcel.models import (
+    BasketAssignment,
+    WalletDiscoveryCandidate,
+    WalletTopicProfile,
+)
 
 
 def make_config() -> AppConfig:
@@ -28,8 +32,30 @@ def make_config() -> AppConfig:
         arbitrage=ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000),
         wallet_trades_path="",
         market_snapshots_path="",
-        live_data=LiveDataConfig(False, "https://gamma-api.polymarket.com", "https://data-api.polymarket.com", "https://clob.polymarket.com", 10, 10, 15),
-        execution=ExecutionConfig(False, True, 0.7, 1, 10.0, 0.02, "FOK", 137, 0, PositionConfig(0.3, 0.1, 1440), ExposureConfig(100, 10), 3, 1.0),
+        live_data=LiveDataConfig(
+            False,
+            "https://gamma-api.polymarket.com",
+            "https://data-api.polymarket.com",
+            "https://clob.polymarket.com",
+            10,
+            10,
+            15,
+        ),
+        execution=ExecutionConfig(
+            False,
+            True,
+            0.7,
+            1,
+            10.0,
+            0.02,
+            "FOK",
+            137,
+            0,
+            PositionConfig(0.3, 0.1, 1440),
+            ExposureConfig(100, 10),
+            3,
+            1.0,
+        ),
         consensus=ConsensusConfig(),
         wallet_discovery=discovery,
     )
@@ -42,7 +68,9 @@ def make_candidate(score: float = 0.8) -> WalletDiscoveryCandidate:
         total_trades=30,
         recent_trades=10,
         avg_trade_size_usd=20.0,
-        topic_profile=WalletTopicProfile({"sports": 0.8, "crypto": 0.2}, "sports", 0.68),
+        topic_profile=WalletTopicProfile(
+            {"sports": 0.8, "crypto": 0.2}, "sports", 0.68
+        ),
         score=score,
         confidence="HIGH" if score >= 0.7 else "MEDIUM",
         rejected_reasons=[],
@@ -54,7 +82,9 @@ def make_candidate(score: float = 0.8) -> WalletDiscoveryCandidate:
 
 
 def test_assignment_recommends_matching_baskets() -> None:
-    assignment = BasketAssignmentEngine(make_config().wallet_discovery).assign(make_candidate())
+    assignment = BasketAssignmentEngine(make_config().wallet_discovery).assign(
+        make_candidate()
+    )
 
     assert assignment.primary_topic == "sports"
     assert assignment.recommended_baskets == ["sports", "crypto"]
@@ -65,7 +95,9 @@ def test_assignment_recommends_matching_baskets() -> None:
 
 def test_manager_proposes_add_in_auto_update_mode() -> None:
     config = make_config()
-    assignment = BasketAssignmentEngine(config.wallet_discovery).assign(make_candidate())
+    assignment = BasketAssignmentEngine(config.wallet_discovery).assign(
+        make_candidate()
+    )
 
     actions = BasketManagerPlanner(config).plan([assignment])
 
@@ -76,7 +108,9 @@ def test_manager_proposes_add_in_auto_update_mode() -> None:
 
 def test_manager_observes_low_score_assignment() -> None:
     config = make_config()
-    assignment = BasketAssignmentEngine(config.wallet_discovery).assign(make_candidate(score=0.4))
+    assignment = BasketAssignmentEngine(config.wallet_discovery).assign(
+        make_candidate(score=0.4)
+    )
 
     actions = BasketManagerPlanner(config).plan([assignment])
 

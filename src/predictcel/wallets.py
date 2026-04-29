@@ -16,7 +16,6 @@ from .models import WalletTrade
 __all__ = ["load_wallet_trades", "bucket_trades_by_market"]
 
 
-
 def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -37,7 +36,11 @@ def load_wallet_trades(path: str) -> list[WalletTrade]:
             price=float(item["price"]),
             size_usd=float(item["size_usd"]),
             age_seconds=int(item["age_seconds"]),
-            timestamp=_parse_datetime(item.get("timestamp") or item.get("trade_time") or item.get("created_at")),
+            timestamp=_parse_datetime(
+                item.get("timestamp")
+                or item.get("trade_time")
+                or item.get("created_at")
+            ),
         )
         for item in payload
     ]

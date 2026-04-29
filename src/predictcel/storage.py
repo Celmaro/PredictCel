@@ -445,7 +445,9 @@ class SignalStore:
                 entry.trust_seed,
                 entry.status,
                 entry.first_seen_at.isoformat(),
-                entry.last_seen_trade_at.isoformat() if entry.last_seen_trade_at else None,
+                entry.last_seen_trade_at.isoformat()
+                if entry.last_seen_trade_at
+                else None,
                 entry.last_scored_at.isoformat() if entry.last_scored_at else None,
                 entry.notes,
             )
@@ -516,7 +518,9 @@ class SignalStore:
                 membership.rank,
                 1 if membership.active else 0,
                 membership.joined_at.isoformat(),
-                membership.effective_until.isoformat() if membership.effective_until else None,
+                membership.effective_until.isoformat()
+                if membership.effective_until
+                else None,
                 membership.promotion_reason,
                 membership.demotion_reason,
             )
@@ -550,7 +554,9 @@ class SignalStore:
         )
         self.connection.commit()
 
-    def load_basket_memberships(self, topic: str | None = None) -> list[BasketMembership]:
+    def load_basket_memberships(
+        self, topic: str | None = None
+    ) -> list[BasketMembership]:
         """Load basket memberships, optionally scoped to a topic."""
         cursor = self.connection.cursor()
         if topic is None:
@@ -668,7 +674,7 @@ class SignalStore:
         position_vars = []
         for pos in positions:
             volatility = 0.02
-            position_var = pos.entry_amount_usd * volatility * (time_horizon_days ** 0.5)
+            position_var = pos.entry_amount_usd * volatility * (time_horizon_days**0.5)
             position_vars.append(position_var)
 
         correlation = 0.3
@@ -759,7 +765,9 @@ class SignalStore:
         realized_pnl = round(float(row[2] or 0.0), 4)
         unrealized_pnl = round(float(row[1] or 0.0), 4)
         decisive_closed_count = wins + losses
-        win_rate = round(wins / decisive_closed_count, 4) if decisive_closed_count else 0.0
+        win_rate = (
+            round(wins / decisive_closed_count, 4) if decisive_closed_count else 0.0
+        )
 
         return {
             "starting_bankroll_usd": round(starting_bankroll_usd, 4),
@@ -791,7 +799,9 @@ class SignalStore:
         now = datetime.now(UTC)
         cutoff = now - timedelta(minutes=ttl_minutes)
         fingerprints = [
-            self.make_signal_fingerprint(candidate.market_id, candidate.topic, candidate.side)
+            self.make_signal_fingerprint(
+                candidate.market_id, candidate.topic, candidate.side
+            )
             for candidate in candidates
         ]
 

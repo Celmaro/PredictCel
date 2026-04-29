@@ -21,7 +21,9 @@ MAX_ENTRY_PRICE = 0.95
 
 
 class ExecutionPlanner:
-    def __init__(self, config: ExecutionConfig, position_config: PositionConfig) -> None:
+    def __init__(
+        self, config: ExecutionConfig, position_config: PositionConfig
+    ) -> None:
         self.config = config
         self.position_config = position_config
         self.last_diagnostics: dict[str, int] = {}
@@ -33,7 +35,9 @@ class ExecutionPlanner:
         held_market_ids: set[str],
         current_exposure_usd: float,
     ) -> list[ExecutionIntent]:
-        ranked = sorted(candidates, key=lambda item: item.copyability_score, reverse=True)
+        ranked = sorted(
+            candidates, key=lambda item: item.copyability_score, reverse=True
+        )
         intents: list[ExecutionIntent] = []
         planned_exposure_usd = current_exposure_usd
         diagnostics = {
@@ -69,12 +73,16 @@ class ExecutionPlanner:
                 diagnostics["zero_amount"] += 1
                 continue
 
-            token_id = market.yes_token_id if candidate.side == "YES" else market.no_token_id
+            token_id = (
+                market.yes_token_id if candidate.side == "YES" else market.no_token_id
+            )
             current_price = market.yes_ask if candidate.side == "YES" else market.no_ask
             if current_price >= MAX_ENTRY_PRICE:
                 diagnostics["price_too_high"] += 1
                 continue
-            side_depth_shares = market.yes_ask_size if candidate.side == "YES" else market.no_ask_size
+            side_depth_shares = (
+                market.yes_ask_size if candidate.side == "YES" else market.no_ask_size
+            )
             side_depth_usd = side_depth_shares * current_price
             if not token_id:
                 diagnostics["missing_token_id"] += 1
@@ -83,7 +91,9 @@ class ExecutionPlanner:
                 diagnostics["insufficient_side_depth"] += 1
                 continue
 
-            worst_price = min(round(current_price + self.config.worst_price_buffer, 4), 0.99)
+            worst_price = min(
+                round(current_price + self.config.worst_price_buffer, 4), 0.99
+            )
             intents.append(
                 ExecutionIntent(
                     market_id=candidate.market_id,
@@ -105,15 +115,25 @@ class ExecutionPlanner:
         self.last_diagnostics = diagnostics
         return intents
 
-    def _planned_amount_usd(self, candidate: CopyCandidate, planned_exposure_usd: float) -> float:
-        suggested_amount = candidate.suggested_position_usd if candidate.suggested_position_usd > 0 else self.config.buy_amount_usd
+    def _planned_amount_usd(
+        self, candidate: CopyCandidate, planned_exposure_usd: float
+    ) -> float:
+        suggested_amount = (
+            candidate.suggested_position_usd
+            if candidate.suggested_position_usd > 0
+            else self.config.buy_amount_usd
+        )
         amount_usd = max(suggested_amount, self.config.min_signal_allocation_usd)
         amount_usd = min(amount_usd, self.config.buy_amount_usd)
         if self.config.exposure is not None:
             if self.config.exposure.max_single_position_usd > 0:
-                amount_usd = min(amount_usd, self.config.exposure.max_single_position_usd)
+                amount_usd = min(
+                    amount_usd, self.config.exposure.max_single_position_usd
+                )
             if self.config.exposure.max_total_exposure_usd > 0:
-                remaining_capacity = self.config.exposure.max_total_exposure_usd - planned_exposure_usd
+                remaining_capacity = (
+                    self.config.exposure.max_total_exposure_usd - planned_exposure_usd
+                )
                 if remaining_capacity < self.config.min_signal_allocation_usd:
                     return 0.0
                 amount_usd = min(amount_usd, remaining_capacity)
@@ -121,7 +141,9 @@ class ExecutionPlanner:
 
 
 class LiveOrderExecutor:
-    def __init__(self, config: ExecutionConfig, live_data: LiveDataConfig | None) -> None:
+    def __init__(
+        self, config: ExecutionConfig, live_data: LiveDataConfig | None
+    ) -> None:
         self.config = config
         self.live_data = live_data
 
@@ -154,14 +176,25 @@ class LiveOrderExecutor:
         try:
             from py_clob_client.client import ClobClient
         except ImportError as exc:
-            raise RuntimeError("py-clob-client is required for live trading. Install with `pip install -e .[trade]`.") from exc
+            raise RuntimeError(
+                "py-clob-client is required for live trading. Install with `pip install -e .[trade]`."
+            ) from exc
 
         private_key = os.getenv("PREDICTCEL_POLY_PRIVATE_KEY", "").strip()
         funder = os.getenv("PREDICTCEL_POLY_FUNDER", "").strip()
         if not private_key or not funder:
-            raise RuntimeError("Live trading requires PREDICTCEL_POLY_PRIVATE_KEY and PREDICTCEL_POLY_FUNDER.")
+            raise RuntimeError(
+                "Live trading requires PREDICTCEL_POLY_PRIVATE_KEY and PREDICTCEL_POLY_FUNDER."
+            )
 
-        host = os.getenv("PREDICTCEL_POLY_HOST", (self.live_data.clob_base_url if self.live_data else "https://clob.polymarket.com"))
+        host = os.getenv(
+            "PREDICTCEL_POLY_HOST",
+            (
+                self.live_data.clob_base_url
+                if self.live_data
+                else "https://clob.polymarket.com"
+            ),
+        )
         client = ClobClient(
             host,
             key=private_key,
@@ -190,9 +223,21 @@ class LiveOrderExecutor:
                 signed = client.create_market_order(order_args)
                 order_type = getattr(OrderType, intent.order_type)
                 response = client.post_order(signed, order_type)
-                order_id = str(response.get("orderID") or response.get("orderId") or "") if isinstance(response, dict) else ""
-                status = str(response.get("status") or "submitted") if isinstance(response, dict) else "submitted"
-                error = str(response.get("errorMsg") or "") if isinstance(response, dict) else ""
+                order_id = (
+                    str(response.get("orderID") or response.get("orderId") or "")
+                    if isinstance(response, dict)
+                    else ""
+                )
+                status = (
+                    str(response.get("status") or "submitted")
+                    if isinstance(response, dict)
+                    else "submitted"
+                )
+                error = (
+                    str(response.get("errorMsg") or "")
+                    if isinstance(response, dict)
+                    else ""
+                )
 
                 if isinstance(response, dict) and str(response.get("status")) == "429":
                     raise RuntimeError("Rate limited (429)")
@@ -243,7 +288,9 @@ class LiveOrderExecutor:
 
 
 class ExitRunner:
-    def __init__(self, config: ExecutionConfig, live_data: LiveDataConfig | None) -> None:
+    def __init__(
+        self, config: ExecutionConfig, live_data: LiveDataConfig | None
+    ) -> None:
         self.config = config
         self.live_data = live_data
 
@@ -293,14 +340,20 @@ class ExitRunner:
                 reason = f"take_profit triggered: pnl={pnl_pct:.4f} >= tp={pos.take_profit_pct}"
             elif pos.stop_loss_pct > 0 and pnl_pct <= -pos.stop_loss_pct:
                 should_close = True
-                reason = f"stop_loss triggered: pnl={pnl_pct:.4f} <= sl={pos.stop_loss_pct}"
+                reason = (
+                    f"stop_loss triggered: pnl={pnl_pct:.4f} <= sl={pos.stop_loss_pct}"
+                )
             elif pos.max_hold_minutes > 0:
                 elapsed_minutes = (now - pos.opened_at).total_seconds() / 60.0
                 if elapsed_minutes >= pos.max_hold_minutes:
                     should_close = True
                     reason = f"max_hold exceeded: {elapsed_minutes:.1f} min >= {pos.max_hold_minutes} min"
 
-            if not should_close and market.minutes_to_resolution > 0 and market.minutes_to_resolution <= 10:
+            if (
+                not should_close
+                and market.minutes_to_resolution > 0
+                and market.minutes_to_resolution <= 10
+            ):
                 should_close = True
                 reason = f"market resolving soon: {market.minutes_to_resolution} min to resolution"
 
@@ -325,7 +378,7 @@ class ExitRunner:
 
 
 def retry_delay(base_delay: float, attempt: int) -> float:
-    return base_delay * (2 ** attempt) * random.uniform(0.5, 1.5)
+    return base_delay * (2**attempt) * random.uniform(0.5, 1.5)
 
 
 def intents_as_dicts(intents: list[ExecutionIntent]) -> list[dict[str, Any]]:

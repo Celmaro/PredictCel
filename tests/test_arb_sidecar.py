@@ -4,7 +4,9 @@ from predictcel.models import MarketSnapshot
 
 
 def test_detects_complete_set_underpricing_with_net_metrics() -> None:
-    sidecar = ArbitrageSidecar(ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000))
+    sidecar = ArbitrageSidecar(
+        ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000)
+    )
     markets = {
         "m1": MarketSnapshot(
             market_id="m1",
@@ -34,7 +36,9 @@ def test_detects_complete_set_underpricing_with_net_metrics() -> None:
 
 
 def test_skips_market_when_liquidity_too_low() -> None:
-    sidecar = ArbitrageSidecar(ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000))
+    sidecar = ArbitrageSidecar(
+        ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000)
+    )
     markets = {
         "m1": MarketSnapshot(
             market_id="m1",
@@ -87,10 +91,24 @@ def test_skips_when_min_profitable_position_exceeds_cap() -> None:
 
 
 def test_sorts_by_quality_score_then_net_edge() -> None:
-    sidecar = ArbitrageSidecar(ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000))
+    sidecar = ArbitrageSidecar(
+        ArbitrageConfig(min_gross_edge=0.02, min_liquidity_usd=5000)
+    )
     markets = {
-        "fast": MarketSnapshot("fast", "sports", "Fast", 0.46, 0.49, 0.44, 9000, 120, orderbook_ready=True),
-        "slow": MarketSnapshot("slow", "sports", "Slow", 0.45, 0.49, 0.44, 9000, 3000, orderbook_ready=False),
+        "fast": MarketSnapshot(
+            "fast", "sports", "Fast", 0.46, 0.49, 0.44, 9000, 120, orderbook_ready=True
+        ),
+        "slow": MarketSnapshot(
+            "slow",
+            "sports",
+            "Slow",
+            0.45,
+            0.49,
+            0.44,
+            9000,
+            3000,
+            orderbook_ready=False,
+        ),
     }
 
     opportunities = sidecar.scan(markets)

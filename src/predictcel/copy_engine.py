@@ -15,7 +15,13 @@ from typing import Any
 
 from .basket_controller import evaluate_basket_consensus_gate
 from .config import AppConfig, BasketRule
-from .models import CopyCandidate, MarketRegime, MarketSnapshot, WalletQuality, WalletTrade
+from .models import (
+    CopyCandidate,
+    MarketRegime,
+    MarketSnapshot,
+    WalletQuality,
+    WalletTrade,
+)
 from .scoring import compute_copyability_score
 from .wallet_registry import build_live_basket_roster
 
@@ -37,7 +43,9 @@ class CopyEngine:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.baskets_by_topic = {basket.topic: basket for basket in config.baskets}
-        self.basket_wallets_by_topic = {basket.topic: set(basket.wallets) for basket in config.baskets}
+        self.basket_wallets_by_topic = {
+            basket.topic: set(basket.wallets) for basket in config.baskets
+        }
         self.last_diagnostics: dict[str, int] = {}
         self._ml_model = None
         self._ml_model_loaded = False
@@ -46,7 +54,9 @@ class CopyEngine:
     def _load_ml_model(self) -> Any | None:
         if self._ml_model_loaded:
             return self._ml_model
-        model_path = os.path.join(os.path.dirname(__file__), "position_sizing_model.pkl")
+        model_path = os.path.join(
+            os.path.dirname(__file__), "position_sizing_model.pkl"
+        )
         if not os.path.exists(model_path):
             self._ml_model_loaded = True
             return None
@@ -95,7 +105,9 @@ class CopyEngine:
         mse = mean_squared_error(y_test, y_pred)
         logger.info(f"ML position sizing model trained with MSE: {mse:.4f}")
 
-        model_path = os.path.join(os.path.dirname(__file__), "position_sizing_model.pkl")
+        model_path = os.path.join(
+            os.path.dirname(__file__), "position_sizing_model.pkl"
+        )
         with open(model_path, "wb") as f:
             pickle.dump(model, f)
         self._ml_model = model
@@ -124,7 +136,9 @@ class CopyEngine:
             return []
 
         portfolio_summary = self._portfolio_summary(store)
-        live_tracked_wallets_by_topic = self._live_tracked_wallets_by_topic(trades, store)
+        live_tracked_wallets_by_topic = self._live_tracked_wallets_by_topic(
+            trades, store
+        )
         candidates: list[CopyCandidate] = []
         market_not_found = 0
         basket_not_found = 0
@@ -301,7 +315,9 @@ class CopyEngine:
         if not weighted_by_side:
             return None, "no_weighted_votes", Counter()
         side = max(weighted_by_side, key=weighted_by_side.get)
-        aligned = [trade for trade, _, trade_side in price_weights if trade_side == side]
+        aligned = [
+            trade for trade, _, trade_side in price_weights if trade_side == side
+        ]
         if not aligned:
             return None, "no_aligned_trades", Counter()
 
@@ -324,20 +340,26 @@ class CopyEngine:
         else:
             tracked_wallet_count = len(basket.wallets)
 
-        consensus_ratio = len(aligned_wallets) / tracked_wallet_count if tracked_wallet_count else 0.0
+        consensus_ratio = (
+            len(aligned_wallets) / tracked_wallet_count if tracked_wallet_count else 0.0
+        )
         total_weight = sum(weighted_by_side.values())
         aligned_weight = weighted_by_side[side]
         if controller_gate is not None:
             weighted_consensus = controller_gate.weighted_participation_ratio
         else:
-            weighted_consensus = round(aligned_weight / total_weight, 4) if total_weight else 0.0
+            weighted_consensus = (
+                round(aligned_weight / total_weight, 4) if total_weight else 0.0
+            )
         if consensus_ratio < basket.quorum_ratio:
             return None, "below_quorum", Counter()
         if weighted_consensus < self.config.consensus.min_weighted_consensus:
             return None, "below_weighted_consensus", Counter()
 
         quality_consensus = self._quality_consensus(aligned_wallets, wallet_qualities)
-        dominant_wallet_share = self._dominant_wallet_share(aligned_wallets, wallet_weights)
+        dominant_wallet_share = self._dominant_wallet_share(
+            aligned_wallets, wallet_weights
+        )
         confidence_score = self._confidence_score(
             aligned_weight,
             total_weight,
@@ -373,10 +395,14 @@ class CopyEngine:
             for wallet in aligned_wallets
             if wallet in wallet_qualities
         ]
-        wallet_quality_score = round(
-            sum(quality_values) / len(quality_values),
-            4,
-        ) if quality_values else 0.5
+        wallet_quality_score = (
+            round(
+                sum(quality_values) / len(quality_values),
+                4,
+            )
+            if quality_values
+            else 0.5
+        )
         conflict_penalty = self._conflict_penalty(aligned_weight, total_weight)
         recency_score = self._recency_score(aligned)
         regime = self._classify_market_regime(
@@ -562,10 +588,7 @@ class CopyEngine:
     ) -> float:
         if not aligned_wallets:
             return 0.0
-        aligned_values = [
-            wallet_weights.get(wallet, 0.0)
-            for wallet in aligned_wallets
-        ]
+        aligned_values = [wallet_weights.get(wallet, 0.0) for wallet in aligned_wallets]
         total = sum(aligned_values)
         if total <= 0:
             return 0.0
@@ -584,9 +607,7 @@ class CopyEngine:
         if not trades:
             return 0.0
         weights = [
-            0.5 ** (
-                trade.age_seconds / self.config.consensus.recency_half_life_seconds
-            )
+            0.5 ** (trade.age_seconds / self.config.consensus.recency_half_life_seconds)
             for trade in trades
         ]
         return round(sum(weights) / len(weights), 4)
@@ -622,9 +643,8 @@ class CopyEngine:
 
         skew = abs(current_price - 0.5)
         if skew >= config.trend_price_skew:
-            directional_match = (
-                (side == "YES" and current_price > 0.5)
-                or (side == "NO" and current_price < 0.5)
+            directional_match = (side == "YES" and current_price > 0.5) or (
+                side == "NO" and current_price < 0.5
             )
             score = 0.75 + config.trend_bonus if directional_match else 0.60
             score += 0.05 * (1 - volatility_score)
@@ -744,9 +764,7 @@ class CopyEngine:
             q = 1.0 - p
             kelly_fraction = max(0.0, ((b * p) - q) / b) if b > 0 else 0.0
             raw_size = (
-                self.config.consensus.bankroll_usd
-                * kelly_fraction
-                * adjusted_kelly
+                self.config.consensus.bankroll_usd * kelly_fraction * adjusted_kelly
             )
             logger.debug(
                 f"Kelly position sizing: fraction {kelly_fraction:.4f}, size {raw_size:.2f}",

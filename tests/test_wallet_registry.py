@@ -41,7 +41,9 @@ class FakeStore:
     def load_basket_memberships(self, topic: str | None = None):
         if topic is None:
             return list(self.memberships)
-        return [membership for membership in self.memberships if membership.topic == topic]
+        return [
+            membership for membership in self.memberships if membership.topic == topic
+        ]
 
     def load_wallet_registry_entries(self):
         return list(self.registry_entries)
@@ -231,7 +233,9 @@ def test_build_live_basket_roster_ranks_recent_wallets_into_live_slots() -> None
         WalletTrade("w4", "geopolitics", "m4", "YES", 0.6, 12.0, 86_000),
     ]
 
-    roster = build_live_basket_roster(config, memberships, trades, captured_at=captured_at)
+    roster = build_live_basket_roster(
+        config, memberships, trades, captured_at=captured_at
+    )
 
     assert roster["geopolitics"]["selected_wallets"] == {
         "core": ["w3", "w2"],
@@ -286,8 +290,22 @@ def test_build_live_basket_roster_uses_trust_seed_as_quality_tiebreaker() -> Non
         ),
     ]
     registry_entries = [
-        WalletRegistryEntry("w_low", "wallet_discovery", "polymarket_data_api", 0.55, "active", captured_at),
-        WalletRegistryEntry("w_high", "wallet_discovery", "polymarket_data_api", 0.85, "active", captured_at),
+        WalletRegistryEntry(
+            "w_low",
+            "wallet_discovery",
+            "polymarket_data_api",
+            0.55,
+            "active",
+            captured_at,
+        ),
+        WalletRegistryEntry(
+            "w_high",
+            "wallet_discovery",
+            "polymarket_data_api",
+            0.85,
+            "active",
+            captured_at,
+        ),
     ]
     trades = [
         WalletTrade("w_low", "geopolitics", "m1", "YES", 0.5, 20.0, 300),
@@ -316,7 +334,9 @@ def test_build_live_basket_roster_uses_trust_seed_as_quality_tiebreaker() -> Non
     assert decisions["w_low"]["trust_seed"] == 0.55
 
 
-def test_build_live_basket_roster_demotes_low_trust_discovered_wallets_from_live_tiers() -> None:
+def test_build_live_basket_roster_demotes_low_trust_discovered_wallets_from_live_tiers() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     captured_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     config = replace(
@@ -334,14 +354,52 @@ def test_build_live_basket_roster_demotes_low_trust_discovered_wallets_from_live
         ),
     )
     memberships = [
-        BasketMembership("geopolitics", "w_core", "core", 1, True, captured_at, None, "seeded", ""),
-        BasketMembership("geopolitics", "w_low", "rotating", 2, True, captured_at, None, "discovered", ""),
-        BasketMembership("geopolitics", "w_high", "explorer", 3, True, captured_at, None, "discovered", ""),
+        BasketMembership(
+            "geopolitics", "w_core", "core", 1, True, captured_at, None, "seeded", ""
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w_low",
+            "rotating",
+            2,
+            True,
+            captured_at,
+            None,
+            "discovered",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w_high",
+            "explorer",
+            3,
+            True,
+            captured_at,
+            None,
+            "discovered",
+            "",
+        ),
     ]
     registry_entries = [
-        WalletRegistryEntry("w_core", "static_basket", "config.baskets", 1.0, "active", captured_at),
-        WalletRegistryEntry("w_low", "wallet_discovery", "polymarket_data_api", 0.45, "active", captured_at),
-        WalletRegistryEntry("w_high", "wallet_discovery", "polymarket_data_api", 0.8, "active", captured_at),
+        WalletRegistryEntry(
+            "w_core", "static_basket", "config.baskets", 1.0, "active", captured_at
+        ),
+        WalletRegistryEntry(
+            "w_low",
+            "wallet_discovery",
+            "polymarket_data_api",
+            0.45,
+            "active",
+            captured_at,
+        ),
+        WalletRegistryEntry(
+            "w_high",
+            "wallet_discovery",
+            "polymarket_data_api",
+            0.8,
+            "active",
+            captured_at,
+        ),
     ]
     trades = [
         WalletTrade("w_core", "geopolitics", "m1", "YES", 0.5, 20.0, 120),
@@ -405,7 +463,9 @@ def test_build_live_basket_roster_flags_refresh_when_core_is_not_fresh_enough() 
         WalletTrade("w2", "geopolitics", "m2", "NO", 0.4, 15.0, 90_000),
     ]
 
-    roster = build_live_basket_roster(config, memberships, trades, captured_at=captured_at)
+    roster = build_live_basket_roster(
+        config, memberships, trades, captured_at=captured_at
+    )
 
     assert roster["geopolitics"]["selected_wallets"]["core"] == ["w1", "w2"]
     assert roster["geopolitics"]["fresh_core_wallet_count"] == 1
@@ -417,7 +477,9 @@ def test_build_live_basket_roster_flags_refresh_when_core_is_not_fresh_enough() 
     ]
 
 
-def test_build_live_basket_roster_limits_high_overlap_wallets_across_live_tiers() -> None:
+def test_build_live_basket_roster_limits_high_overlap_wallets_across_live_tiers() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     captured_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     config = replace(
@@ -460,7 +522,9 @@ def test_build_live_basket_roster_limits_high_overlap_wallets_across_live_tiers(
         WalletTrade("w3", "geopolitics", "m5", "YES", 0.55, 20.0, 45),
     ]
 
-    roster = build_live_basket_roster(config, memberships, trades, captured_at=captured_at)
+    roster = build_live_basket_roster(
+        config, memberships, trades, captured_at=captured_at
+    )
 
     live_wallets = (
         roster["geopolitics"]["selected_wallets"]["core"]
@@ -471,7 +535,9 @@ def test_build_live_basket_roster_limits_high_overlap_wallets_across_live_tiers(
     assert "w1" not in live_wallets
 
 
-def test_build_live_basket_roster_keeps_low_overlap_wallets_together_in_live_tiers() -> None:
+def test_build_live_basket_roster_keeps_low_overlap_wallets_together_in_live_tiers() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     captured_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     config = replace(
@@ -511,7 +577,9 @@ def test_build_live_basket_roster_keeps_low_overlap_wallets_together_in_live_tie
         WalletTrade("w3", "geopolitics", "m4", "YES", 0.54, 20.0, 30),
     ]
 
-    roster = build_live_basket_roster(config, memberships, trades, captured_at=captured_at)
+    roster = build_live_basket_roster(
+        config, memberships, trades, captured_at=captured_at
+    )
 
     live_wallets = (
         roster["geopolitics"]["selected_wallets"]["core"]
@@ -575,7 +643,9 @@ def test_build_live_basket_roster_reports_when_rotation_interval_is_due() -> Non
     assert roster["geopolitics"]["rotation_due"] is True
 
 
-def test_recommend_basket_promotions_flags_taxonomy_topic_ready_for_live_rollout() -> None:
+def test_recommend_basket_promotions_flags_taxonomy_topic_ready_for_live_rollout() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -601,7 +671,17 @@ def test_recommend_basket_promotions_flags_taxonomy_topic_ready_for_live_rollout
     )
     captured_at = datetime(2026, 1, 20, tzinfo=UTC)
     memberships = [
-        BasketMembership("esports", f"w{index}", tier, index, True, captured_at, None, "discovered", "")
+        BasketMembership(
+            "esports",
+            f"w{index}",
+            tier,
+            index,
+            True,
+            captured_at,
+            None,
+            "discovered",
+            "",
+        )
         for index, tier in enumerate(
             ["core", "core", "rotating", "backup", "explorer"],
             start=1,
@@ -615,7 +695,14 @@ def test_recommend_basket_promotions_flags_taxonomy_topic_ready_for_live_rollout
         WalletTrade("w5", "esports", "m5", "YES", 0.55, 20.0, 1_500),
     ]
     registry_entries = [
-        WalletRegistryEntry(f"w{index}", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at)
+        WalletRegistryEntry(
+            f"w{index}",
+            "wallet_discovery",
+            "curated_wallet_file",
+            0.8,
+            "active",
+            captured_at,
+        )
         for index in range(1, 6)
     ]
 
@@ -659,17 +746,29 @@ def test_recommend_basket_promotions_reports_threshold_gaps_for_thin_topic() -> 
     )
     captured_at = datetime(2026, 1, 20, tzinfo=UTC)
     memberships = [
-        BasketMembership("ai", "w1", "core", 1, True, captured_at, None, "discovered", ""),
-        BasketMembership("ai", "w2", "rotating", 2, True, captured_at, None, "discovered", ""),
-        BasketMembership("ai", "w3", "explorer", 3, True, captured_at, None, "discovered", ""),
+        BasketMembership(
+            "ai", "w1", "core", 1, True, captured_at, None, "discovered", ""
+        ),
+        BasketMembership(
+            "ai", "w2", "rotating", 2, True, captured_at, None, "discovered", ""
+        ),
+        BasketMembership(
+            "ai", "w3", "explorer", 3, True, captured_at, None, "discovered", ""
+        ),
     ]
     trades = [
         WalletTrade("w1", "ai", "m1", "YES", 0.51, 20.0, 300),
     ]
     registry_entries = [
-        WalletRegistryEntry("w1", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at),
-        WalletRegistryEntry("w2", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at),
-        WalletRegistryEntry("w3", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at),
+        WalletRegistryEntry(
+            "w1", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at
+        ),
+        WalletRegistryEntry(
+            "w2", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at
+        ),
+        WalletRegistryEntry(
+            "w3", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at
+        ),
     ]
 
     recommendations = recommend_basket_promotions(
@@ -759,16 +858,69 @@ def test_build_live_basket_roster_excludes_probation_from_core_and_rotating() ->
     )
     captured_at = datetime(2026, 1, 20, 12, 0, tzinfo=UTC)
     memberships = [
-        BasketMembership("geopolitics", "w_probation", "core", 1, True, captured_at, None, "discovered", ""),
-        BasketMembership("geopolitics", "w_active_1", "core", 2, True, captured_at, None, "seeded", ""),
-        BasketMembership("geopolitics", "w_active_2", "rotating", 3, True, captured_at, None, "seeded", ""),
-        BasketMembership("geopolitics", "w_active_3", "backup", 4, True, captured_at, None, "seeded", ""),
+        BasketMembership(
+            "geopolitics",
+            "w_probation",
+            "core",
+            1,
+            True,
+            captured_at,
+            None,
+            "discovered",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w_active_1",
+            "core",
+            2,
+            True,
+            captured_at,
+            None,
+            "seeded",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w_active_2",
+            "rotating",
+            3,
+            True,
+            captured_at,
+            None,
+            "seeded",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w_active_3",
+            "backup",
+            4,
+            True,
+            captured_at,
+            None,
+            "seeded",
+            "",
+        ),
     ]
     registry_entries = [
-        WalletRegistryEntry("w_probation", "wallet_discovery", "polymarket_data_api", 0.8, "probation", captured_at),
-        WalletRegistryEntry("w_active_1", "static_basket", "config.baskets", 1.0, "active", captured_at),
-        WalletRegistryEntry("w_active_2", "static_basket", "config.baskets", 1.0, "active", captured_at),
-        WalletRegistryEntry("w_active_3", "static_basket", "config.baskets", 1.0, "active", captured_at),
+        WalletRegistryEntry(
+            "w_probation",
+            "wallet_discovery",
+            "polymarket_data_api",
+            0.8,
+            "probation",
+            captured_at,
+        ),
+        WalletRegistryEntry(
+            "w_active_1", "static_basket", "config.baskets", 1.0, "active", captured_at
+        ),
+        WalletRegistryEntry(
+            "w_active_2", "static_basket", "config.baskets", 1.0, "active", captured_at
+        ),
+        WalletRegistryEntry(
+            "w_active_3", "static_basket", "config.baskets", 1.0, "active", captured_at
+        ),
     ]
     trades = [
         WalletTrade("w_probation", "geopolitics", "m1", "YES", 0.58, 20.0, 60),
@@ -813,7 +965,9 @@ def test_build_live_basket_roster_excludes_probation_from_core_and_rotating() ->
     }
 
 
-def test_build_live_basket_roster_excludes_probation_from_backup_when_backup_is_live() -> None:
+def test_build_live_basket_roster_excludes_probation_from_backup_when_backup_is_live() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -830,16 +984,69 @@ def test_build_live_basket_roster_excludes_probation_from_backup_when_backup_is_
     )
     captured_at = datetime(2026, 1, 20, 12, 0, tzinfo=UTC)
     memberships = [
-        BasketMembership("geopolitics", "w_active_1", "core", 1, True, captured_at, None, "seeded", ""),
-        BasketMembership("geopolitics", "w_active_2", "rotating", 2, True, captured_at, None, "seeded", ""),
-        BasketMembership("geopolitics", "w_probation", "backup", 3, True, captured_at, None, "discovered", ""),
-        BasketMembership("geopolitics", "w_active_3", "explorer", 4, True, captured_at, None, "seeded", ""),
+        BasketMembership(
+            "geopolitics",
+            "w_active_1",
+            "core",
+            1,
+            True,
+            captured_at,
+            None,
+            "seeded",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w_active_2",
+            "rotating",
+            2,
+            True,
+            captured_at,
+            None,
+            "seeded",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w_probation",
+            "backup",
+            3,
+            True,
+            captured_at,
+            None,
+            "discovered",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w_active_3",
+            "explorer",
+            4,
+            True,
+            captured_at,
+            None,
+            "seeded",
+            "",
+        ),
     ]
     registry_entries = [
-        WalletRegistryEntry("w_active_1", "static_basket", "config.baskets", 1.0, "active", captured_at),
-        WalletRegistryEntry("w_active_2", "static_basket", "config.baskets", 1.0, "active", captured_at),
-        WalletRegistryEntry("w_probation", "wallet_discovery", "polymarket_data_api", 0.8, "probation", captured_at),
-        WalletRegistryEntry("w_active_3", "static_basket", "config.baskets", 1.0, "active", captured_at),
+        WalletRegistryEntry(
+            "w_active_1", "static_basket", "config.baskets", 1.0, "active", captured_at
+        ),
+        WalletRegistryEntry(
+            "w_active_2", "static_basket", "config.baskets", 1.0, "active", captured_at
+        ),
+        WalletRegistryEntry(
+            "w_probation",
+            "wallet_discovery",
+            "polymarket_data_api",
+            0.8,
+            "probation",
+            captured_at,
+        ),
+        WalletRegistryEntry(
+            "w_active_3", "static_basket", "config.baskets", 1.0, "active", captured_at
+        ),
     ]
     trades = [
         WalletTrade("w_active_1", "geopolitics", "m1", "YES", 0.58, 20.0, 60),
@@ -928,7 +1135,9 @@ def test_build_live_basket_roster_reports_cluster_and_slot_exclusions() -> None:
         WalletTrade("w4", "geopolitics", "m5", "YES", 0.55, 20.0, 180),
     ]
 
-    roster = build_live_basket_roster(config, memberships, trades, captured_at=captured_at)
+    roster = build_live_basket_roster(
+        config, memberships, trades, captured_at=captured_at
+    )
 
     decisions = {
         decision["wallet"]: decision
@@ -948,7 +1157,9 @@ def test_build_live_basket_roster_reports_cluster_and_slot_exclusions() -> None:
     ]
 
 
-def test_rebalance_memberships_from_live_roster_rewrites_tiers_and_deactivates_overflow() -> None:
+def test_rebalance_memberships_from_live_roster_rewrites_tiers_and_deactivates_overflow() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -1041,7 +1252,10 @@ def test_rebalance_memberships_from_live_roster_rewrites_tiers_and_deactivates_o
         "w3",
         "w2",
     ]
-    assert [(membership.wallet, membership.tier, membership.rank) for membership in updated[:4]] == [
+    assert [
+        (membership.wallet, membership.tier, membership.rank)
+        for membership in updated[:4]
+    ] == [
         ("w5", "core", 1),
         ("w4", "core", 2),
         ("w3", "rotating", 3),
@@ -1053,7 +1267,9 @@ def test_rebalance_memberships_from_live_roster_rewrites_tiers_and_deactivates_o
     assert overflow.demotion_reason == "dropped from live roster rebalance"
 
 
-def test_rebalance_memberships_from_live_roster_skips_churn_until_rotation_due() -> None:
+def test_rebalance_memberships_from_live_roster_skips_churn_until_rotation_due() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -1073,13 +1289,29 @@ def test_rebalance_memberships_from_live_roster_skips_churn_until_rotation_due()
     captured_at = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
     recent_joined_at = datetime(2026, 1, 2, 6, 0, tzinfo=UTC)
     store.registry_entries = [
-        WalletRegistryEntry(wallet, "static_basket", "config.baskets", 1.0, "active", recent_joined_at)
+        WalletRegistryEntry(
+            wallet, "static_basket", "config.baskets", 1.0, "active", recent_joined_at
+        )
         for wallet in ["w1", "w2", "w3"]
     ]
     store.memberships = [
-        BasketMembership("geopolitics", "w1", "core", 1, True, recent_joined_at, None, "seeded", ""),
-        BasketMembership("geopolitics", "w2", "rotating", 2, True, recent_joined_at, None, "seeded", ""),
-        BasketMembership("geopolitics", "w3", "backup", 3, True, recent_joined_at, None, "seeded", ""),
+        BasketMembership(
+            "geopolitics", "w1", "core", 1, True, recent_joined_at, None, "seeded", ""
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w2",
+            "rotating",
+            2,
+            True,
+            recent_joined_at,
+            None,
+            "seeded",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics", "w3", "backup", 3, True, recent_joined_at, None, "seeded", ""
+        ),
     ]
     trades = [
         WalletTrade("w3", "geopolitics", "m1", "YES", 0.6, 15.0, 60),
@@ -1095,7 +1327,10 @@ def test_rebalance_memberships_from_live_roster_skips_churn_until_rotation_due()
         captured_at=captured_at,
     )
 
-    assert [(membership.wallet, membership.tier, membership.rank, membership.active) for membership in updated] == [
+    assert [
+        (membership.wallet, membership.tier, membership.rank, membership.active)
+        for membership in updated
+    ] == [
         ("w1", "core", 1, True),
         ("w2", "rotating", 2, True),
         ("w3", "backup", 3, True),
@@ -1120,14 +1355,70 @@ def test_refresh_registry_entries_from_trades_updates_status_from_freshness() ->
     captured_at = datetime(2026, 1, 20, tzinfo=UTC)
     store = FakeStore()
     store.registry_entries = [
-        WalletRegistryEntry("w_active", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w_probation_age", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 18, tzinfo=UTC)),
-        WalletRegistryEntry("w_probation_count", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w_probation_quality", "wallet_discovery", "polymarket_data_api", 0.4, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w_discovered_active", "wallet_discovery", "polymarket_data_api", 0.7, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w_stale", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w_suspended", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w_retired", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
+        WalletRegistryEntry(
+            "w_active",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w_probation_age",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 18, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w_probation_count",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w_probation_quality",
+            "wallet_discovery",
+            "polymarket_data_api",
+            0.4,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w_discovered_active",
+            "wallet_discovery",
+            "polymarket_data_api",
+            0.7,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w_stale",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w_suspended",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w_retired",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
     ]
     trades = [
         WalletTrade("w_active", "geopolitics", "m1", "YES", 0.6, 15.0, 300),
@@ -1164,7 +1455,9 @@ def test_refresh_registry_entries_from_trades_updates_status_from_freshness() ->
     }
 
 
-def test_ingest_wallet_discovery_inputs_adds_registry_entries_and_explorer_memberships() -> None:
+def test_ingest_wallet_discovery_inputs_adds_registry_entries_and_explorer_memberships() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     captured_at = datetime(2026, 1, 20, tzinfo=UTC)
     store = FakeStore()
@@ -1247,7 +1540,9 @@ def test_ingest_wallet_discovery_inputs_adds_registry_entries_and_explorer_membe
     assert new_membership.joined_at == captured_at
 
 
-def test_apply_basket_manager_actions_to_memberships_adds_and_deactivates_registry_memberships() -> None:
+def test_apply_basket_manager_actions_to_memberships_adds_and_deactivates_registry_memberships() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     captured_at = datetime(2026, 1, 20, tzinfo=UTC)
     store = FakeStore()
@@ -1275,9 +1570,25 @@ def test_apply_basket_manager_actions_to_memberships_adds_and_deactivates_regist
         )
     ]
     actions = [
-        BasketManagerAction("add", "geopolitics", "w_new", 0.8, "HIGH", "auto-update eligible recommendation"),
-        BasketManagerAction("suspend", "geopolitics", "w_existing", 0.3, "LOW", "existing wallet confidence fell to LOW"),
-        BasketManagerAction("observe", "geopolitics", "w_observe", 0.2, "LOW", "observe only"),
+        BasketManagerAction(
+            "add",
+            "geopolitics",
+            "w_new",
+            0.8,
+            "HIGH",
+            "auto-update eligible recommendation",
+        ),
+        BasketManagerAction(
+            "suspend",
+            "geopolitics",
+            "w_existing",
+            0.3,
+            "LOW",
+            "existing wallet confidence fell to LOW",
+        ),
+        BasketManagerAction(
+            "observe", "geopolitics", "w_observe", 0.2, "LOW", "observe only"
+        ),
     ]
 
     memberships, diagnostics = apply_basket_manager_actions_to_memberships(
@@ -1321,7 +1632,9 @@ def test_apply_basket_manager_actions_to_memberships_adds_and_deactivates_regist
     assert new_membership.promotion_reason == "auto-update eligible recommendation"
 
 
-def test_rebalance_memberships_from_live_roster_demotes_stale_wallets_out_of_live_tiers() -> None:
+def test_rebalance_memberships_from_live_roster_demotes_stale_wallets_out_of_live_tiers() -> (
+    None
+):
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         config,
@@ -1346,16 +1659,84 @@ def test_rebalance_memberships_from_live_roster_demotes_stale_wallets_out_of_liv
     store = FakeStore()
     captured_at = datetime(2026, 1, 20, tzinfo=UTC)
     store.registry_entries = [
-        WalletRegistryEntry("w1", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w2", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w3", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
-        WalletRegistryEntry("w4", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
+        WalletRegistryEntry(
+            "w1",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w2",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w3",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        WalletRegistryEntry(
+            "w4",
+            "static_basket",
+            "config.baskets",
+            1.0,
+            "active",
+            datetime(2026, 1, 1, tzinfo=UTC),
+        ),
     ]
     store.memberships = [
-        BasketMembership("geopolitics", "w1", "core", 1, True, datetime(2026, 1, 1, tzinfo=UTC), None, "seeded", ""),
-        BasketMembership("geopolitics", "w2", "core", 2, True, datetime(2026, 1, 1, tzinfo=UTC), None, "seeded", ""),
-        BasketMembership("geopolitics", "w3", "rotating", 3, True, datetime(2026, 1, 1, tzinfo=UTC), None, "seeded", ""),
-        BasketMembership("geopolitics", "w4", "backup", 4, True, datetime(2026, 1, 1, tzinfo=UTC), None, "seeded", ""),
+        BasketMembership(
+            "geopolitics",
+            "w1",
+            "core",
+            1,
+            True,
+            datetime(2026, 1, 1, tzinfo=UTC),
+            None,
+            "seeded",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w2",
+            "core",
+            2,
+            True,
+            datetime(2026, 1, 1, tzinfo=UTC),
+            None,
+            "seeded",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w3",
+            "rotating",
+            3,
+            True,
+            datetime(2026, 1, 1, tzinfo=UTC),
+            None,
+            "seeded",
+            "",
+        ),
+        BasketMembership(
+            "geopolitics",
+            "w4",
+            "backup",
+            4,
+            True,
+            datetime(2026, 1, 1, tzinfo=UTC),
+            None,
+            "seeded",
+            "",
+        ),
     ]
     trades = [
         WalletTrade("w4", "geopolitics", "m1", "YES", 0.6, 15.0, 60),
@@ -1372,7 +1753,10 @@ def test_rebalance_memberships_from_live_roster_demotes_stale_wallets_out_of_liv
         captured_at=captured_at,
     )
 
-    assert [(membership.wallet, membership.tier, membership.rank, membership.active) for membership in updated] == [
+    assert [
+        (membership.wallet, membership.tier, membership.rank, membership.active)
+        for membership in updated
+    ] == [
         ("w4", "core", 1, True),
         ("w3", "core", 2, True),
         ("w2", "rotating", 3, True),

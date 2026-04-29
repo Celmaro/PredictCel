@@ -91,8 +91,7 @@ class TestDataAPIIntegration:
         assert len(trades) >= 2
         for trade in trades:
             wallet_in_trade = (
-                trade.get("user", "").lower()
-                or trade.get("address", "").lower()
+                trade.get("user", "").lower() or trade.get("address", "").lower()
             )
             assert "wallet1" in wallet_in_trade
 

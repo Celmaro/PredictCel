@@ -1,6 +1,10 @@
 from predictcel.config import FilterConfig
 from predictcel.models import MarketSnapshot, WalletTrade
-from predictcel.scoring import WalletQualityScorer, compute_copyability_score, freshness_decay
+from predictcel.scoring import (
+    WalletQualityScorer,
+    compute_copyability_score,
+    freshness_decay,
+)
 
 
 def make_filters() -> FilterConfig:
@@ -17,8 +21,24 @@ def make_filters() -> FilterConfig:
 def test_wallet_quality_scores_eligible_wallet() -> None:
     scorer = WalletQualityScorer(make_filters())
     trades = [
-        WalletTrade(wallet="w1", topic="sports", market_id="m1", side="YES", price=0.55, size_usd=200, age_seconds=300),
-        WalletTrade(wallet="w1", topic="sports", market_id="m1", side="YES", price=0.56, size_usd=180, age_seconds=600),
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="m1",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        ),
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="m1",
+            side="YES",
+            price=0.56,
+            size_usd=180,
+            age_seconds=600,
+        ),
     ]
     markets = {
         "m1": MarketSnapshot(
@@ -49,8 +69,24 @@ def test_wallet_quality_scores_eligible_wallet() -> None:
 def test_scoring_deduplicates_cross_topic_live_trade_copies() -> None:
     scorer = WalletQualityScorer(make_filters())
     trades = [
-        WalletTrade(wallet="w1", topic="sports", market_id="m1", side="YES", price=0.55, size_usd=200, age_seconds=300),
-        WalletTrade(wallet="w1", topic="macro", market_id="m1", side="YES", price=0.55, size_usd=200, age_seconds=300),
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="m1",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        ),
+        WalletTrade(
+            wallet="w1",
+            topic="macro",
+            market_id="m1",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        ),
     ]
     markets = {
         "m1": MarketSnapshot("m1", "sports", "Example", 0.57, 0.4, 0.55, 9000, 180)
@@ -64,9 +100,33 @@ def test_scoring_deduplicates_cross_topic_live_trade_copies() -> None:
 def test_scoring_diagnostics_count_rejection_reasons() -> None:
     scorer = WalletQualityScorer(make_filters())
     trades = [
-        WalletTrade(wallet="w1", topic="sports", market_id="missing", side="YES", price=0.55, size_usd=200, age_seconds=300),
-        WalletTrade(wallet="w1", topic="sports", market_id="m1", side="YES", price=0.56, size_usd=20, age_seconds=300),
-        WalletTrade(wallet="w2", topic="sports", market_id="m1", side="YES", price=0.56, size_usd=200, age_seconds=7200),
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="missing",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        ),
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="m1",
+            side="YES",
+            price=0.56,
+            size_usd=20,
+            age_seconds=300,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="sports",
+            market_id="m1",
+            side="YES",
+            price=0.56,
+            size_usd=200,
+            age_seconds=7200,
+        ),
     ]
     markets = {
         "m1": MarketSnapshot("m1", "sports", "Example", 0.57, 0.4, 0.55, 9000, 180)
@@ -75,26 +135,47 @@ def test_scoring_diagnostics_count_rejection_reasons() -> None:
     scores = scorer.score(trades, markets)
 
     assert scores == {}
-    assert scorer.last_rejection_counts == {"missing_market": 1, "too_old": 1, "too_small": 1}
-    assert scorer.last_wallet_rejection_counts["w1"] == {"missing_market": 1, "too_small": 1}
+    assert scorer.last_rejection_counts == {
+        "missing_market": 1,
+        "too_old": 1,
+        "too_small": 1,
+    }
+    assert scorer.last_wallet_rejection_counts["w1"] == {
+        "missing_market": 1,
+        "too_small": 1,
+    }
     assert scorer.last_wallet_rejection_counts["w2"] == {"too_old": 1}
     assert scorer.last_missing_market_samples == ["missing"]
 
 
-def test_wallet_quality_prefers_specialist_human_pace_liquid_copy_safe_wallets() -> None:
+def test_wallet_quality_prefers_specialist_human_pace_liquid_copy_safe_wallets() -> (
+    None
+):
     scorer = WalletQualityScorer(make_filters())
     markets = {
         **{
-            f"s{i}": MarketSnapshot(f"s{i}", "sports", "Sports", 0.57, 0.4, 0.55, 20000, 180)
+            f"s{i}": MarketSnapshot(
+                f"s{i}", "sports", "Sports", 0.57, 0.4, 0.55, 20000, 180
+            )
             for i in range(1, 7)
         },
         **{
-            f"g{i}": MarketSnapshot(f"g{i}", "mixed", "Mixed", 0.57, 0.4, 0.55, 6000, 180)
+            f"g{i}": MarketSnapshot(
+                f"g{i}", "mixed", "Mixed", 0.57, 0.4, 0.55, 6000, 180
+            )
             for i in range(1, 13)
         },
     }
     specialist_trades = [
-        WalletTrade(wallet="w_specialist", topic="sports", market_id=f"s{i}", side="YES", price=0.55, size_usd=220, age_seconds=300 + (i * 120))
+        WalletTrade(
+            wallet="w_specialist",
+            topic="sports",
+            market_id=f"s{i}",
+            side="YES",
+            price=0.55,
+            size_usd=220,
+            age_seconds=300 + (i * 120),
+        )
         for i in range(1, 7)
     ]
     generalist_topics = [
@@ -121,24 +202,71 @@ def test_wallet_quality_prefers_specialist_human_pace_liquid_copy_safe_wallets()
     scores = scorer.score(specialist_trades + generalist_trades, markets)
 
     assert scores["w_specialist"].score > scores["w_generalist"].score
-    assert scores["w_specialist"].specialization_score > scores["w_generalist"].specialization_score
-    assert scores["w_specialist"].activity_score >= scores["w_generalist"].activity_score
+    assert (
+        scores["w_specialist"].specialization_score
+        > scores["w_generalist"].specialization_score
+    )
+    assert (
+        scores["w_specialist"].activity_score >= scores["w_generalist"].activity_score
+    )
     assert "specialization" in scores["w_specialist"].reason
 
 
-def test_wallet_quality_penalizes_copy_unsafe_large_size_relative_to_liquidity() -> None:
+def test_wallet_quality_penalizes_copy_unsafe_large_size_relative_to_liquidity() -> (
+    None
+):
     scorer = WalletQualityScorer(make_filters())
     markets = {
-        "m_safe_1": MarketSnapshot("m_safe_1", "sports", "Safe 1", 0.57, 0.4, 0.55, 15000, 180),
-        "m_safe_2": MarketSnapshot("m_safe_2", "sports", "Safe 2", 0.57, 0.4, 0.55, 15000, 180),
-        "m_unsafe_1": MarketSnapshot("m_unsafe_1", "sports", "Unsafe 1", 0.57, 0.4, 0.55, 5500, 180),
-        "m_unsafe_2": MarketSnapshot("m_unsafe_2", "sports", "Unsafe 2", 0.57, 0.4, 0.55, 5500, 180),
+        "m_safe_1": MarketSnapshot(
+            "m_safe_1", "sports", "Safe 1", 0.57, 0.4, 0.55, 15000, 180
+        ),
+        "m_safe_2": MarketSnapshot(
+            "m_safe_2", "sports", "Safe 2", 0.57, 0.4, 0.55, 15000, 180
+        ),
+        "m_unsafe_1": MarketSnapshot(
+            "m_unsafe_1", "sports", "Unsafe 1", 0.57, 0.4, 0.55, 5500, 180
+        ),
+        "m_unsafe_2": MarketSnapshot(
+            "m_unsafe_2", "sports", "Unsafe 2", 0.57, 0.4, 0.55, 5500, 180
+        ),
     }
     trades = [
-        WalletTrade(wallet="w_safe", topic="sports", market_id="m_safe_1", side="YES", price=0.55, size_usd=150, age_seconds=300),
-        WalletTrade(wallet="w_safe", topic="sports", market_id="m_safe_2", side="YES", price=0.56, size_usd=170, age_seconds=450),
-        WalletTrade(wallet="w_unsafe", topic="sports", market_id="m_unsafe_1", side="YES", price=0.55, size_usd=1500, age_seconds=300),
-        WalletTrade(wallet="w_unsafe", topic="sports", market_id="m_unsafe_2", side="YES", price=0.56, size_usd=1600, age_seconds=450),
+        WalletTrade(
+            wallet="w_safe",
+            topic="sports",
+            market_id="m_safe_1",
+            side="YES",
+            price=0.55,
+            size_usd=150,
+            age_seconds=300,
+        ),
+        WalletTrade(
+            wallet="w_safe",
+            topic="sports",
+            market_id="m_safe_2",
+            side="YES",
+            price=0.56,
+            size_usd=170,
+            age_seconds=450,
+        ),
+        WalletTrade(
+            wallet="w_unsafe",
+            topic="sports",
+            market_id="m_unsafe_1",
+            side="YES",
+            price=0.55,
+            size_usd=1500,
+            age_seconds=300,
+        ),
+        WalletTrade(
+            wallet="w_unsafe",
+            topic="sports",
+            market_id="m_unsafe_2",
+            side="YES",
+            price=0.56,
+            size_usd=1600,
+            age_seconds=450,
+        ),
     ]
 
     scores = scorer.score(trades, markets)

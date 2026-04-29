@@ -31,7 +31,9 @@ class Backtester:
     def __init__(self, config, db_path: str = ":memory:"):
         self.config = config
         self.store = SignalStore(db_path)
-        self.scorer = WalletQualityScorer(config.filters, config.consensus.recency_half_life_seconds)
+        self.scorer = WalletQualityScorer(
+            config.filters, config.consensus.recency_half_life_seconds
+        )
         self.copy_engine = CopyEngine(config)
 
     def run_backtest(
@@ -47,23 +49,27 @@ class Backtester:
         if start_date or end_date:
             if start_date:
                 trades = [
-                    trade for trade in trades
+                    trade
+                    for trade in trades
                     if trade.timestamp is not None and trade.timestamp >= start_date
                 ]
                 markets = {
                     market_id: market
                     for market_id, market in markets.items()
-                    if market.snapshot_time is not None and market.snapshot_time >= start_date
+                    if market.snapshot_time is not None
+                    and market.snapshot_time >= start_date
                 }
             if end_date:
                 trades = [
-                    trade for trade in trades
+                    trade
+                    for trade in trades
                     if trade.timestamp is not None and trade.timestamp <= end_date
                 ]
                 markets = {
                     market_id: market
                     for market_id, market in markets.items()
-                    if market.snapshot_time is not None and market.snapshot_time <= end_date
+                    if market.snapshot_time is not None
+                    and market.snapshot_time <= end_date
                 }
 
         wallet_qualities = self.scorer.score(trades, markets)
@@ -83,9 +89,16 @@ class Backtester:
             actual_price = self._payout_for_side(market, candidate.side)
             if actual_price is None:
                 import random
-                actual_price = 1.0 if random.random() < candidate.consensus_ratio else 0.0
 
-            pnl = candidate.suggested_position_usd * (actual_price - entry_price) / entry_price
+                actual_price = (
+                    1.0 if random.random() < candidate.consensus_ratio else 0.0
+                )
+
+            pnl = (
+                candidate.suggested_position_usd
+                * (actual_price - entry_price)
+                / entry_price
+            )
             pnls.append(pnl)
             total_pnl += pnl
 
@@ -132,13 +145,17 @@ class Backtester:
         if market.resolved_outcome is not None:
             return 1.0 if market.resolved_outcome == side else 0.0
         if market.resolution_price is not None:
-            return market.resolution_price if side == "YES" else 1.0 - market.resolution_price
+            return (
+                market.resolution_price
+                if side == "YES"
+                else 1.0 - market.resolution_price
+            )
         return None
 
     def _calculate_max_drawdown(self, pnls: list[float]) -> float:
         if not pnls:
             return 0.0
-        cumulative = [sum(pnls[:i+1]) for i in range(len(pnls))]
+        cumulative = [sum(pnls[: i + 1]) for i in range(len(pnls))]
         peak = cumulative[0]
         max_dd = 0.0
         for val in cumulative:
@@ -148,12 +165,14 @@ class Backtester:
             max_dd = max(max_dd, dd)
         return max_dd
 
-    def _calculate_sharpe_ratio(self, pnls: list[float], risk_free_rate: float = 0.02) -> float:
+    def _calculate_sharpe_ratio(
+        self, pnls: list[float], risk_free_rate: float = 0.02
+    ) -> float:
         if not pnls or len(pnls) < 2:
             return 0.0
         avg_return = sum(pnls) / len(pnls)
         variance = sum((pnl - avg_return) ** 2 for pnl in pnls) / (len(pnls) - 1)
-        std_dev = variance ** 0.5
+        std_dev = variance**0.5
         return (avg_return - risk_free_rate) / std_dev if std_dev > 0 else 0.0
 
 
@@ -165,13 +184,18 @@ def run_backtest_example() -> None:
         str(project_root / config.wallet_trades_path),
         str(project_root / config.market_snapshots_path),
     )
-    print(json.dumps({
-        "total_trades": result.total_trades,
-        "win_rate": result.win_rate,
-        "total_pnl": result.total_pnl,
-        "sharpe_ratio": result.sharpe_ratio,
-        "attribution": result.attribution,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "total_trades": result.total_trades,
+                "win_rate": result.win_rate,
+                "total_pnl": result.total_pnl,
+                "sharpe_ratio": result.sharpe_ratio,
+                "attribution": result.attribution,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

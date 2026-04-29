@@ -17,7 +17,9 @@ __all__ = ["classify_wallet_topics", "classify_trade_topic"]
 UNKNOWN_TOPIC = "other"
 
 
-def classify_wallet_topics(trades: list[dict[str, Any]], topic_keywords: dict[str, list[str]]) -> WalletTopicProfile:
+def classify_wallet_topics(
+    trades: list[dict[str, Any]], topic_keywords: dict[str, list[str]]
+) -> WalletTopicProfile:
     counts: Counter[str] = Counter()
     for trade in trades:
         topic = _explicit_topic(trade)
@@ -27,19 +29,27 @@ def classify_wallet_topics(trades: list[dict[str, Any]], topic_keywords: dict[st
 
     total = sum(counts.values())
     if total <= 0:
-        return WalletTopicProfile(topic_affinities={UNKNOWN_TOPIC: 1.0}, primary_topic=UNKNOWN_TOPIC, specialization_score=1.0)
+        return WalletTopicProfile(
+            topic_affinities={UNKNOWN_TOPIC: 1.0},
+            primary_topic=UNKNOWN_TOPIC,
+            specialization_score=1.0,
+        )
 
     affinities = {topic: round(count / total, 4) for topic, count in counts.items()}
     primary_topic = max(affinities.items(), key=lambda item: item[1])[0]
     specialization = round(sum(value * value for value in affinities.values()), 4)
     return WalletTopicProfile(
-        topic_affinities=dict(sorted(affinities.items(), key=lambda item: item[1], reverse=True)),
+        topic_affinities=dict(
+            sorted(affinities.items(), key=lambda item: item[1], reverse=True)
+        ),
         primary_topic=primary_topic,
         specialization_score=specialization,
     )
 
 
-def classify_trade_topic(trade: dict[str, Any], topic_keywords: dict[str, list[str]]) -> str:
+def classify_trade_topic(
+    trade: dict[str, Any], topic_keywords: dict[str, list[str]]
+) -> str:
     text = _trade_text(trade)
     for topic, keywords in topic_keywords.items():
         if any(keyword.lower() in text for keyword in keywords):
@@ -57,7 +67,15 @@ def _explicit_topic(trade: dict[str, Any]) -> str:
 
 def _trade_text(trade: dict[str, Any]) -> str:
     parts = []
-    for key in ("slug", "marketSlug", "title", "question", "market", "eventTitle", "description"):
+    for key in (
+        "slug",
+        "marketSlug",
+        "title",
+        "question",
+        "market",
+        "eventTitle",
+        "description",
+    ):
         value = trade.get(key)
         if value:
             parts.append(str(value))

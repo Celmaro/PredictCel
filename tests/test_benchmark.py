@@ -58,6 +58,8 @@ def sample_qualities():
     }
 
 
-def test_evaluate_performance(benchmark, sample_config, sample_markets, sample_trades, sample_qualities):
+def test_evaluate_performance(
+    benchmark, sample_config, sample_markets, sample_trades, sample_qualities
+):
     engine = CopyEngine(sample_config)
     benchmark(engine.evaluate, sample_trades, sample_markets, sample_qualities)

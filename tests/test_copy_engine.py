@@ -50,10 +50,14 @@ class MembershipStore(CountingStore):
         self.memberships = memberships
         self.registry_entries = registry_entries or []
 
-    def load_basket_memberships(self, topic: str | None = None) -> list[BasketMembership]:
+    def load_basket_memberships(
+        self, topic: str | None = None
+    ) -> list[BasketMembership]:
         if topic is None:
             return list(self.memberships)
-        return [membership for membership in self.memberships if membership.topic == topic]
+        return [
+            membership for membership in self.memberships if membership.topic == topic
+        ]
 
     def load_wallet_registry_entries(self) -> list[WalletRegistryEntry]:
         return list(self.registry_entries)
@@ -401,7 +405,9 @@ def test_skips_candidate_when_price_is_too_late() -> None:
     assert engine.last_diagnostics["too_late_price"] == 1
 
 
-def test_weighted_consensus_can_reject_raw_quorum_with_stale_low_quality_votes() -> None:
+def test_weighted_consensus_can_reject_raw_quorum_with_stale_low_quality_votes() -> (
+    None
+):
     consensus = ConsensusConfig(
         min_weighted_consensus=0.75,
         min_confidence_score=0.20,
@@ -529,8 +535,12 @@ def test_concentrated_agreement_reduces_confidence_and_position_size() -> None:
         WalletTrade("w3", "geopolitics", "m1", "YES", 0.59, 200, 1500),
     ]
 
-    balanced = engine.evaluate(balanced_trades, {"m1": make_market()}, make_qualities())[0]
-    concentrated = engine.evaluate(concentrated_trades, {"m1": make_market()}, make_qualities())[0]
+    balanced = engine.evaluate(
+        balanced_trades, {"m1": make_market()}, make_qualities()
+    )[0]
+    concentrated = engine.evaluate(
+        concentrated_trades, {"m1": make_market()}, make_qualities()
+    )[0]
 
     assert concentrated.confidence_score < balanced.confidence_score
     assert concentrated.suggested_position_usd < balanced.suggested_position_usd
@@ -593,8 +603,12 @@ def test_market_regime_detects_trend_and_unstable_books() -> None:
             age_seconds=60,
         ),
     ]
-    trend_market = replace(make_market(), yes_ask=0.70, yes_spread=0.02, yes_ask_size=200)
-    unstable_market = replace(make_market(), yes_ask=0.70, yes_spread=0.20, yes_ask_size=1)
+    trend_market = replace(
+        make_market(), yes_ask=0.70, yes_spread=0.02, yes_ask_size=200
+    )
+    unstable_market = replace(
+        make_market(), yes_ask=0.70, yes_spread=0.20, yes_ask_size=1
+    )
 
     trend = engine.evaluate(trades, {"m1": trend_market}, make_qualities())[0]
     unstable = engine.evaluate(trades, {"m1": unstable_market}, make_qualities())[0]
@@ -814,7 +828,9 @@ def test_evaluate_reads_portfolio_summary_once_before_threading() -> None:
     assert all(candidate.suggested_position_usd > 0 for candidate in candidates)
 
 
-def test_evaluate_does_not_pass_store_into_worker_thread_consensus_gate(monkeypatch) -> None:
+def test_evaluate_does_not_pass_store_into_worker_thread_consensus_gate(
+    monkeypatch,
+) -> None:
     engine = CopyEngine(
         make_config(
             wallets=["w1", "w2", "w3"],
@@ -841,7 +857,9 @@ def test_evaluate_does_not_pass_store_into_worker_thread_consensus_gate(monkeypa
             assert threading.get_ident() == owner_thread
             return super().get_portfolio_summary(starting_bankroll_usd)
 
-        def load_basket_memberships(self, topic: str | None = None) -> list[BasketMembership]:
+        def load_basket_memberships(
+            self, topic: str | None = None
+        ) -> list[BasketMembership]:
             assert threading.get_ident() == owner_thread
             return super().load_basket_memberships(topic)
 
@@ -859,7 +877,9 @@ def test_evaluate_does_not_pass_store_into_worker_thread_consensus_gate(monkeypa
         assert kwargs.get("store") is None
         return original_gate(*args, **kwargs)
 
-    monkeypatch.setattr(copy_engine_module, "evaluate_basket_consensus_gate", wrapped_gate)
+    monkeypatch.setattr(
+        copy_engine_module, "evaluate_basket_consensus_gate", wrapped_gate
+    )
 
     markets = {
         "m1": replace(make_market(), market_id="m1"),
@@ -994,7 +1014,9 @@ def test_basket_controller_rejects_when_same_outcome_ratio_is_below_threshold() 
     assert engine.last_diagnostics["below_basket_participation"] == 1
 
 
-def test_basket_controller_rejects_when_aligned_wallets_do_not_buy_in_tight_price_band() -> None:
+def test_basket_controller_rejects_when_aligned_wallets_do_not_buy_in_tight_price_band() -> (
+    None
+):
     wallets = ["w1", "w2", "w3", "w4", "w5"]
     engine = CopyEngine(
         make_config(
@@ -1034,7 +1056,9 @@ def test_basket_controller_rejects_when_aligned_wallets_do_not_buy_in_tight_pric
     assert engine.last_diagnostics["wide_entry_price_band"] == 1
 
 
-def test_basket_controller_rejects_when_aligned_wallets_are_too_far_apart_in_time() -> None:
+def test_basket_controller_rejects_when_aligned_wallets_are_too_far_apart_in_time() -> (
+    None
+):
     wallets = ["w1", "w2", "w3", "w4", "w5"]
     engine = CopyEngine(
         make_config(
@@ -1158,7 +1182,9 @@ def test_basket_controller_uses_live_selected_core_and_rotating_wallets() -> Non
     assert candidates[0].consensus_ratio == 1.0
 
 
-def test_basket_controller_excludes_stale_seeded_wallets_when_live_roster_has_fresher_replacements() -> None:
+def test_basket_controller_excludes_stale_seeded_wallets_when_live_roster_has_fresher_replacements() -> (
+    None
+):
     engine = CopyEngine(
         make_config(
             wallets=["w1", "w2", "w3"],
@@ -1376,7 +1402,9 @@ def test_basket_controller_live_roster_respects_registry_statuses() -> None:
     assert "w1" not in candidates[0].source_wallets
 
 
-def test_basket_controller_live_roster_excludes_probation_wallets_from_consensus() -> None:
+def test_basket_controller_live_roster_excludes_probation_wallets_from_consensus() -> (
+    None
+):
     engine = CopyEngine(
         make_config(
             wallets=["w1", "w2", "w3"],
