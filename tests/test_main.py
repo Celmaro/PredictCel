@@ -1235,10 +1235,14 @@ def test_build_wallet_registry_summary_keeps_memberships_read_only() -> None:
     }
 
 
-def test_build_wallet_registry_summary_does_not_reseed_existing_memberships() -> None:
+def test_build_wallet_registry_summary_does_not_reseed_manually_curated_topic() -> None:
     base_config = load_config(Path("config/predictcel.example.json"))
     config = replace(
         base_config,
+        baskets=[
+            BasketRule("geopolitics", ["w1", "w2"], 0.8, 0.5),
+            BasketRule("macro-financial", ["w3"], 0.8, 0.5),
+        ],
         wallet_registry=replace(
             base_config.wallet_registry, enabled=True, seed_from_baskets=True
         ),
@@ -1274,6 +1278,7 @@ def test_build_wallet_registry_summary_does_not_reseed_existing_memberships() ->
 
     assert [
         (
+            membership.topic,
             membership.wallet,
             membership.tier,
             membership.rank,
@@ -1281,7 +1286,14 @@ def test_build_wallet_registry_summary_does_not_reseed_existing_memberships() ->
         )
         for membership in store.memberships
     ] == [
-        ("w1", "explorer", 7, "manual override"),
+        ("geopolitics", "w1", "explorer", 7, "manual override"),
+        (
+            "macro-financial",
+            "w3",
+            "core",
+            1,
+            "seeded from static basket config",
+        ),
     ]
 
 
@@ -1387,6 +1399,76 @@ def test_build_wallet_registry_summary_refreshes_registry_statuses_from_trade_fr
         "w_active": "active",
         "w_probation": "probation",
         "w_stale": "stale",
+    }
+
+
+def test_build_wallet_registry_summary_backfills_missing_static_baskets_into_existing_store() -> (
+    None
+):
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        baskets=[
+            BasketRule("geopolitics", ["w1", "w2"], 0.8, 0.5),
+            BasketRule("macro-financial", ["w3"], 0.8, 0.5),
+        ],
+        wallet_registry=replace(
+            config.wallet_registry,
+            enabled=True,
+            seed_from_baskets=True,
+        ),
+    )
+    first_seen_at = datetime(2026, 1, 1, tzinfo=UTC)
+    store = RegistrySummaryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet="w1",
+                source_type="static_basket",
+                source_ref="config.baskets",
+                trust_seed=1.0,
+                status="active",
+                first_seen_at=first_seen_at,
+            )
+        ],
+        memberships=[
+            BasketMembership(
+                topic="geopolitics",
+                wallet="w1",
+                tier="core",
+                rank=1,
+                active=True,
+                joined_at=first_seen_at,
+                effective_until=None,
+                promotion_reason="seeded from static basket config",
+                demotion_reason="",
+            )
+        ],
+    )
+
+    summary = _build_wallet_registry_summary(config, store, [])
+
+    assert {entry.wallet for entry in store.registry_entries} == {"w1", "w2", "w3"}
+    assert [
+        (membership.topic, membership.wallet, membership.tier, membership.rank)
+        for membership in store.memberships
+    ] == [
+        ("geopolitics", "w1", "core", 1),
+        ("geopolitics", "w2", "core", 2),
+        ("macro-financial", "w3", "core", 1),
+    ]
+    assert summary["memberships_by_topic"] == {
+        "geopolitics": {
+            "core": 2,
+            "rotating": 0,
+            "backup": 0,
+            "explorer": 0,
+        },
+        "macro-financial": {
+            "core": 1,
+            "rotating": 0,
+            "backup": 0,
+            "explorer": 0,
+        },
     }
 
 

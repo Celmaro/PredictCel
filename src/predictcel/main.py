@@ -727,9 +727,6 @@ def _ensure_static_registry_bootstrap(
     *,
     captured_at: datetime,
 ) -> list[WalletRegistryEntry]:
-    if any(entry.source_type == "static_basket" for entry in existing_entries):
-        return existing_entries
-
     entries_by_wallet = {entry.wallet: entry for entry in existing_entries}
     updated_entries = list(existing_entries)
     for basket in config.baskets:
@@ -765,18 +762,24 @@ def _ensure_static_membership_bootstrap(
     *,
     captured_at: datetime,
 ) -> list[BasketMembership]:
-    if existing_memberships and any(
-        membership.promotion_reason != "wallet discovery assignment"
+    locked_topics = {
+        membership.topic
         for membership in existing_memberships
-    ):
-        return existing_memberships
-
+        if membership.promotion_reason
+        not in {
+            "",
+            "seeded from static basket config",
+            "wallet discovery assignment",
+        }
+    }
     memberships_by_key = {
         (membership.topic, membership.wallet): membership
         for membership in existing_memberships
     }
     updated_memberships = list(existing_memberships)
     for basket in config.baskets:
+        if basket.topic in locked_topics:
+            continue
         for rank, wallet in enumerate(basket.wallets, start=1):
             normalized_wallet = str(wallet).strip()
             membership_key = (basket.topic, normalized_wallet)
