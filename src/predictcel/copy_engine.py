@@ -10,7 +10,7 @@ import logging
 import os
 import pickle
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from typing import Any
 
 from .basket_controller import evaluate_basket_consensus_gate
@@ -23,6 +23,7 @@ from .models import (
     WalletTrade,
 )
 from .scoring import compute_copyability_score
+from .runtime import shared_compute_executor
 from .wallet_registry import build_live_basket_roster
 
 __all__ = ["CopyEngine"]
@@ -207,12 +208,17 @@ class CopyEngine:
                 local_no_valid_trade_reason_counts,
             )
 
-        with ThreadPoolExecutor(max_workers=max(1, min(8, len(grouped)))) as executor:
-            futures = {
-                executor.submit(process_market, market_id, market_trades): market_id
-                for market_id, market_trades in grouped.items()
-            }
-            for future in as_completed(futures):
+        workers = max(1, min(8, len(grouped)))
+        executor = shared_compute_executor()
+        grouped_items = list(grouped.items())
+        futures = {
+            executor.submit(process_market, market_id, market_trades): market_id
+            for market_id, market_trades in grouped_items[:workers]
+        }
+        pending_items = iter(grouped_items[workers:])
+        while futures:
+            for future in as_completed(tuple(futures)):
+                futures.pop(future)
                 (
                     local_candidates,
                     local_market_not_found,
@@ -225,6 +231,15 @@ class CopyEngine:
                 basket_not_found += local_basket_not_found
                 rejection_counts.update(local_rejection_counts)
                 no_valid_trade_reason_counts.update(local_no_valid_trade_reason_counts)
+
+                next_item = next(pending_items, None)
+                if next_item is not None:
+                    next_market_id, next_market_trades = next_item
+                    futures[
+                        executor.submit(
+                            process_market, next_market_id, next_market_trades
+                        )
+                    ] = next_market_id
 
         filtered_at_evaluate = sum(
             count

@@ -4,16 +4,17 @@ import logging
 import random
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import OrderedDict
+from concurrent.futures import as_completed
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
 
 import aiohttp
 from .models import MarketSnapshot, WalletTrade
+from .runtime import shared_io_executor
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +71,105 @@ class CircuitBreaker:
                 self.state = "OPEN"
 
 
+class _AsyncHttpTransport:
+    def __init__(self, timeout_seconds: int) -> None:
+        self.timeout_seconds = timeout_seconds
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._session: aiohttp.ClientSession | None = None
+        self._ready = threading.Event()
+        self._lock = threading.Lock()
+
+    def _ensure_started(self) -> None:
+        if self._thread is not None:
+            return
+        with self._lock:
+            if self._thread is not None:
+                return
+            self._ready.clear()
+            self._thread = threading.Thread(
+                target=self._run_loop,
+                name="predictcel-http",
+                daemon=True,
+            )
+            self._thread.start()
+        if not self._ready.wait(timeout=max(self.timeout_seconds, 1) + 5):
+            raise TimeoutError("Timed out starting HTTP transport")
+
+    def _run_loop(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._loop = loop
+        self._session = loop.run_until_complete(self._create_session())
+        self._ready.set()
+        loop.run_forever()
+        if self._session is not None and not self._session.closed:
+            loop.run_until_complete(self._session.close())
+        loop.close()
+
+    async def _create_session(self) -> aiohttp.ClientSession:
+        connector = aiohttp.TCPConnector(
+            limit=100,
+            ttl_dns_cache=300,
+            enable_cleanup_closed=True,
+        )
+        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
+        return aiohttp.ClientSession(connector=connector, timeout=timeout)
+
+    def run(self, coroutine, timeout_seconds: float | None = None):
+        self._ensure_started()
+        if self._loop is None:
+            raise RuntimeError("HTTP transport loop not available")
+        future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+        timeout = timeout_seconds
+        if timeout is None:
+            timeout = max(self.timeout_seconds, 1) + 5
+        return future.result(timeout=timeout)
+
+    async def fetch_json(self, url: str) -> Any:
+        if self._session is None:
+            raise RuntimeError("HTTP transport session not available")
+        try:
+            async with self._session.get(
+                url,
+                headers={"User-Agent": "PredictCel/0.1"},
+            ) as response:
+                text = await response.text()
+                if response.status >= 400:
+                    raise HTTPError(
+                        url,
+                        response.status,
+                        response.reason,
+                        hdrs=response.headers,
+                        fp=None,
+                    )
+        except aiohttp.ClientError as exc:
+            raise URLError(str(exc)) from exc
+        return json.loads(text)
+
+    def close(self) -> None:
+        with self._lock:
+            loop = self._loop
+            thread = self._thread
+            self._loop = None
+            self._thread = None
+            session = self._session
+            self._session = None
+        if loop is None or thread is None:
+            return
+        if session is not None and not session.closed:
+            asyncio.run_coroutine_threadsafe(session.close(), loop).result(timeout=5)
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=5)
+
+
 class PolymarketPublicClient:
     """Client for Polymarket public APIs with caching and resilience."""
 
     DEFAULT_Z_THRESHOLD = 3.0
     DEFAULT_CACHE_TTL_SECONDS = 300
+    DEFAULT_CACHE_MAX_ENTRIES = 2048
+    DEFAULT_RESPONSE_VALIDATION_SAMPLE_RATE = 0.01
 
     def __init__(
         self,
@@ -109,9 +204,16 @@ class PolymarketPublicClient:
         self.retry_base_delay_seconds = retry_base_delay_seconds
         self.use_redis = use_redis
         self.redis_client = None
-        self._request_cache: dict[str, Any] = {}
+        self._request_cache: OrderedDict[str, Any] = OrderedDict()
         self._cache_lock = threading.Lock()
         self._inflight_requests: dict[str, dict[str, Any]] = {}
+        self._cache_max_entries = self.DEFAULT_CACHE_MAX_ENTRIES
+        self._response_validation_sample_rate = (
+            self.DEFAULT_RESPONSE_VALIDATION_SAMPLE_RATE
+        )
+        self._wallet_trade_variant_lock = threading.Lock()
+        self._preferred_wallet_trade_variant: tuple[str, str] | None = None
+        self._http_transport = _AsyncHttpTransport(self.timeout_seconds)
         self._gamma_circuit_breaker = CircuitBreaker()
         self._data_circuit_breaker = CircuitBreaker()
         self._clob_circuit_breaker = CircuitBreaker()
@@ -142,6 +244,15 @@ class PolymarketPublicClient:
                 )
                 self.use_redis = False
                 self.redis_client = None
+
+    def close(self) -> None:
+        self._http_transport.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def fetch_active_markets(self, limit: int) -> list[dict[str, Any]]:
         """Fetch active markets from Gamma API."""
@@ -198,19 +309,20 @@ class PolymarketPublicClient:
         results: list[dict[str, Any]] = []
         seen_market_keys: set[str] = set()
         workers = max(1, min(max_workers, len(unique_slugs)))
-
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(self.fetch_market_by_slug, slug): slug
-                for slug in unique_slugs
-            }
-            for future in as_completed(futures):
-                slug = futures[future]
+        executor = shared_io_executor()
+        futures = {
+            executor.submit(self.fetch_market_by_slug, slug): slug
+            for slug in unique_slugs[:workers]
+        }
+        pending_slugs = iter(unique_slugs[workers:])
+        while futures:
+            for future in as_completed(tuple(futures)):
+                slug = futures.pop(future)
                 try:
                     payload = future.result()
                 except Exception as e:
                     logger.debug(f"Failed to fetch market for slug {slug}: {e}")
-                    continue
+                    payload = {}
 
                 rows = _extract_list(payload)
                 if (
@@ -242,6 +354,12 @@ class PolymarketPublicClient:
                         continue
                     seen_market_keys.add(key)
                     results.append(row)
+
+                next_slug = next(pending_slugs, None)
+                if next_slug is not None:
+                    futures[executor.submit(self.fetch_market_by_slug, next_slug)] = (
+                        next_slug
+                    )
 
         return results
 
@@ -283,20 +401,30 @@ class PolymarketPublicClient:
         Logs warnings if all endpoints fail.
         """
         request_variants = [
-            (f"{self.data_base_url}/v1/trades", {"user": wallet, "limit": limit}),
-            (f"{self.data_base_url}/v1/trades", {"address": wallet, "limit": limit}),
-            (f"{self.data_base_url}/trades", {"user": wallet, "limit": limit}),
-            (f"{self.data_base_url}/trades", {"address": wallet, "limit": limit}),
-            (f"{self.data_base_url}/activity", {"user": wallet, "limit": limit}),
-            (f"{self.data_base_url}/activity", {"address": wallet, "limit": limit}),
+            ("/v1/trades", "user"),
+            ("/v1/trades", "address"),
+            ("/trades", "user"),
+            ("/trades", "address"),
+            ("/activity", "user"),
+            ("/activity", "address"),
         ]
+        with self._wallet_trade_variant_lock:
+            preferred_variant = self._preferred_wallet_trade_variant
+        if preferred_variant in request_variants:
+            request_variants = [preferred_variant] + [
+                variant
+                for variant in request_variants
+                if variant != preferred_variant
+            ]
 
         wallet_key = wallet.lower()
         best_rows: list[dict[str, Any]] = []
         best_scored_rows: list[dict[str, Any]] = []
         errors: list[str] = []
 
-        for base_url, params in request_variants:
+        for path, wallet_param in request_variants:
+            base_url = f"{self.data_base_url}{path}"
+            params = {wallet_param: wallet, "limit": limit}
             query = urlencode(params)
             try:
                 payload = self._get_json(f"{base_url}?{query}")
@@ -320,6 +448,9 @@ class PolymarketPublicClient:
             if _score_trade_rows(candidate_rows) > _score_trade_rows(best_scored_rows):
                 best_scored_rows = candidate_rows
                 best_rows = candidate_rows
+                if candidate_rows:
+                    with self._wallet_trade_variant_lock:
+                        self._preferred_wallet_trade_variant = (path, wallet_param)
             elif len(candidate_rows) > len(best_rows):
                 best_rows = candidate_rows
 
@@ -498,35 +629,8 @@ class PolymarketPublicClient:
                         if inflight["followers"] <= 0 and inflight["event"].is_set():
                             self._inflight_requests.pop(url, None)
 
-            metrics["requests"] += 1
-            request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
-
             try:
-                for attempt in range(self.max_retries):
-                    try:
-                        with urlopen(request, timeout=self.timeout_seconds) as response:
-                            payload = json.loads(response.read().decode("utf-8"))
-                            self._validate_response(payload, url)
-                            self._set_cached(url, payload)
-                            result = payload
-                            break
-                    except HTTPError as error:
-                        if self._is_missing_clob_order_book(url, error):
-                            result = {}
-                            break
-                        metrics["errors"] += 1
-                        if attempt >= self.max_retries - 1:
-                            raise
-                        delay = _retry_delay(self.retry_base_delay_seconds, attempt)
-                        time.sleep(delay)
-                    except (URLError, TimeoutError, OSError, json.JSONDecodeError):
-                        metrics["errors"] += 1
-                        if attempt >= self.max_retries - 1:
-                            raise
-                        delay = _retry_delay(self.retry_base_delay_seconds, attempt)
-                        time.sleep(delay)
-                else:
-                    raise RuntimeError(f"Request retries exhausted for {url}")
+                result = self._fetch_json_with_retries(url)
             except BaseException as error:
                 with self._cache_lock:
                     inflight["error"] = error
@@ -543,6 +647,30 @@ class PolymarketPublicClient:
             return result
 
         return self._breaker_for_url(url).call(_fetch_url)
+
+    def _fetch_json_with_retries(self, url: str) -> Any:
+        metrics = _get_metrics()
+        metrics["requests"] += 1
+        for attempt in range(self.max_retries):
+            try:
+                payload = self._http_transport.run(self._http_transport.fetch_json(url))
+                self._validate_response(payload, url)
+                return payload
+            except HTTPError as error:
+                if self._is_missing_clob_order_book(url, error):
+                    return {}
+                metrics["errors"] += 1
+                if attempt >= self.max_retries - 1:
+                    raise
+                delay = _retry_delay(self.retry_base_delay_seconds, attempt)
+                self._http_transport.run(asyncio.sleep(delay), timeout_seconds=delay + 5)
+            except (URLError, TimeoutError, OSError, json.JSONDecodeError):
+                metrics["errors"] += 1
+                if attempt >= self.max_retries - 1:
+                    raise
+                delay = _retry_delay(self.retry_base_delay_seconds, attempt)
+                self._http_transport.run(asyncio.sleep(delay), timeout_seconds=delay + 5)
+        raise RuntimeError(f"Request retries exhausted for {url}")
 
     def _get_cached(self, url: str) -> Any:
         """Get cached response if available and not expired."""
@@ -572,6 +700,7 @@ class PolymarketPublicClient:
         with self._cache_lock:
             if url in self._request_cache:
                 cached = self._request_cache[url]
+                self._request_cache.move_to_end(url)
                 if isinstance(cached, dict) and cached.get("_cached_at"):
                     if (
                         time.time() - cached["_cached_at"]
@@ -598,44 +727,22 @@ class PolymarketPublicClient:
                 logger.debug(f"Redis set failed: {e}")
 
         with self._cache_lock:
+            if url in self._request_cache:
+                self._request_cache.pop(url, None)
             cache_data = payload.copy() if isinstance(payload, dict) else payload
             if isinstance(cache_data, dict):
                 cache_data["_cached_at"] = time.time()
             self._request_cache[url] = cache_data
+            while len(self._request_cache) > self._cache_max_entries:
+                self._request_cache.popitem(last=False)
 
     def _validate_response(self, payload: Any, url: str) -> None:
         """Validate API response with anomaly detection."""
         if not isinstance(payload, (dict, list)):
             raise ValueError(f"Invalid response type for {url}: {type(payload)}")
 
-        if isinstance(payload, list):
-            prices = []
-            for item in payload:
-                if isinstance(item, dict):
-                    yes_ask = item.get("yes", item.get("yesPrice"))
-                    no_ask = item.get("no", item.get("noPrice"))
-                    if yes_ask is not None and isinstance(yes_ask, (int, float)):
-                        prices.append(yes_ask)
-                    if no_ask is not None and isinstance(no_ask, (int, float)):
-                        prices.append(no_ask)
-
-            if prices:
-                import statistics
-
-                mean_price = statistics.mean(prices)
-                stdev_price = statistics.stdev(prices) if len(prices) > 1 else 0
-
-                anomalies = 0
-                for price in prices:
-                    if stdev_price > 0:
-                        z_score = abs(price - mean_price) / stdev_price
-                        if z_score > self.DEFAULT_Z_THRESHOLD:
-                            anomalies += 1
-
-                if anomalies > 0:
-                    logger.warning(
-                        f"Detected {anomalies} anomalous prices in response from {url}"
-                    )
+        if isinstance(payload, list) and self._should_sample_validation():
+            self._validate_price_anomalies(payload, url)
 
         if "markets" in url and isinstance(payload, dict):
             data = payload.get("data", payload)
@@ -654,6 +761,45 @@ class PolymarketPublicClient:
                 ):
                     logger.error(f"Unexpected market data shape from {url}")
                     raise ValueError("Unexpected market data shape")
+
+    def _should_sample_validation(self) -> bool:
+        rate = self._response_validation_sample_rate
+        if rate >= 1.0:
+            return True
+        if rate <= 0:
+            return False
+        return random.random() < rate
+
+    def _validate_price_anomalies(self, payload: list[Any], url: str) -> None:
+        prices = []
+        for item in payload:
+            if isinstance(item, dict):
+                yes_ask = item.get("yes", item.get("yesPrice"))
+                no_ask = item.get("no", item.get("noPrice"))
+                if yes_ask is not None and isinstance(yes_ask, (int, float)):
+                    prices.append(yes_ask)
+                if no_ask is not None and isinstance(no_ask, (int, float)):
+                    prices.append(no_ask)
+
+        if not prices:
+            return
+
+        import statistics
+
+        mean_price = statistics.mean(prices)
+        stdev_price = statistics.stdev(prices) if len(prices) > 1 else 0
+
+        anomalies = 0
+        for price in prices:
+            if stdev_price > 0:
+                z_score = abs(price - mean_price) / stdev_price
+                if z_score > self.DEFAULT_Z_THRESHOLD:
+                    anomalies += 1
+
+        if anomalies > 0:
+            logger.warning(
+                f"Detected {anomalies} anomalous prices in response from {url}"
+            )
 
 
 def build_market_snapshots(items: list[dict[str, Any]]) -> dict[str, MarketSnapshot]:
@@ -687,18 +833,28 @@ def enrich_market_snapshots_with_orderbooks(
     enriched_unique: dict[str, MarketSnapshot] = {}
     workers = max(1, min(max_workers, len(unique_snapshots)))
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(_enrich_one_snapshot, snapshot, client): market_id
-            for market_id, snapshot in unique_snapshots.items()
-        }
-        for future in as_completed(futures):
-            market_id = futures[future]
+    executor = shared_io_executor()
+    market_items = list(unique_snapshots.items())
+    futures = {
+        executor.submit(_enrich_one_snapshot, snapshot, client): market_id
+        for market_id, snapshot in market_items[:workers]
+    }
+    pending_items = iter(market_items[workers:])
+    while futures:
+        for future in as_completed(tuple(futures)):
+            market_id = futures.pop(future)
             try:
                 enriched_unique[market_id] = future.result()
             except Exception as e:
                 logger.debug(f"Failed to enrich snapshot {market_id}: {e}")
                 enriched_unique[market_id] = unique_snapshots[market_id]
+
+            next_item = next(pending_items, None)
+            if next_item is not None:
+                next_market_id, next_snapshot = next_item
+                futures[executor.submit(_enrich_one_snapshot, next_snapshot, client)] = (
+                    next_market_id
+                )
 
     enriched: dict[str, MarketSnapshot] = {}
     for canonical_id, aliases in aliases_by_canonical.items():

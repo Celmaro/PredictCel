@@ -12,7 +12,7 @@ import logging
 import sys
 import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -40,6 +40,7 @@ from .polymarket import (
 )
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
+from .runtime import shared_io_executor
 from .wallet_discovery import WalletDiscoveryPipeline
 from .wallet_registry import (
     apply_basket_manager_actions_to_memberships,
@@ -1265,13 +1266,15 @@ def _recover_unresolved_token_market_rows(
         probe_client = _make_probe_client(client)
         return probe_client.fetch_markets_by_clob_token_ids([token_id], chunk_size=1)
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(fetch_one, token_id): token_id
-            for token_id in unique_token_ids
-        }
-        for future in as_completed(futures):
-            token_id = futures[future]
+    executor = shared_io_executor()
+    futures = {
+        executor.submit(fetch_one, token_id): token_id
+        for token_id in unique_token_ids[:workers]
+    }
+    pending_token_ids = iter(unique_token_ids[workers:])
+    while futures:
+        for future in as_completed(tuple(futures)):
+            token_id = futures.pop(future)
             try:
                 token_rows = future.result()
             except Exception:
@@ -1281,6 +1284,10 @@ def _recover_unresolved_token_market_rows(
                 recovered_token_ids.add(token_id)
             elif len(unresolved_samples) < 10:
                 unresolved_samples.append(token_id)
+
+            next_token_id = next(pending_token_ids, None)
+            if next_token_id is not None:
+                futures[executor.submit(fetch_one, next_token_id)] = next_token_id
 
     return (
         rows,
@@ -1334,14 +1341,7 @@ def _build_orderbook_probe_samples(
 
 
 def _make_probe_client(client: PolymarketPublicClient) -> PolymarketPublicClient:
-    return PolymarketPublicClient(
-        client.gamma_base_url,
-        client.data_base_url,
-        client.clob_base_url,
-        client.timeout_seconds,
-        client.max_retries,
-        client.retry_base_delay_seconds,
-    )
+    return client
 
 
 def _probe_token_orderbook(
@@ -1591,17 +1591,25 @@ def _fetch_wallet_payloads(
         return {}
     payloads: dict[str, list[dict[str, Any]]] = {}
     workers = max(1, min(16, len(wallets)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(client.fetch_wallet_trades, wallet, limit): wallet
-            for wallet in wallets
-        }
-        for future in as_completed(futures):
-            wallet = futures[future]
+    executor = shared_io_executor()
+    futures = {
+        executor.submit(client.fetch_wallet_trades, wallet, limit): wallet
+        for wallet in wallets[:workers]
+    }
+    pending_wallets = iter(wallets[workers:])
+    while futures:
+        for future in as_completed(tuple(futures)):
+            wallet = futures.pop(future)
             try:
                 payloads[wallet] = future.result()
             except Exception:
                 payloads[wallet] = []
+
+            next_wallet = next(pending_wallets, None)
+            if next_wallet is not None:
+                futures[executor.submit(client.fetch_wallet_trades, next_wallet, limit)] = (
+                    next_wallet
+                )
     return payloads
 
 
