@@ -1259,7 +1259,6 @@ def test_build_wallet_registry_summary_refreshes_registry_statuses_from_trade_fr
         ),
         filters=replace(config.filters, max_trade_age_seconds=3600),
     )
-    captured_at = datetime.now(UTC)
     store = RegistrySummaryStore(
         registry_entries=[
             WalletRegistryEntry(
