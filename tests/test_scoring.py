@@ -147,6 +147,8 @@ def test_scoring_diagnostics_count_rejection_reasons() -> None:
     assert scorer.last_wallet_rejection_counts["w2"] == {"too_old": 1}
     assert scorer.last_missing_market_samples == ["missing"]
     assert scorer.last_missing_market_breakdown == {"other": 1}
+    assert scorer.last_missing_market_by_wallet == {"w1": 1}
+    assert scorer.last_missing_market_samples_by_wallet == {"w1": ["missing"]}
     assert scorer.last_wallet_attrition == {
         "wallets_seen": 2,
         "wallets_scored": 0,
@@ -208,6 +210,60 @@ def test_scoring_diagnostics_classify_token_like_missing_market_ids() -> None:
     assert scores == {}
     assert scorer.last_rejection_counts == {"missing_market": 1}
     assert scorer.last_missing_market_breakdown == {"token_id_like": 1}
+
+
+def test_scoring_tracks_missing_markets_by_wallet_with_deduped_samples() -> None:
+    scorer = WalletQualityScorer(make_filters())
+    trades = [
+        WalletTrade(
+            wallet="w_sports",
+            topic="sports",
+            market_id="missing_a",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        ),
+        WalletTrade(
+            wallet="w_sports",
+            topic="sports",
+            market_id="missing_a",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=310,
+        ),
+        WalletTrade(
+            wallet="w_sports",
+            topic="sports",
+            market_id="missing_b",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=320,
+        ),
+        WalletTrade(
+            wallet="w_crypto",
+            topic="crypto",
+            market_id="0xTOKEN",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        ),
+    ]
+
+    scores = scorer.score(trades, {})
+
+    assert scores == {}
+    assert scorer.last_missing_market_by_wallet == {
+        "w_crypto": 1,
+        "w_sports": 3,
+    }
+    assert scorer.last_missing_market_samples_by_wallet == {
+        "w_crypto": ["0xTOKEN"],
+        "w_sports": ["missing_a", "missing_b"],
+    }
 
 
 def test_wallet_quality_scoring_keeps_too_close_resolution_trades_for_scoring() -> None:

@@ -854,6 +854,31 @@ def _extract_list(payload: Any) -> list[dict[str, Any]]:
 
 
 def _trade_market_id(item: dict[str, Any]) -> str:
+    market_id, _ = _trade_market_id_with_source(item)
+    return market_id
+
+
+def _trade_market_id_source(item: dict[str, Any]) -> str:
+    _, source = _trade_market_id_with_source(item)
+    return source
+
+
+def _trade_market_id_with_source(item: dict[str, Any]) -> tuple[str, str]:
+    nested_market = item.get("market")
+    if isinstance(nested_market, dict):
+        for key in (
+            "conditionId",
+            "condition_id",
+            "conditionID",
+            "condition",
+            "market_id",
+            "marketId",
+            "id",
+        ):
+            value = nested_market.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip(), f"market.{key}"
+
     for key in (
         "conditionId",
         "condition_id",
@@ -874,37 +899,21 @@ def _trade_market_id(item: dict[str, Any]) -> str:
         if isinstance(value, dict):
             continue
         if value is not None and str(value).strip():
-            return str(value).strip()
-
-    nested_market = item.get("market")
-    if isinstance(nested_market, dict):
-        for key in (
-            "conditionId",
-            "condition_id",
-            "conditionID",
-            "condition",
-            "market_id",
-            "marketId",
-            "id",
-        ):
-            value = nested_market.get(key)
-            if value is not None and str(value).strip():
-                return str(value).strip()
-    return ""
+            return str(value).strip(), key
+    return "", ""
 
 
 def _trade_market_slug(item: dict[str, Any]) -> str:
-    for key in ("marketSlug", "slug"):
-        value = item.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-
     nested_market = item.get("market")
     if isinstance(nested_market, dict):
         value = nested_market.get("slug") or nested_market.get("marketSlug")
         if value is not None and str(value).strip():
             return str(value).strip()
 
+    for key in ("marketSlug", "slug"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
     return ""
 
 

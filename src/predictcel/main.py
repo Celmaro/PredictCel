@@ -31,6 +31,7 @@ from .polymarket import (
     enrich_market_snapshots_with_orderbooks,
     extract_trade_market_ids,
     extract_trade_market_slugs,
+    _trade_market_id_source,
 )
 from .scoring import WalletQualityScorer
 from .storage import SignalStore
@@ -218,6 +219,8 @@ def main() -> None:
         "wallet_rejection_counts": scorer.last_wallet_rejection_counts,
         "missing_market_samples": scorer.last_missing_market_samples,
         "missing_market_breakdown": scorer.last_missing_market_breakdown,
+        "missing_market_by_wallet": scorer.last_missing_market_by_wallet,
+        "missing_market_samples_by_wallet": scorer.last_missing_market_samples_by_wallet,
         "wallet_attrition": scorer.last_wallet_attrition,
         "analysis_trade_count": len(analysis_trades),
         "pre_scoring_too_old_filtered": max(0, len(trades) - len(analysis_trades)),
@@ -1013,6 +1016,19 @@ def _portfolio_summary(store: SignalStore, config: Any) -> dict:
     )
 
 
+def _trade_market_id_source_breakdown(
+    wallet_payloads: dict[str, list[dict[str, Any]]],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for items in wallet_payloads.values():
+        for item in items:
+            source = _trade_market_id_source(item)
+            if not source:
+                continue
+            counts[source] = counts.get(source, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def _load_live_inputs(config, store: SignalStore | None = None):
     if config.live_data is None:
         raise ValueError("--live-data was requested but live_data is not configured.")
@@ -1044,9 +1060,16 @@ def _load_live_inputs(config, store: SignalStore | None = None):
     trades = build_wallet_trades(wallet_payloads, raw_topic_by_wallet)
     trade_market_ids = extract_trade_market_ids(wallet_payloads)
     trade_market_slugs = extract_trade_market_slugs(wallet_payloads)
+    trade_market_id_source_breakdown = _trade_market_id_source_breakdown(
+        wallet_payloads
+    )
 
     active_market_rows = client.fetch_active_markets(config.live_data.market_limit)
     markets = build_market_snapshots(active_market_rows)
+    token_aliases_added_from_rows = _index_market_row_token_aliases(
+        markets,
+        active_market_rows,
+    )
 
     missing_trade_market_ids = [
         market_id for market_id in trade_market_ids if market_id not in markets
@@ -1054,18 +1077,10 @@ def _load_live_inputs(config, store: SignalStore | None = None):
     supplemental_rows = client.fetch_markets_by_identifiers(missing_trade_market_ids)
     if supplemental_rows:
         markets.update(build_market_snapshots(supplemental_rows))
-
-    unresolved_trade_market_ids = [
-        market_id for market_id in missing_trade_market_ids if market_id not in markets
-    ]
-    token_probe_rows, token_probe_stats, unresolved_token_samples = (
-        _recover_unresolved_token_market_rows(
-            client,
-            unresolved_trade_market_ids,
+        token_aliases_added_from_rows += _index_market_row_token_aliases(
+            markets,
+            supplemental_rows,
         )
-    )
-    if token_probe_rows:
-        markets.update(build_market_snapshots(token_probe_rows))
 
     missing_trade_market_slugs = [
         market_slug for market_slug in trade_market_slugs if market_slug not in markets
@@ -1073,6 +1088,37 @@ def _load_live_inputs(config, store: SignalStore | None = None):
     supplemental_slug_rows = client.fetch_markets_by_slugs(missing_trade_market_slugs)
     if supplemental_slug_rows:
         markets.update(build_market_snapshots(supplemental_slug_rows))
+        token_aliases_added_from_rows += _index_market_row_token_aliases(
+            markets,
+            supplemental_slug_rows,
+        )
+
+    unresolved_trade_market_ids = [
+        market_id for market_id in missing_trade_market_ids if market_id not in markets
+    ]
+    unresolved_token_trade_market_ids = [
+        market_id
+        for market_id in unresolved_trade_market_ids
+        if _looks_like_unresolved_token_id(market_id)
+    ]
+    token_probe_rows, token_probe_stats, unresolved_token_samples = (
+        _recover_unresolved_token_market_rows(
+            client,
+            unresolved_token_trade_market_ids,
+        )
+    )
+    unmatched_token_diagnostics = _classify_unmatched_token_ids(
+        unresolved_token_trade_market_ids,
+        [*active_market_rows, *supplemental_rows, *supplemental_slug_rows],
+        markets,
+        token_probe_rows,
+    )
+    if token_probe_rows:
+        markets.update(build_market_snapshots(token_probe_rows))
+        token_aliases_added_from_rows += _index_market_row_token_aliases(
+            markets,
+            token_probe_rows,
+        )
 
     relevant_market_keys = {
         market_key
@@ -1138,13 +1184,20 @@ def _load_live_inputs(config, store: SignalStore | None = None):
         "active_market_rows_loaded": len(active_market_rows),
         "trade_market_ids_seen": len(trade_market_ids),
         "trade_market_slugs_seen": len(trade_market_slugs),
+        "trade_market_id_source_breakdown": trade_market_id_source_breakdown,
         "supplemental_market_ids_requested": len(missing_trade_market_ids),
         "supplemental_market_rows_loaded": len(supplemental_rows),
         "unresolved_market_ids_after_supplemental": len(unresolved_trade_market_ids),
+        "unresolved_token_ids_after_supplemental": len(
+            unresolved_token_trade_market_ids
+        ),
         "token_probe_requested": token_probe_stats["requested"],
         "token_probe_rows_loaded": len(token_probe_rows),
         "token_probe_tokens_matched": token_probe_stats["matched"],
         "token_probe_tokens_unmatched": token_probe_stats["unmatched"],
+        "token_aliases_added_from_rows": token_aliases_added_from_rows,
+        "unmatched_token_breakdown": unmatched_token_diagnostics["breakdown"],
+        "sample_unmatched_tokens_by_class": unmatched_token_diagnostics["samples"],
         "sample_unresolved_token_ids": unresolved_token_samples,
         "supplemental_market_slugs_requested": len(missing_trade_market_slugs),
         "supplemental_slug_rows_loaded": len(supplemental_slug_rows),
@@ -1359,29 +1412,169 @@ def _summarize_market_lookup_rows(
     }
 
 
-def _market_row_token_ids(row: dict[str, Any]) -> list[str]:
-    raw = row.get("clobTokenIds") or row.get("tokenIds")
-    if isinstance(raw, list):
-        return [str(token) for token in raw[:2] if str(token).strip()]
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            parsed = None
-        if isinstance(parsed, list):
-            return [str(token) for token in parsed[:2] if str(token).strip()]
+def _looks_like_unresolved_token_id(value: Any) -> bool:
+    token_id = str(value).strip().lower()
+    return bool(token_id) and (token_id.startswith("0x") or "token" in token_id)
 
-    tokens = row.get("tokens")
-    if isinstance(tokens, list):
-        token_ids: list[str] = []
-        for token in tokens[:2]:
-            if not isinstance(token, dict):
-                continue
-            token_id = token.get("token_id") or token.get("id") or token.get("tokenId")
-            if token_id and str(token_id).strip():
-                token_ids.append(str(token_id))
-        return token_ids
-    return []
+
+def _market_row_lookup_keys(row: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    for field in (
+        "conditionId",
+        "condition_id",
+        "conditionID",
+        "condition",
+        "id",
+        "market_id",
+        "marketId",
+        "slug",
+        "marketSlug",
+    ):
+        value = row.get(field)
+        if value is None or isinstance(value, dict):
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            keys.append(normalized)
+    return list(dict.fromkeys(keys))
+
+
+def _append_market_row_token_candidate(
+    token_ids: list[str],
+    raw_value: Any,
+) -> None:
+    if raw_value is None:
+        return
+    if isinstance(raw_value, str):
+        value = raw_value.strip()
+        if not value:
+            return
+        if value.startswith("[") or value.startswith("{"):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                parsed = None
+            if parsed is not None:
+                _append_market_row_token_candidate(token_ids, parsed)
+                return
+        token_ids.append(value)
+        return
+    if isinstance(raw_value, list):
+        for item in raw_value:
+            _append_market_row_token_candidate(token_ids, item)
+        return
+    if isinstance(raw_value, dict):
+        for field in (
+            "token_id",
+            "tokenId",
+            "tokenID",
+            "clobTokenId",
+            "clob_token_id",
+            "asset",
+            "asset_id",
+            "assetId",
+            "id",
+        ):
+            if field in raw_value:
+                _append_market_row_token_candidate(token_ids, raw_value.get(field))
+
+
+def _market_row_token_ids(row: dict[str, Any]) -> list[str]:
+    token_ids: list[str] = []
+    for field in (
+        "clobTokenIds",
+        "tokenIds",
+        "token_ids",
+        "clobTokenId",
+        "clob_token_id",
+        "tokenId",
+        "tokenID",
+        "token_id",
+        "tokens",
+        "outcomes",
+        "outcomeTokens",
+    ):
+        if field in row:
+            _append_market_row_token_candidate(token_ids, row.get(field))
+    return [token_id for token_id in dict.fromkeys(token_ids) if token_id]
+
+
+def _index_market_row_token_aliases(
+    markets: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> int:
+    added = 0
+    for row in rows:
+        snapshot = None
+        for key in _market_row_lookup_keys(row):
+            snapshot = markets.get(key)
+            if snapshot is not None:
+                break
+        if snapshot is None:
+            continue
+        for token_id in _market_row_token_ids(row):
+            if token_id not in markets:
+                markets[token_id] = snapshot
+                added += 1
+    return added
+
+
+def _classify_unmatched_token_ids(
+    token_ids: list[str],
+    loaded_market_rows: list[dict[str, Any]],
+    markets: dict[str, Any],
+    token_probe_rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    unique_token_ids = sorted(
+        {str(token_id).strip() for token_id in token_ids if str(token_id).strip()}
+    )
+    if not unique_token_ids:
+        return {"breakdown": {}, "samples": {}}
+
+    loaded_market_ids = {
+        str(getattr(snapshot, "market_id", "")).strip()
+        for snapshot in markets.values()
+        if str(getattr(snapshot, "market_id", "")).strip()
+    }
+    loaded_row_market_by_token: dict[str, str] = {}
+    for row in loaded_market_rows:
+        market_keys = _market_row_lookup_keys(row)
+        market_id = market_keys[0] if market_keys else ""
+        if not market_id:
+            continue
+        for token_id in _market_row_token_ids(row):
+            loaded_row_market_by_token.setdefault(token_id, market_id)
+
+    probed_market_by_token: dict[str, str] = {}
+    for row in token_probe_rows:
+        market_keys = _market_row_lookup_keys(row)
+        market_id = market_keys[0] if market_keys else ""
+        if not market_id:
+            continue
+        for token_id in _market_row_token_ids(row):
+            probed_market_by_token.setdefault(token_id, market_id)
+
+    breakdown: dict[str, int] = {}
+    samples: dict[str, list[str]] = {}
+    for token_id in unique_token_ids:
+        if token_id in loaded_row_market_by_token and token_id not in markets:
+            category = "present_on_loaded_row_missing_crossref"
+        elif token_id in probed_market_by_token:
+            if probed_market_by_token[token_id] in loaded_market_ids:
+                category = "present_on_loaded_row_missing_crossref"
+            else:
+                category = "market_outside_loaded_universe"
+        else:
+            category = "absent_from_loaded_market_rows"
+        breakdown[category] = breakdown.get(category, 0) + 1
+        bucket = samples.setdefault(category, [])
+        if len(bucket) < 5:
+            bucket.append(token_id)
+
+    return {
+        "breakdown": dict(sorted(breakdown.items())),
+        "samples": dict(sorted(samples.items())),
+    }
 
 
 def _fetch_wallet_payloads(
@@ -1536,6 +1729,10 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
         "active_market_rows_loaded": diagnostics.get("active_market_rows_loaded", 0),
         "trade_market_ids_seen": diagnostics.get("trade_market_ids_seen", 0),
         "trade_market_slugs_seen": diagnostics.get("trade_market_slugs_seen", 0),
+        "trade_market_id_source_breakdown": diagnostics.get(
+            "trade_market_id_source_breakdown",
+            {},
+        ),
         "supplemental_market_ids_requested": diagnostics.get(
             "supplemental_market_ids_requested",
             0,
@@ -1560,6 +1757,10 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
         ),
         "token_probe_tokens_unmatched": diagnostics.get(
             "token_probe_tokens_unmatched",
+            0,
+        ),
+        "token_aliases_added_from_rows": diagnostics.get(
+            "token_aliases_added_from_rows",
             0,
         ),
         "supplemental_market_slugs_requested": diagnostics.get(
@@ -1589,6 +1790,14 @@ def _compact_live_input_diagnostics(diagnostics: dict[str, Any]) -> dict[str, An
     unresolved_token_samples = diagnostics.get("sample_unresolved_token_ids", [])
     if unresolved_token_samples:
         compact["sample_unresolved_token_ids"] = unresolved_token_samples[:5]
+    unmatched_token_breakdown = diagnostics.get("unmatched_token_breakdown", {})
+    if unmatched_token_breakdown:
+        compact["unmatched_token_breakdown"] = unmatched_token_breakdown
+    sample_unmatched_tokens = diagnostics.get("sample_unmatched_tokens_by_class", {})
+    if sample_unmatched_tokens:
+        compact["sample_unmatched_tokens_by_class"] = {
+            key: values[:3] for key, values in sample_unmatched_tokens.items()
+        }
     return compact
 
 
@@ -1629,6 +1838,24 @@ def _compact_scoring_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
     missing_market_samples = diagnostics.get("missing_market_samples", [])
     if missing_market_samples:
         compact["missing_market_samples"] = missing_market_samples
+    missing_market_by_wallet = diagnostics.get("missing_market_by_wallet", {})
+    if missing_market_by_wallet:
+        top_missing_wallets = sorted(
+            missing_market_by_wallet.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:3]
+        compact["missing_market_by_wallet"] = dict(top_missing_wallets)
+    missing_market_samples_by_wallet = diagnostics.get(
+        "missing_market_samples_by_wallet",
+        {},
+    )
+    if missing_market_samples_by_wallet and missing_market_by_wallet:
+        compact["missing_market_samples_by_wallet"] = {
+            wallet: missing_market_samples_by_wallet.get(wallet, [])[:3]
+            for wallet in compact.get("missing_market_by_wallet", {})
+            if missing_market_samples_by_wallet.get(wallet)
+        }
     if top_wallet_rejections:
         compact["top_wallet_rejections"] = top_wallet_rejections
     return compact
