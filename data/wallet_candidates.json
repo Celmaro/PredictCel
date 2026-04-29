@@ -3,65 +3,160 @@
     "wallet": "0x861ae65ad67b06b5cdabe24ba6de052269221f15",
     "username": "KawhiLeon",
     "dominant_topic": "sports",
-    "score": 1.0,
-    "pnl": 140594.67591139083,
-    "volume": 107687.56368400002,
-    "trade_count": 25,
-    "unique_markets": 15,
-    "focus_ratio": 1.0,
-    "average_trade_size": 35933.07,
-    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+    "source": "existing_curated_list",
+    "curation_tier": "core",
+    "reason": "Existing sports specialist already used by the repo."
   },
   {
     "wallet": "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
     "username": "ohuhusos",
     "dominant_topic": "sports",
-    "score": 0.9883,
-    "pnl": 683368.4929144742,
-    "volume": 891025.8030549998,
-    "trade_count": 25,
-    "unique_markets": 5,
-    "focus_ratio": 1.0,
-    "average_trade_size": 21230.31,
-    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+    "source": "existing_curated_list",
+    "curation_tier": "core",
+    "reason": "Existing sports specialist already used by the repo."
   },
   {
     "wallet": "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
     "username": "Tiger200",
     "dominant_topic": "sports",
-    "score": 0.9839,
-    "pnl": 410551.9872993899,
-    "volume": 605653.705848,
-    "trade_count": 25,
-    "unique_markets": 9,
-    "focus_ratio": 1.0,
-    "average_trade_size": 86999.37,
-    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+    "source": "existing_curated_list",
+    "curation_tier": "core",
+    "reason": "Existing sports specialist already used by the repo."
   },
   {
     "wallet": "0xa8e089ade142c95538e06196e09c85681112ad50",
     "username": "Wannac",
     "dominant_topic": "sports",
-    "score": 0.982,
-    "pnl": 143158.04505044007,
-    "volume": 24000.0,
-    "trade_count": 25,
-    "unique_markets": 19,
-    "focus_ratio": 0.96,
-    "average_trade_size": 19824.66,
-    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+    "source": "existing_curated_list",
+    "curation_tier": "watchlist",
+    "reason": "Existing sports-focused wallet with broader market spread than the core group."
   },
   {
     "wallet": "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0",
     "username": "TheOnlyHuman",
     "dominant_topic": "sports",
-    "score": 0.9698,
-    "pnl": 131615.07956932357,
-    "volume": 331769.631545,
-    "trade_count": 25,
-    "unique_markets": 15,
-    "focus_ratio": 1.0,
-    "average_trade_size": 11282.0,
-    "reason": "recent activity, topic focus, trade size, and leaderboard pnl/volume"
+    "source": "existing_curated_list",
+    "curation_tier": "watchlist",
+    "reason": "Existing sports-focused wallet with a human-paced profile."
+  },
+  {
+    "wallet": "0x56687bf447db6ffa42ffe2204a05edaa20f55839",
+    "username": "Theo4",
+    "dominant_topic": "politics",
+    "source": "predicts_guru",
+    "curation_tier": "core",
+    "reason": "Top-ranked discretionary whale with concentrated activity and elite realized PnL."
+  },
+  {
+    "wallet": "0xc2e7800b5af46e6093872b177b7a5e7f0563be51",
+    "username": "beachboy4",
+    "dominant_topic": "sports",
+    "source": "predicts_guru",
+    "curation_tier": "watchlist",
+    "reason": "Large profitable wallet with manageable market count relative to many bot-like whales."
+  },
+  {
+    "wallet": "0xee613b3fc183ee44f9da9c05f53e2da107e3debf",
+    "username": "sovereign2013",
+    "dominant_topic": "geopolitics",
+    "source": "polymonit",
+    "curation_tier": "watchlist",
+    "reason": "Appears repeatedly on public whale leaderboards and fits a geopolitics watchlist slot."
+  },
+  {
+    "wallet": "0x4bbe10ba5b7f6df147c0dae17b46c44a6e562cf3",
+    "username": "How.Dare.You",
+    "dominant_topic": "global_events",
+    "source": "predicts_guru",
+    "curation_tier": "core",
+    "reason": "Low-risk, steady multi-market trader with human-scale daily pace and durable history."
+  },
+  {
+    "wallet": "0x7177a7f5c216809c577c50c77b12aae81f81ddef",
+    "username": "kcnyekchno",
+    "dominant_topic": "elections",
+    "source": "predicts_guru",
+    "curation_tier": "watchlist",
+    "reason": "Strong realized PnL and election-heavy examples in public profile text."
+  },
+  {
+    "wallet": "0x0b7a6030507efe5db145fbb57a25ba0c5f9d86cf",
+    "username": "tech_specialist",
+    "dominant_topic": "tech",
+    "source": "predicts_guru",
+    "curation_tier": "core",
+    "reason": "Public profile explicitly describes a niche tech-event specialist with disciplined sizing."
+  },
+  {
+    "wallet": "0x6d1076e3deee3030b62869713d55aaee0c08e270",
+    "username": "sportmaster2e",
+    "dominant_topic": "sports",
+    "source": "predicts_guru",
+    "curation_tier": "core",
+    "reason": "Public profile explicitly describes a low-risk sports specialist across major leagues."
+  },
+  {
+    "wallet": "0x45fd8677d4bd9cd63da19a6b2e33145f09994026",
+    "username": "esports_specialist",
+    "dominant_topic": "esports",
+    "source": "predicts_guru",
+    "curation_tier": "watchlist",
+    "reason": "Clean esports-specific signal, but sample size is still too small for core basket status."
+  },
+  {
+    "wallet": "0x2785e7022dc20757108204b13c08cea8613b70ae",
+    "username": "poorsob",
+    "dominant_topic": "global_events",
+    "source": "predicts_guru",
+    "curation_tier": "watchlist",
+    "reason": "Very low daily frequency and high conviction style make it a useful generalist watchlist wallet."
+  },
+  {
+    "wallet": "0x492442eab586f242b53bda933fd5de859c8a3782",
+    "username": "monthly_leader_1",
+    "dominant_topic": "sports",
+    "source": "polymonit",
+    "curation_tier": "recent_momentum",
+    "reason": "Current monthly leaderboard leader and useful for fresh-signal monitoring."
+  },
+  {
+    "wallet": "0x02227b8f5a9636e895607edd3185ed6ee5598ff7",
+    "username": "HorizonSplendidView",
+    "dominant_topic": "sports",
+    "source": "polymonit",
+    "curation_tier": "recent_momentum",
+    "reason": "High-ranking monthly whale from public leaderboard data."
+  },
+  {
+    "wallet": "0xefbc5fec8d7b0acdc8911bdd9a98d6964308f9a2",
+    "username": "reachingthesky",
+    "dominant_topic": "sports",
+    "source": "polymonit",
+    "curation_tier": "recent_momentum",
+    "reason": "High-ranking monthly whale from public leaderboard data."
+  },
+  {
+    "wallet": "0x019782cab5d844f02bafb71f512758be78579f3c",
+    "username": "majorexploiter",
+    "dominant_topic": "sports",
+    "source": "polymonit",
+    "curation_tier": "recent_momentum",
+    "reason": "High-ranking monthly whale from public leaderboard data."
+  },
+  {
+    "wallet": "0xbddf61af533ff524d27154e589d2d7a81510c684",
+    "username": "Countryside",
+    "dominant_topic": "sports",
+    "source": "polymonit",
+    "curation_tier": "recent_momentum",
+    "reason": "High-ranking monthly whale from public leaderboard data."
+  },
+  {
+    "wallet": "0x2a2c53bd278c04da9962fcf96490e17f3dfb9bc1",
+    "username": "anon_2a2c53",
+    "dominant_topic": "sports",
+    "source": "polymonit",
+    "curation_tier": "recent_momentum",
+    "reason": "High-ranking monthly whale from public leaderboard data."
   }
 ]

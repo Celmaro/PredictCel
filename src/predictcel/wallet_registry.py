@@ -10,6 +10,7 @@ from .models import (
     BasketManagerAction,
     BasketHealth,
     BasketMembership,
+    BasketPromotionRecommendation,
     WalletDiscoveryCandidate,
     WalletRegistryEntry,
     WalletTrade,
@@ -462,6 +463,99 @@ def build_live_basket_roster(
         }
 
     return roster
+
+
+def recommend_basket_promotions(
+    config: AppConfig,
+    memberships: Iterable[BasketMembership],
+    trades: Iterable[WalletTrade],
+    registry_entries: Iterable[WalletRegistryEntry] | None = None,
+    captured_at: datetime | None = None,
+) -> dict[str, BasketPromotionRecommendation]:
+    """Recommend which taxonomy-only topics are ready to become live baskets."""
+    captured_at = captured_at or datetime.now(UTC)
+    memberships = list(memberships)
+    trades = list(trades)
+    registry_entries = list(registry_entries or [])
+    live_topics = {basket.topic for basket in config.baskets}
+    health_by_topic = {
+        snapshot.topic: snapshot
+        for snapshot in compute_basket_health_from_static_memberships(
+            config,
+            memberships,
+            trades,
+            captured_at=captured_at,
+        )
+    }
+    live_roster_by_topic = build_live_basket_roster(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=captured_at,
+    )
+    promotion = config.basket_promotion
+    if not promotion.enabled:
+        return {}
+
+    recommendations: dict[str, BasketPromotionRecommendation] = {}
+    candidate_topics = (set(health_by_topic) | set(live_roster_by_topic)) - live_topics
+    live_tiers = ["core", "rotating"]
+    if config.basket_controller.allow_backup_in_live_consensus:
+        live_tiers.append("backup")
+
+    for topic in sorted(candidate_topics):
+        health = health_by_topic.get(topic)
+        roster = live_roster_by_topic.get(topic, {})
+        selected_wallets = roster.get("selected_wallets", {})
+        recommended_wallets = tuple(
+            wallet
+            for tier in live_tiers
+            for wallet in selected_wallets.get(tier, [])
+        )
+        tracked_wallet_count = health.tracked_wallet_count if health is not None else 0
+        fresh_active_wallets_7d = (
+            health.fresh_active_wallets_7d if health is not None else 0
+        )
+        eligible_trades_7d = health.eligible_trades_7d if health is not None else 0
+        stale_ratio = health.stale_ratio if health is not None else 1.0
+        live_eligible_wallet_count = int(roster.get("live_eligible_wallet_count", 0))
+        fresh_core_wallets_24h = int(roster.get("fresh_core_wallet_count", 0))
+
+        missing_requirements: list[str] = []
+        if tracked_wallet_count < promotion.min_tracked_wallets:
+            missing_requirements.append("tracked_wallets_below_threshold")
+        if fresh_active_wallets_7d < promotion.min_fresh_active_wallets_7d:
+            missing_requirements.append("fresh_active_wallets_7d_below_threshold")
+        if live_eligible_wallet_count < promotion.min_live_eligible_wallets:
+            missing_requirements.append("live_eligible_wallets_below_threshold")
+        if fresh_core_wallets_24h < promotion.min_fresh_core_wallets_24h:
+            missing_requirements.append("fresh_core_wallets_24h_below_threshold")
+        if eligible_trades_7d < promotion.min_eligible_trades_7d:
+            missing_requirements.append("eligible_trades_7d_below_threshold")
+        if stale_ratio > promotion.max_stale_ratio:
+            missing_requirements.append("stale_ratio_above_threshold")
+        if len(recommended_wallets) < promotion.min_live_eligible_wallets:
+            missing_requirements.append("recommended_wallet_depth_below_threshold")
+
+        recommendations[topic] = BasketPromotionRecommendation(
+            topic=topic,
+            should_promote=not missing_requirements,
+            tracked_wallet_count=tracked_wallet_count,
+            fresh_active_wallets_7d=fresh_active_wallets_7d,
+            live_eligible_wallet_count=live_eligible_wallet_count,
+            fresh_core_wallets_24h=fresh_core_wallets_24h,
+            eligible_trades_7d=eligible_trades_7d,
+            stale_ratio=round(stale_ratio, 4),
+            recommended_quorum_ratio=round(
+                config.basket_controller.min_basket_participation_ratio,
+                4,
+            ),
+            recommended_wallets=recommended_wallets,
+            missing_requirements=tuple(missing_requirements),
+        )
+
+    return recommendations
 
 
 def rebalance_memberships_from_live_roster(

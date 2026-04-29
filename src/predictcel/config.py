@@ -70,6 +70,7 @@ class WalletDiscoveryConfig:
     enabled: bool = False
     mode: str = "auto_update"
     source: str = "data_api_leaderboard"
+    wallet_candidates_path: str = "data/wallet_candidates.json"
     candidate_limit: int = 250
     trade_limit_per_wallet: int = 100
     min_trades: int = 20
@@ -95,6 +96,17 @@ class WalletRegistryConfig:
     retire_after_days: int = 30
     max_cluster_overlap_ratio: float = 0.8
     max_cluster_members_in_live_tiers: int = 2
+
+
+@dataclass(frozen=True)
+class BasketPromotionConfig:
+    enabled: bool = True
+    min_tracked_wallets: int = 5
+    min_fresh_active_wallets_7d: int = 3
+    min_live_eligible_wallets: int = 5
+    min_fresh_core_wallets_24h: int = 2
+    min_eligible_trades_7d: int = 10
+    max_stale_ratio: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -189,6 +201,7 @@ class AppConfig:
     market_regime: MarketRegimeConfig = MarketRegimeConfig()
     wallet_discovery: WalletDiscoveryConfig = WalletDiscoveryConfig()
     wallet_registry: WalletRegistryConfig = WalletRegistryConfig()
+    basket_promotion: BasketPromotionConfig = BasketPromotionConfig()
     basket_controller: BasketControllerConfig = BasketControllerConfig()
 
 
@@ -279,11 +292,13 @@ def _validate_wallet_discovery(config: WalletDiscoveryConfig) -> None:
     valid_modes = {"report_only", "propose_config", "auto_update"}
     if config.mode not in valid_modes:
         raise ConfigError(f"mode must be one of: {', '.join(valid_modes)}.")
-    valid_sources = {"data_api_leaderboard", "data_api_market_trades"}
+    valid_sources = {"data_api_leaderboard", "data_api_market_trades", "curated_wallet_file"}
     if config.source not in valid_sources:
         raise ConfigError(
             f"wallet discovery source must be one of: {', '.join(sorted(valid_sources))}."
         )
+    if config.source == "curated_wallet_file" and not str(config.wallet_candidates_path).strip():
+        raise ConfigError("wallet_candidates_path is required when wallet discovery source is curated_wallet_file.")
 
     _validate_positive(config.candidate_limit, "candidate_limit")
     _validate_positive(config.trade_limit_per_wallet, "trade_limit_per_wallet")
@@ -369,6 +384,26 @@ def _validate_basket_controller(config: BasketControllerConfig) -> None:
     if config.min_active_eligible_wallets > config.tracked_basket_target:
         raise ConfigError("min_active_eligible_wallets cannot exceed tracked_basket_target.")
 
+
+def _validate_basket_promotion(config: BasketPromotionConfig) -> None:
+    """Validate basket promotion configuration."""
+    _validate_positive(config.min_tracked_wallets, "min_tracked_wallets")
+    _validate_positive(config.min_fresh_active_wallets_7d, "min_fresh_active_wallets_7d")
+    _validate_positive(config.min_live_eligible_wallets, "min_live_eligible_wallets")
+    _validate_positive(config.min_fresh_core_wallets_24h, "min_fresh_core_wallets_24h")
+    _validate_positive(config.min_eligible_trades_7d, "min_eligible_trades_7d")
+    _validate_range(config.max_stale_ratio, 0, 1, "max_stale_ratio")
+
+    if config.min_fresh_active_wallets_7d > config.min_tracked_wallets:
+        raise ConfigError(
+            "min_fresh_active_wallets_7d cannot exceed min_tracked_wallets."
+        )
+    if config.min_live_eligible_wallets > config.min_tracked_wallets:
+        raise ConfigError("min_live_eligible_wallets cannot exceed min_tracked_wallets.")
+    if config.min_fresh_core_wallets_24h > config.min_live_eligible_wallets:
+        raise ConfigError(
+            "min_fresh_core_wallets_24h cannot exceed min_live_eligible_wallets."
+        )
 
 
 def _validate_registry_controller_compatibility(
@@ -526,6 +561,7 @@ def load_config(path: str | Path) -> AppConfig:
     market_regime = MarketRegimeConfig(**payload.get("market_regime", {}))
     wallet_discovery = WalletDiscoveryConfig(**payload.get("wallet_discovery", {}))
     wallet_registry = WalletRegistryConfig(**payload.get("wallet_registry", {}))
+    basket_promotion = BasketPromotionConfig(**payload.get("basket_promotion", {}))
     basket_controller = BasketControllerConfig(**payload.get("basket_controller", {}))
 
     live_data_payload = payload.get("live_data")
@@ -540,6 +576,7 @@ def load_config(path: str | Path) -> AppConfig:
     _validate_market_regime(market_regime)
     _validate_wallet_discovery(wallet_discovery)
     _validate_wallet_registry(wallet_registry)
+    _validate_basket_promotion(basket_promotion)
     _validate_basket_controller(basket_controller)
     _validate_registry_controller_compatibility(wallet_registry, basket_controller)
     _validate_arbitrage(arbitrage)
@@ -558,5 +595,6 @@ def load_config(path: str | Path) -> AppConfig:
         market_regime=market_regime,
         wallet_discovery=wallet_discovery,
         wallet_registry=wallet_registry,
+        basket_promotion=basket_promotion,
         basket_controller=basket_controller,
     )

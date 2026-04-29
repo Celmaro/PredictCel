@@ -10,6 +10,7 @@ def test_public_module_exports_match_defined_symbols() -> None:
         "predictcel.markets": ["load_market_snapshots"],
         "predictcel.wallet_discovery": ["WalletDiscoveryPipeline"],
         "predictcel.wallet_sources": [
+            "CuratedWalletFileSource",
             "DataApiWalletSource",
             "DataApiMarketTradesWalletSource",
             "extract_wallet_address",

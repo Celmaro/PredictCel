@@ -137,6 +137,23 @@ class BasketHealth:
 
 
 @dataclass(frozen=True)
+class BasketPromotionRecommendation:
+    """Recommendation for promoting a taxonomy topic into a live basket."""
+
+    topic: str
+    should_promote: bool
+    tracked_wallet_count: int
+    fresh_active_wallets_7d: int
+    live_eligible_wallet_count: int
+    fresh_core_wallets_24h: int
+    eligible_trades_7d: int
+    stale_ratio: float
+    recommended_quorum_ratio: float
+    recommended_wallets: tuple[str, ...]
+    missing_requirements: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class MarketRegime:
     """Classification of current market conditions."""
 

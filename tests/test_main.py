@@ -1381,6 +1381,80 @@ def test_build_wallet_registry_summary_flags_bench_depth_when_explorer_wallets_e
     }
 
 
+def test_build_wallet_registry_summary_includes_basket_promotion_recommendations() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        wallet_registry=replace(
+            config.wallet_registry,
+            enabled=True,
+            seed_from_baskets=False,
+            min_probation_days=1,
+            min_eligible_trades_for_approval=1,
+        ),
+        basket_promotion=replace(
+            config.basket_promotion,
+            min_tracked_wallets=3,
+            min_fresh_active_wallets_7d=2,
+            min_live_eligible_wallets=2,
+            min_fresh_core_wallets_24h=1,
+            min_eligible_trades_7d=3,
+            max_stale_ratio=0.5,
+        ),
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=4,
+            core_slots=1,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=1,
+            min_active_eligible_wallets=2,
+            force_refresh_if_fresh_core_below=1,
+        ),
+    )
+    captured_at = datetime(2026, 1, 1, tzinfo=UTC)
+    store = RegistrySummaryStore(
+        registry_entries=[
+            WalletRegistryEntry(
+                wallet=wallet,
+                source_type="wallet_discovery",
+                source_ref="curated_wallet_file",
+                trust_seed=0.8,
+                status="active",
+                first_seen_at=captured_at,
+            )
+            for wallet in ["w1", "w2", "w3", "w4"]
+        ],
+        memberships=[
+            BasketMembership("esports", "w1", "core", 1, True, captured_at, None, "discovered", ""),
+            BasketMembership("esports", "w2", "core", 2, True, captured_at, None, "discovered", ""),
+            BasketMembership("esports", "w3", "rotating", 3, True, captured_at, None, "discovered", ""),
+            BasketMembership("esports", "w4", "explorer", 4, True, captured_at, None, "discovered", ""),
+        ],
+    )
+    trades = [
+        WalletTrade("w1", "esports", "m1", "YES", 0.61, 15.0, 300),
+        WalletTrade("w2", "esports", "m2", "YES", 0.62, 15.0, 600),
+        WalletTrade("w3", "esports", "m3", "YES", 0.63, 15.0, 900),
+    ]
+
+    summary = _build_wallet_registry_summary(config, store, trades)
+
+    assert summary["basket_promotion_by_topic"]["esports"] == {
+        "topic": "esports",
+        "should_promote": True,
+        "tracked_wallet_count": 4,
+        "fresh_active_wallets_7d": 3,
+        "live_eligible_wallet_count": 2,
+        "fresh_core_wallets_24h": 1,
+        "eligible_trades_7d": 3,
+        "stale_ratio": 0.25,
+        "recommended_quorum_ratio": 0.8,
+        "recommended_wallets": ["w1", "w2"],
+        "missing_requirements": [],
+    }
+
+
 def test_build_wallet_registry_summary_ignores_static_explorer_bench_depth_for_promotion_watch() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     config = replace(

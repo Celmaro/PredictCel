@@ -19,6 +19,7 @@ from predictcel.wallet_registry import (
     build_live_basket_roster,
     compute_basket_health_from_static_memberships,
     ingest_wallet_discovery_inputs,
+    recommend_basket_promotions,
     rebalance_memberships_from_live_roster,
     refresh_registry_entries_from_trades,
     seed_memberships_from_config,
@@ -558,6 +559,118 @@ def test_build_live_basket_roster_reports_when_rotation_interval_is_due() -> Non
     assert roster["geopolitics"]["rotation_interval_hours"] == 24
     assert roster["geopolitics"]["oldest_rotating_wallet_age_hours"] == 30.0
     assert roster["geopolitics"]["rotation_due"] is True
+
+
+def test_recommend_basket_promotions_flags_taxonomy_topic_ready_for_live_rollout() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        basket_promotion=replace(
+            config.basket_promotion,
+            min_tracked_wallets=5,
+            min_fresh_active_wallets_7d=3,
+            min_live_eligible_wallets=3,
+            min_fresh_core_wallets_24h=2,
+            min_eligible_trades_7d=5,
+            max_stale_ratio=0.5,
+        ),
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=5,
+            core_slots=2,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=1,
+            min_active_eligible_wallets=3,
+            force_refresh_if_fresh_core_below=1,
+        ),
+    )
+    captured_at = datetime(2026, 1, 20, tzinfo=UTC)
+    memberships = [
+        BasketMembership("esports", f"w{index}", tier, index, True, captured_at, None, "discovered", "")
+        for index, tier in enumerate(
+            ["core", "core", "rotating", "backup", "explorer"],
+            start=1,
+        )
+    ]
+    trades = [
+        WalletTrade("w1", "esports", "m1", "YES", 0.51, 20.0, 300),
+        WalletTrade("w2", "esports", "m2", "YES", 0.52, 20.0, 600),
+        WalletTrade("w3", "esports", "m3", "YES", 0.53, 20.0, 900),
+        WalletTrade("w4", "esports", "m4", "YES", 0.54, 20.0, 1_200),
+        WalletTrade("w5", "esports", "m5", "YES", 0.55, 20.0, 1_500),
+    ]
+    registry_entries = [
+        WalletRegistryEntry(f"w{index}", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at)
+        for index in range(1, 6)
+    ]
+
+    recommendations = recommend_basket_promotions(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=captured_at,
+    )
+
+    esports = recommendations["esports"]
+    assert esports.should_promote is True
+    assert esports.recommended_wallets == ("w1", "w2", "w3")
+    assert esports.missing_requirements == ()
+    assert esports.recommended_quorum_ratio == 0.8
+
+
+def test_recommend_basket_promotions_reports_threshold_gaps_for_thin_topic() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    config = replace(
+        config,
+        basket_promotion=replace(
+            config.basket_promotion,
+            min_tracked_wallets=4,
+            min_fresh_active_wallets_7d=3,
+            min_live_eligible_wallets=3,
+            min_fresh_core_wallets_24h=2,
+            min_eligible_trades_7d=4,
+            max_stale_ratio=0.25,
+        ),
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=4,
+            core_slots=1,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=1,
+            min_active_eligible_wallets=3,
+        ),
+    )
+    captured_at = datetime(2026, 1, 20, tzinfo=UTC)
+    memberships = [
+        BasketMembership("ai", "w1", "core", 1, True, captured_at, None, "discovered", ""),
+        BasketMembership("ai", "w2", "rotating", 2, True, captured_at, None, "discovered", ""),
+        BasketMembership("ai", "w3", "explorer", 3, True, captured_at, None, "discovered", ""),
+    ]
+    trades = [
+        WalletTrade("w1", "ai", "m1", "YES", 0.51, 20.0, 300),
+    ]
+    registry_entries = [
+        WalletRegistryEntry("w1", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at),
+        WalletRegistryEntry("w2", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at),
+        WalletRegistryEntry("w3", "wallet_discovery", "curated_wallet_file", 0.8, "active", captured_at),
+    ]
+
+    recommendations = recommend_basket_promotions(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=captured_at,
+    )
+
+    ai_topic = recommendations["ai"]
+    assert ai_topic.should_promote is False
+    assert "tracked_wallets_below_threshold" in ai_topic.missing_requirements
+    assert "fresh_active_wallets_7d_below_threshold" in ai_topic.missing_requirements
+    assert "live_eligible_wallets_below_threshold" in ai_topic.missing_requirements
 
 
 def test_build_live_basket_roster_adds_refresh_reason_when_rotation_is_due() -> None:

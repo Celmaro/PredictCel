@@ -18,7 +18,7 @@ from .basket_manager import BasketManagerPlanner
 from .config import AppConfig
 from .models import BasketAssignment, BasketManagerAction, WalletDiscoveryCandidate
 from .polymarket import PolymarketPublicClient, extract_trade_market_ids
-from .wallet_sources import DataApiMarketTradesWalletSource, DataApiWalletSource
+from .wallet_sources import CuratedWalletFileSource, DataApiMarketTradesWalletSource, DataApiWalletSource
 from .wallet_topics import classify_wallet_topics
 
 __all__ = ["WalletDiscoveryPipeline"]
@@ -245,10 +245,15 @@ class WalletDiscoveryPipeline:
         except Exception:
             return []
 
-    def _build_source(self) -> DataApiWalletSource | DataApiMarketTradesWalletSource:
+    def _build_source(self) -> DataApiWalletSource | DataApiMarketTradesWalletSource | CuratedWalletFileSource:
         source = self.config.wallet_discovery.source
         if source == "data_api_market_trades":
             return DataApiMarketTradesWalletSource(self.client, self._discovery_market_ids())
+        if source == "curated_wallet_file":
+            return CuratedWalletFileSource(
+                self.client,
+                self.config.wallet_discovery.wallet_candidates_path,
+            )
         return DataApiWalletSource(self.client)
 
     def _discovery_market_ids(self) -> list[str]:

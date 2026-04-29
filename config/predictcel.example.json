@@ -88,6 +88,15 @@
     "max_cluster_overlap_ratio": 0.8,
     "max_cluster_members_in_live_tiers": 2
   },
+  "basket_promotion": {
+    "enabled": true,
+    "min_tracked_wallets": 5,
+    "min_fresh_active_wallets_7d": 3,
+    "min_live_eligible_wallets": 5,
+    "min_fresh_core_wallets_24h": 2,
+    "min_eligible_trades_7d": 10,
+    "max_stale_ratio": 0.5
+  },
   "basket_controller": {
     "enabled": true,
     "tracked_basket_target": 15,
@@ -109,6 +118,7 @@
     "enabled": true,
     "mode": "auto_update",
     "source": "data_api_leaderboard",
+    "wallet_candidates_path": "data/wallet_candidates.json",
     "candidate_limit": 100,
     "trade_limit_per_wallet": 50,
     "min_trades": 20,

@@ -17,7 +17,7 @@ from predictcel.config import (
 )
 from predictcel.models import BasketManagerAction, WalletDiscoveryCandidate
 from predictcel.wallet_discovery import WalletDiscoveryPipeline
-from predictcel.wallet_sources import DataApiMarketTradesWalletSource
+from predictcel.wallet_sources import CuratedWalletFileSource, DataApiMarketTradesWalletSource
 
 
 class FakeSource:
@@ -264,6 +264,36 @@ def test_market_trades_source_collects_unique_wallet_candidates() -> None:
     ]
 
 
+def test_curated_wallet_file_source_collects_unique_wallet_candidates(tmp_path) -> None:
+    candidate_path = tmp_path / "wallets.json"
+    candidate_path.write_text(
+        json.dumps(
+            [
+                {"wallet": "0xAAA", "source": "polydata", "dominant_topic": "sports"},
+                {"address": "0xbbb", "source": "polyintel"},
+                {"walletAddress": "0xAAA", "source": "duplicate"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    source = CuratedWalletFileSource(FakeMarketTradesClient(), candidate_path)
+
+    candidates = source.fetch_candidates(10)
+
+    assert candidates == [
+        {
+            "address": "0xaaa",
+            "source": "polydata",
+            "raw": {"wallet": "0xAAA", "source": "polydata", "dominant_topic": "sports"},
+        },
+        {
+            "address": "0xbbb",
+            "source": "polyintel",
+            "raw": {"address": "0xbbb", "source": "polyintel"},
+        },
+    ]
+
+
 def test_pipeline_uses_market_trade_source_when_configured(monkeypatch) -> None:
     observed = {}
 
@@ -320,3 +350,57 @@ def test_pipeline_uses_market_trade_source_when_configured(monkeypatch) -> None:
 
     assert isinstance(pipeline.source, CapturingSource)
     assert observed["market_ids"] == ["cond_1", "cond_2"]
+
+
+def test_pipeline_uses_curated_wallet_file_source_when_configured(tmp_path) -> None:
+    candidate_path = tmp_path / "wallets.json"
+    candidate_path.write_text(
+        json.dumps(
+            [
+                {"wallet": "0xcurated1", "source": "polydata"},
+                {"wallet": "0xcurated2", "source": "polymonit"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = make_config()
+    config = AppConfig(
+        baskets=config.baskets,
+        filters=config.filters,
+        arbitrage=config.arbitrage,
+        wallet_trades_path=config.wallet_trades_path,
+        market_snapshots_path=config.market_snapshots_path,
+        live_data=config.live_data,
+        execution=config.execution,
+        consensus=config.consensus,
+        market_regime=config.market_regime,
+        wallet_discovery=WalletDiscoveryConfig(
+            enabled=config.wallet_discovery.enabled,
+            mode=config.wallet_discovery.mode,
+            source="curated_wallet_file",
+            wallet_candidates_path=str(candidate_path),
+            candidate_limit=config.wallet_discovery.candidate_limit,
+            trade_limit_per_wallet=config.wallet_discovery.trade_limit_per_wallet,
+            min_trades=config.wallet_discovery.min_trades,
+            min_recent_trades=config.wallet_discovery.min_recent_trades,
+            min_history_days=config.wallet_discovery.min_history_days,
+            recent_window_seconds=config.wallet_discovery.recent_window_seconds,
+            min_avg_trade_size_usd=config.wallet_discovery.min_avg_trade_size_usd,
+            min_assignment_score=config.wallet_discovery.min_assignment_score,
+            exclude_existing_wallets=config.wallet_discovery.exclude_existing_wallets,
+            max_wallets_per_basket=config.wallet_discovery.max_wallets_per_basket,
+            max_new_wallets_per_run=config.wallet_discovery.max_new_wallets_per_run,
+            topics=config.wallet_discovery.topics,
+        ),
+        wallet_registry=config.wallet_registry,
+        basket_controller=config.basket_controller,
+    )
+
+    pipeline = WalletDiscoveryPipeline(config)
+
+    assert isinstance(pipeline.source, CuratedWalletFileSource)
+    assert [candidate["address"] for candidate in pipeline.source.fetch_candidates(10)] == [
+        "0xcurated1",
+        "0xcurated2",
+    ]

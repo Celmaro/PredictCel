@@ -40,6 +40,7 @@ from .wallet_registry import (
     build_live_basket_roster,
     compute_basket_health_from_static_memberships,
     ingest_wallet_discovery_inputs,
+    recommend_basket_promotions,
     refresh_registry_entries_from_trades,
 )
 from .wallets import load_wallet_trades
@@ -624,6 +625,8 @@ def _build_wallet_registry_summary(
             "memberships_by_topic": {},
             "basket_health": {},
             "live_roster_by_topic": {},
+            "promotion_watch_by_topic": {},
+            "basket_promotion_by_topic": {},
         }
 
     captured_at = datetime.now(UTC)
@@ -668,6 +671,16 @@ def _build_wallet_registry_summary(
         registry_entries,
         live_roster,
     )
+    basket_promotion_by_topic = {
+        topic: _basket_promotion_as_dict(recommendation)
+        for topic, recommendation in recommend_basket_promotions(
+            config,
+            memberships,
+            trades,
+            registry_entries=registry_entries,
+            captured_at=captured_at,
+        ).items()
+    }
     store.save_basket_health(basket_health)
     latest_health = store.latest_basket_health()
     return {
@@ -680,6 +693,7 @@ def _build_wallet_registry_summary(
         },
         "live_roster_by_topic": live_roster,
         "promotion_watch_by_topic": promotion_watch_by_topic,
+        "basket_promotion_by_topic": basket_promotion_by_topic,
     }
 
 
@@ -782,6 +796,13 @@ def _membership_counts_by_topic(memberships: list[Any]) -> dict[str, dict[str, i
 def _basket_health_as_dict(health: BasketHealth) -> dict[str, Any]:
     payload = asdict(health)
     payload["captured_at"] = health.captured_at.isoformat()
+    return payload
+
+
+def _basket_promotion_as_dict(recommendation: Any) -> dict[str, Any]:
+    payload = asdict(recommendation)
+    payload["recommended_wallets"] = list(recommendation.recommended_wallets)
+    payload["missing_requirements"] = list(recommendation.missing_requirements)
     return payload
 
 
