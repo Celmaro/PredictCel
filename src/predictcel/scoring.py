@@ -45,6 +45,8 @@ class WalletQualityScorer:
         self.last_rejection_counts: dict[str, int] = {}
         self.last_wallet_rejection_counts: dict[str, dict[str, int]] = {}
         self.last_missing_market_samples: list[str] = []
+        self.last_missing_market_breakdown: dict[str, int] = {}
+        self.last_wallet_attrition: dict[str, int] = {}
 
     def score(
         self, trades: list[WalletTrade], markets: dict[str, MarketSnapshot]
@@ -65,6 +67,8 @@ class WalletQualityScorer:
         rejection_counts: Counter[str] = Counter()
         wallet_rejections: dict[str, Counter[str]] = defaultdict(Counter)
         missing_market_samples: list[str] = []
+        missing_market_breakdown: Counter[str] = Counter()
+        market_lookup = _build_market_lookup(markets)
 
         for trade in trades:
             grouped[trade.wallet].append(trade)
@@ -73,7 +77,9 @@ class WalletQualityScorer:
         for wallet, wallet_trades in grouped.items():
             eligible = []
             for trade in _dedupe_wallet_trades(wallet_trades):
-                reason = self.rejection_reason(trade, markets)
+                reason = self.rejection_reason(
+                    trade, markets, market_lookup=market_lookup
+                )
                 if reason is None:
                     eligible.append(trade)
                 else:
@@ -85,6 +91,10 @@ class WalletQualityScorer:
                         and len(missing_market_samples) < 10
                     ):
                         missing_market_samples.append(trade.market_id)
+                    if reason == "missing_market":
+                        missing_market_breakdown[
+                            _classify_missing_market_id(trade.market_id)
+                        ] += 1
 
             if not eligible:
                 continue
@@ -92,9 +102,11 @@ class WalletQualityScorer:
             topic = Counter(trade.topic for trade in eligible).most_common(1)[0][0]
             average_age = sum(trade.age_seconds for trade in eligible) / len(eligible)
             drifts = [
-                self._trade_drift(trade, markets[trade.market_id])
+                self._trade_drift(
+                    trade, _resolve_market(trade.market_id, market_lookup)
+                )
                 for trade in eligible
-                if trade.market_id in markets
+                if _resolve_market(trade.market_id, market_lookup) is not None
             ]
             average_drift = (
                 sum(drifts) / len(drifts) if drifts else self.filters.max_price_drift
@@ -149,10 +161,22 @@ class WalletQualityScorer:
             for wallet, counts in sorted(wallet_rejections.items())
         }
         self.last_missing_market_samples = missing_market_samples
+        self.last_missing_market_breakdown = dict(
+            sorted(missing_market_breakdown.items())
+        )
+        self.last_wallet_attrition = {
+            "wallets_seen": len(grouped),
+            "wallets_scored": len(scores),
+            "wallets_fully_rejected": max(0, len(grouped) - len(scores)),
+        }
         return scores
 
     def rejection_reason(
-        self, trade: WalletTrade, markets: dict[str, MarketSnapshot]
+        self,
+        trade: WalletTrade,
+        markets: dict[str, MarketSnapshot],
+        *,
+        market_lookup: dict[str, MarketSnapshot] | None = None,
     ) -> str | None:
         """Determine why a trade is ineligible, if it is.
 
@@ -163,7 +187,12 @@ class WalletQualityScorer:
         Returns:
             Rejection reason string, or None if trade is eligible
         """
-        market = markets.get(trade.market_id)
+        market = _resolve_market(
+            trade.market_id,
+            market_lookup
+            if market_lookup is not None
+            else _build_market_lookup(markets),
+        )
         if market is None:
             return "missing_market"
         if trade.age_seconds > self.filters.max_trade_age_seconds:
@@ -292,6 +321,51 @@ def compute_copyability_score(
         + depth_score * 0.05
     )
     return round(score, 4)
+
+
+def _normalize_market_lookup_key(value: str) -> str:
+    return str(value).strip().lower()
+
+
+def _build_market_lookup(
+    markets: dict[str, MarketSnapshot],
+) -> dict[str, MarketSnapshot]:
+    lookup: dict[str, MarketSnapshot] = {}
+    for market_id, snapshot in markets.items():
+        normalized_key = _normalize_market_lookup_key(market_id)
+        if normalized_key:
+            lookup.setdefault(normalized_key, snapshot)
+        canonical_key = _normalize_market_lookup_key(snapshot.market_id)
+        if canonical_key:
+            lookup.setdefault(canonical_key, snapshot)
+    return lookup
+
+
+def _resolve_market(
+    market_id: str,
+    market_lookup: dict[str, MarketSnapshot],
+) -> MarketSnapshot | None:
+    normalized_key = _normalize_market_lookup_key(market_id)
+    if not normalized_key:
+        return None
+    return market_lookup.get(normalized_key)
+
+
+def _classify_missing_market_id(market_id: str) -> str:
+    normalized = _normalize_market_lookup_key(market_id)
+    if not normalized:
+        return "empty"
+    if normalized.startswith("0x") or "token" in normalized:
+        return "token_id_like"
+    if "-" in normalized:
+        return "slug_like"
+    if (
+        normalized.startswith("cond")
+        or normalized.startswith("condition")
+        or "_" in normalized
+    ):
+        return "condition_id_like"
+    return "other"
 
 
 def _dedupe_wallet_trades(trades: list[WalletTrade]) -> list[WalletTrade]:

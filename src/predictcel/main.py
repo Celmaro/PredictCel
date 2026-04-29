@@ -40,6 +40,7 @@ from .wallet_registry import (
     build_live_basket_roster,
     compute_basket_health_from_static_memberships,
     ingest_wallet_discovery_inputs,
+    rebalance_memberships_from_live_roster,
     recommend_basket_promotions,
     refresh_registry_entries_from_trades,
 )
@@ -180,7 +181,12 @@ def main() -> None:
     wallet_discovery_auto_feed = _auto_feed_wallet_registry_from_discovery(
         config, store
     )
-    wallet_registry_summary = _build_wallet_registry_summary(config, store, trades)
+    wallet_registry_summary = _build_wallet_registry_summary(
+        config,
+        store,
+        trades,
+        persist_rebalance=True,
+    )
     wallet_registry_summary["auto_feed"] = wallet_discovery_auto_feed
     open_positions_at_start = store.get_open_positions()
     db_diagnostics = {
@@ -210,6 +216,8 @@ def main() -> None:
         "rejection_counts": scorer.last_rejection_counts,
         "wallet_rejection_counts": scorer.last_wallet_rejection_counts,
         "missing_market_samples": scorer.last_missing_market_samples,
+        "missing_market_breakdown": scorer.last_missing_market_breakdown,
+        "wallet_attrition": scorer.last_wallet_attrition,
     }
     timings["wallet_scoring_ms"] = _elapsed_ms(started)
 
@@ -607,17 +615,32 @@ def _wallet_topics_for_live_inputs(
         and hasattr(store, "load_basket_memberships")
     ):
         memberships = store.load_basket_memberships()
+        registry_status_by_wallet = {}
+        if hasattr(store, "load_wallet_registry_entries"):
+            registry_status_by_wallet = {
+                entry.wallet: str(entry.status).strip().lower() or "active"
+                for entry in store.load_wallet_registry_entries()
+            }
         raw_topic_by_wallet: dict[str, list[str]] = {}
+        saw_registry_membership = False
         for membership in memberships:
             if not getattr(membership, "active", False):
                 continue
             wallet = str(membership.wallet).strip()
             if not _is_evm_address(wallet):
                 continue
+            saw_registry_membership = True
+            registry_status = registry_status_by_wallet.get(wallet, "active")
+            if registry_status in {"suspended", "retired"}:
+                continue
+            if registry_status == "stale" and str(
+                getattr(membership, "tier", "")
+            ).strip().lower() in {"core", "rotating"}:
+                continue
             topics = raw_topic_by_wallet.setdefault(wallet, [])
             if membership.topic not in topics:
                 topics.append(membership.topic)
-        if raw_topic_by_wallet:
+        if raw_topic_by_wallet or saw_registry_membership:
             return raw_topic_by_wallet, "registry_memberships"
 
     raw_topic_by_wallet = {}
@@ -636,6 +659,7 @@ def _build_wallet_registry_summary(
     config: Any,
     store: SignalStore,
     trades: list[Any],
+    persist_rebalance: bool = False,
 ) -> dict[str, Any]:
     """Build compact wallet registry diagnostics without changing trading behavior."""
     if not getattr(config.wallet_registry, "enabled", False):
@@ -676,10 +700,22 @@ def _build_wallet_registry_summary(
         or existing_registry_entries
     )
     memberships = store.load_basket_memberships() or existing_memberships
+    if persist_rebalance:
+        memberships = (
+            rebalance_memberships_from_live_roster(
+                config,
+                store,
+                trades,
+                captured_at=captured_at,
+            )
+            or memberships
+        )
+        memberships = store.load_basket_memberships() or memberships
     basket_health = compute_basket_health_from_static_memberships(
         config,
         memberships,
         trades,
+        registry_entries=registry_entries,
         captured_at=captured_at,
     )
     live_roster = build_live_basket_roster(
@@ -1470,6 +1506,15 @@ def _compact_scoring_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
         "rejection_counts": diagnostics.get("rejection_counts", {}),
         "wallets_with_rejections": len(wallet_rejection_counts),
     }
+    wallet_attrition = diagnostics.get("wallet_attrition", {})
+    if wallet_attrition:
+        compact["wallet_attrition"] = wallet_attrition
+    missing_market_breakdown = diagnostics.get("missing_market_breakdown", {})
+    if missing_market_breakdown:
+        compact["missing_market_breakdown"] = missing_market_breakdown
+    missing_market_samples = diagnostics.get("missing_market_samples", [])
+    if missing_market_samples:
+        compact["missing_market_samples"] = missing_market_samples
     if top_wallet_rejections:
         compact["top_wallet_rejections"] = top_wallet_rejections
     return compact

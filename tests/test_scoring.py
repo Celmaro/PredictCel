@@ -146,6 +146,68 @@ def test_scoring_diagnostics_count_rejection_reasons() -> None:
     }
     assert scorer.last_wallet_rejection_counts["w2"] == {"too_old": 1}
     assert scorer.last_missing_market_samples == ["missing"]
+    assert scorer.last_missing_market_breakdown == {"other": 1}
+    assert scorer.last_wallet_attrition == {
+        "wallets_seen": 2,
+        "wallets_scored": 0,
+        "wallets_fully_rejected": 2,
+    }
+
+
+def test_wallet_quality_matches_token_ids_case_insensitively() -> None:
+    scorer = WalletQualityScorer(make_filters())
+    trades = [
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="TOKEN_YES",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        )
+    ]
+    market = MarketSnapshot(
+        market_id="cond_1",
+        topic="sports",
+        title="Example",
+        yes_ask=0.57,
+        no_ask=0.4,
+        best_bid=0.55,
+        liquidity_usd=9000,
+        minutes_to_resolution=180,
+        yes_token_id="token_yes",
+    )
+    markets = {
+        "cond_1": market,
+        "token_yes": market,
+    }
+
+    scores = scorer.score(trades, markets)
+
+    assert "w1" in scores
+    assert scorer.last_rejection_counts == {}
+
+
+def test_scoring_diagnostics_classify_token_like_missing_market_ids() -> None:
+    scorer = WalletQualityScorer(make_filters())
+    trades = [
+        WalletTrade(
+            wallet="w1",
+            topic="sports",
+            market_id="0xABC123",
+            side="YES",
+            price=0.55,
+            size_usd=200,
+            age_seconds=300,
+        )
+    ]
+
+    scores = scorer.score(trades, {})
+
+    assert scores == {}
+    assert scorer.last_rejection_counts == {"missing_market": 1}
+    assert scorer.last_missing_market_breakdown == {"token_id_like": 1}
 
 
 def test_wallet_quality_prefers_specialist_human_pace_liquid_copy_safe_wallets() -> (

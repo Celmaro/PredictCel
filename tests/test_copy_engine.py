@@ -286,6 +286,42 @@ def test_mixed_market_aliases_share_one_consensus_bucket() -> None:
     assert engine.last_diagnostics["candidates_returned"] == 1
 
 
+def test_market_alias_matching_is_case_insensitive_for_token_ids() -> None:
+    engine = CopyEngine(make_config())
+    market = replace(make_market(), market_id="cond_1", yes_token_id="token_yes")
+    trades = [
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="TOKEN_YES",
+            side="YES",
+            price=0.58,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="cond_1",
+            side="YES",
+            price=0.6,
+            size_usd=220,
+            age_seconds=800,
+        ),
+    ]
+
+    candidates = engine.evaluate(
+        trades,
+        {"cond_1": market, "token_yes": market},
+        make_qualities(),
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].market_id == "cond_1"
+    assert engine.last_diagnostics["markets_evaluated"] == 1
+    assert engine.last_diagnostics["market_not_found"] == 0
+
+
 def test_skips_candidate_when_drift_is_too_large() -> None:
     engine = CopyEngine(make_config())
     trades = [
