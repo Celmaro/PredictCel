@@ -969,6 +969,34 @@ def test_copy_engine_ignores_cwd_pickle_fallback(monkeypatch) -> None:
     assert loaded["called"] is False
 
 
+def test_copy_engine_logs_pickle_load_failures(monkeypatch, caplog) -> None:
+    model_path = copy_engine_module.os.path.join(
+        copy_engine_module.os.path.dirname(copy_engine_module.__file__),
+        "position_sizing_model.pkl",
+    )
+
+    def fake_exists(path: str) -> bool:
+        return path == model_path
+
+    def fake_load(handle):
+        del handle
+        raise ValueError("corrupt model")
+
+    monkeypatch.setattr(copy_engine_module.os.path, "exists", fake_exists)
+    monkeypatch.setattr(copy_engine_module.pickle, "load", fake_load)
+    monkeypatch.setattr(
+        builtins,
+        "open",
+        lambda *args, **kwargs: BytesIO(b"pickle-bytes"),
+    )
+
+    with caplog.at_level("WARNING"):
+        engine = CopyEngine(make_config())
+
+    assert engine._ml_model is None
+    assert "Failed to load ML position sizing model" in caplog.text
+
+
 def test_basket_controller_requires_80_percent_same_outcome() -> None:
     wallets = ["w1", "w2", "w3", "w4", "w5"]
     engine = CopyEngine(

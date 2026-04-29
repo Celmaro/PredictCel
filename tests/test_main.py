@@ -15,6 +15,7 @@ from predictcel.main import (
     _classify_unmatched_token_ids,
     _creates_or_updates_paper_position,
     _filter_duplicate_candidates,
+    _is_evm_address,
     _load_live_inputs,
     _mark_execution_intents_seen,
     _probe_token_lookup,
@@ -238,6 +239,12 @@ def test_filled_and_dry_run_results_create_positions() -> None:
     assert (
         _creates_or_updates_paper_position(make_result("dry_run", order_id="")) is True
     )
+
+
+def test_is_evm_address_accepts_lowercase_and_valid_checksum_only() -> None:
+    assert _is_evm_address("0xde709f2102306220921060314715629080e2fb77") is True
+    assert _is_evm_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed") is True
+    assert _is_evm_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAEd") is False
 
 
 def test_filter_duplicate_candidates_skips_recent_and_same_batch_duplicates() -> None:

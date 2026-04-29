@@ -128,13 +128,7 @@ class WalletQualityScorer:
             freshness_score = freshness_decay(
                 average_age, self.recency_half_life_seconds
             )
-            drift_score = (
-                max(0.0, 1.0 - (average_drift / self.filters.max_price_drift))
-                if self.filters.max_price_drift > 0
-                else 1.0
-                if self.filters.max_price_drift
-                else 0.0
-            )
+            drift_score = _drift_score(average_drift, self.filters.max_price_drift)
             sample_score = min(len(eligible) / 5.0, 1.0)
             specialization_score = _topic_specialization_score(eligible)
             activity_score = _human_pace_activity_score(eligible)
@@ -273,6 +267,12 @@ def freshness_decay(age_seconds: float, half_life_seconds: int | float) -> float
     )
 
 
+def _drift_score(drift: float, max_price_drift: float) -> float:
+    if max_price_drift == 0:
+        return 1.0 if drift <= 0 else 0.0
+    return max(0.0, 1.0 - (drift / max_price_drift))
+
+
 def compute_copyability_score(
     consensus_ratio: float,
     wallet_quality_score: float,
@@ -313,13 +313,7 @@ def compute_copyability_score(
         average_age_seconds,
         recency_half_life_seconds or max(filters.max_trade_age_seconds // 2, 1),
     )
-    drift_score = (
-        max(0.0, 1.0 - (drift / filters.max_price_drift))
-        if filters.max_price_drift > 0
-        else 1.0
-        if filters.max_price_drift
-        else 0.0
-    )
+    drift_score = _drift_score(drift, filters.max_price_drift)
     liquidity_score = (
         min(liquidity_usd / (filters.min_liquidity_usd * 3), 1.0)
         if filters.min_liquidity_usd
