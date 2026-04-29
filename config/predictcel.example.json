@@ -117,7 +117,7 @@
   "wallet_discovery": {
     "enabled": true,
     "mode": "auto_update",
-    "source": "data_api_leaderboard",
+    "source": "curated_wallet_file",
     "wallet_candidates_path": "data/wallet_candidates.json",
     "candidate_limit": 100,
     "trade_limit_per_wallet": 50,
@@ -162,20 +162,52 @@
       "wallets": [
         "0xa91edabae0eae478c830a6d5dfd3acc0571709e0",
         "0xead152b855effa6b5b5837f53b24c0756830c76a",
-        "0x5ccf62ac8155e49bc7d021a1a66e9ef18f5579d7"
+        "0x5ccf62ac8155e49bc7d021a1a66e9ef18f5579d7",
+        "0xee613b3fc183ee44f9da9c05f53e2da107e3debf",
+        "0x56687bf447db6ffa42ffe2204a05edaa20f55839"
       ],
-      "quorum_ratio": 0.33,
-      "target_allocation": 0.33
+      "quorum_ratio": 0.8,
+      "target_allocation": 0.22
+    },
+    {
+      "topic": "politics",
+      "wallets": [
+        "0x56687bf447db6ffa42ffe2204a05edaa20f55839",
+        "0x7177a7f5c216809c577c50c77b12aae81f81ddef",
+        "0x4bbe10ba5b7f6df147c0dae17b46c44a6e562cf3"
+      ],
+      "quorum_ratio": 0.8,
+      "target_allocation": 0.18
+    },
+    {
+      "topic": "global-events",
+      "wallets": [
+        "0x4bbe10ba5b7f6df147c0dae17b46c44a6e562cf3",
+        "0x2785e7022dc20757108204b13c08cea8613b70ae",
+        "0x56687bf447db6ffa42ffe2204a05edaa20f55839"
+      ],
+      "quorum_ratio": 0.8,
+      "target_allocation": 0.12
     },
     {
       "topic": "sports",
       "wallets": [
         "0x861ae65ad67b06b5cdabe24ba6de052269221f15",
         "0x5ae14dc9e0cf9df72de8d873dcea05aacb799fad",
-        "0x6211f97a76ed5c4b1d658f637041ac5f293db89e"
+        "0x6211f97a76ed5c4b1d658f637041ac5f293db89e",
+        "0xa8e089ade142c95538e06196e09c85681112ad50",
+        "0x6ade597c0e2b43c0bf3542cada8a5e330d73f5b0",
+        "0xc2e7800b5af46e6093872b177b7a5e7f0563be51",
+        "0x6d1076e3deee3030b62869713d55aaee0c08e270",
+        "0x492442eab586f242b53bda933fd5de859c8a3782",
+        "0x02227b8f5a9636e895607edd3185ed6ee5598ff7",
+        "0xefbc5fec8d7b0acdc8911bdd9a98d6964308f9a2",
+        "0x019782cab5d844f02bafb71f512758be78579f3c",
+        "0xbddf61af533ff524d27154e589d2d7a81510c684",
+        "0x2a2c53bd278c04da9962fcf96490e17f3dfb9bc1"
       ],
-      "quorum_ratio": 0.33,
-      "target_allocation": 0.33
+      "quorum_ratio": 0.8,
+      "target_allocation": 0.30
     },
     {
       "topic": "crypto",
@@ -184,8 +216,8 @@
         "0xeebde7a0e019a63e6b476eb425505b7b3e6eba30",
         "0x674887d1ac838099a48b629dff53f25b7b87ee08"
       ],
-      "quorum_ratio": 0.33,
-      "target_allocation": 0.34
+      "quorum_ratio": 0.8,
+      "target_allocation": 0.18
     }
   ]
 }

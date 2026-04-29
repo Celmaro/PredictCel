@@ -66,7 +66,7 @@
   {
     "wallet": "0x4bbe10ba5b7f6df147c0dae17b46c44a6e562cf3",
     "username": "How.Dare.You",
-    "dominant_topic": "global_events",
+    "dominant_topic": "global-events",
     "source": "predicts_guru",
     "curation_tier": "core",
     "reason": "Low-risk, steady multi-market trader with human-scale daily pace and durable history."
@@ -106,7 +106,7 @@
   {
     "wallet": "0x2785e7022dc20757108204b13c08cea8613b70ae",
     "username": "poorsob",
-    "dominant_topic": "global_events",
+    "dominant_topic": "global-events",
     "source": "predicts_guru",
     "curation_tier": "watchlist",
     "reason": "Very low daily frequency and high conviction style make it a useful generalist watchlist wallet."

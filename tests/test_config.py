@@ -10,14 +10,17 @@ def test_example_config_loads() -> None:
     config = load_config(Path("config/predictcel.example.json"))
 
     assert config.baskets
+    assert len(config.baskets) == 5
     assert config.filters.min_liquidity_usd > 0
     assert config.arbitrage.min_gross_edge > 0
     assert config.execution is not None
     assert all(basket.target_allocation > 0 for basket in config.baskets)
+    assert all(basket.quorum_ratio == 0.8 for basket in config.baskets)
     assert config.wallet_registry.enabled is True
     assert config.basket_promotion.enabled is True
     assert config.basket_controller.enabled is True
     assert config.wallet_discovery.enabled is True
+    assert config.wallet_discovery.source == "curated_wallet_file"
     assert config.basket_controller.tracked_basket_target == 15
 
 
