@@ -314,7 +314,7 @@ class CopyEngine:
                 wallet_votes,
                 aligned,
                 wallet_weights,
-                store=portfolio_summary.get("_store") if portfolio_summary else None,
+                store=None,
                 tracked_wallets=tracked_wallets,
             )
             if controller_rejection is not None:
@@ -579,13 +579,9 @@ class CopyEngine:
     def _portfolio_summary(self, store: Any = None) -> dict[str, float | int]:
         if store is None:
             return {}
-        summary = store.get_portfolio_summary(
+        return store.get_portfolio_summary(
             starting_bankroll_usd=self.config.consensus.bankroll_usd,
         )
-        if isinstance(summary, dict):
-            summary = dict(summary)
-            summary["_store"] = store
-        return summary
 
     def _live_tracked_wallets_by_topic(
         self,

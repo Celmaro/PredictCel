@@ -2,6 +2,7 @@ import builtins
 from datetime import UTC, datetime
 from dataclasses import replace
 from io import BytesIO
+import threading
 
 from predictcel import copy_engine as copy_engine_module
 from predictcel.config import (
@@ -772,6 +773,70 @@ def test_evaluate_reads_portfolio_summary_once_before_threading() -> None:
     assert len(candidates) == 2
     assert store.calls == 1
     assert all(candidate.suggested_position_usd > 0 for candidate in candidates)
+
+
+def test_evaluate_does_not_pass_store_into_worker_thread_consensus_gate(monkeypatch) -> None:
+    engine = CopyEngine(
+        make_config(
+            wallets=["w1", "w2", "w3"],
+            basket_controller=BasketControllerConfig(
+                enabled=True,
+                tracked_basket_target=3,
+                core_slots=2,
+                rotating_slots=1,
+                backup_slots=0,
+                explorer_slots=0,
+                min_basket_participation_ratio=0.66,
+                min_weighted_participation_ratio=0.6,
+                min_active_eligible_wallets=2,
+                min_aligned_wallet_count=2,
+                max_entry_price_band_abs=0.03,
+                max_entry_time_spread_seconds=600,
+            ),
+        )
+    )
+    owner_thread = threading.get_ident()
+
+    class ThreadBoundStore(MembershipStore):
+        def get_portfolio_summary(self, starting_bankroll_usd: float = 0.0):
+            assert threading.get_ident() == owner_thread
+            return super().get_portfolio_summary(starting_bankroll_usd)
+
+        def load_basket_memberships(self, topic: str | None = None) -> list[BasketMembership]:
+            assert threading.get_ident() == owner_thread
+            return super().load_basket_memberships(topic)
+
+        def load_wallet_registry_entries(self) -> list[WalletRegistryEntry]:
+            assert threading.get_ident() == owner_thread
+            return super().load_wallet_registry_entries()
+
+    memberships = make_memberships(["w1", "w2", "w3"])
+    store = ThreadBoundStore(memberships)
+    observed = {"calls": 0}
+    original_gate = copy_engine_module.evaluate_basket_consensus_gate
+
+    def wrapped_gate(*args, **kwargs):
+        observed["calls"] += 1
+        assert kwargs.get("store") is None
+        return original_gate(*args, **kwargs)
+
+    monkeypatch.setattr(copy_engine_module, "evaluate_basket_consensus_gate", wrapped_gate)
+
+    markets = {
+        "m1": replace(make_market(), market_id="m1"),
+        "m2": replace(make_market(), market_id="m2"),
+    }
+    trades = [
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.58, 200, 60),
+        WalletTrade("w2", "geopolitics", "m1", "YES", 0.59, 220, 120),
+        WalletTrade("w1", "geopolitics", "m2", "YES", 0.58, 200, 60),
+        WalletTrade("w2", "geopolitics", "m2", "YES", 0.59, 220, 120),
+    ]
+
+    candidates = engine.evaluate(trades, markets, make_qualities(), store)
+
+    assert len(candidates) == 2
+    assert observed["calls"] == 2
 
 
 def test_evaluate_with_no_trades_returns_empty_diagnostics() -> None:
