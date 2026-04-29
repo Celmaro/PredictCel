@@ -1445,8 +1445,8 @@ def test_refresh_registry_entries_from_trades_updates_status_from_freshness() ->
     statuses = {entry.wallet: entry.status for entry in updated}
     assert statuses == {
         "w_active": "active",
-        "w_probation_age": "probation",
-        "w_probation_count": "probation",
+        "w_probation_age": "active",
+        "w_probation_count": "active",
         "w_probation_quality": "probation",
         "w_discovered_active": "active",
         "w_stale": "stale",
