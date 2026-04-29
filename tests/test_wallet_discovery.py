@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 from predictcel.basket_assignment import BasketAssignmentEngine
 from predictcel.basket_manager import BasketManagerPlanner
@@ -104,9 +105,76 @@ def test_pipeline_filters_existing_wallets_and_assigns_new_candidate() -> None:
     assert [candidate.wallet_address for candidate in candidates] == ["0xnew"]
     assert isinstance(candidates[0], WalletDiscoveryCandidate)
     assert candidates[0].rejected_reasons == []
+    assert candidates[0].history_days >= 1
+    assert candidates[0].history_score > 0
+    assert candidates[0].activity_score > 0
+    assert candidates[0].size_band_score > 0
     new_assignment = next(assignment for assignment in assignments if assignment.wallet_address == "0xnew")
     assert new_assignment.recommended_baskets == ["sports"]
     assert any(action.action == "add" and action.wallet_address == "0xnew" for action in actions)
+
+
+def test_pipeline_rejects_hyper_fast_wallets() -> None:
+    pipeline = make_pipeline()
+    fast_trades = [
+        {
+            "question": f"NBA prop {index}",
+            "size": "20",
+            "createdAt": "2999-01-01T00:00:00Z",
+        }
+        for index in range(1, 26)
+    ]
+
+    candidate = pipeline._build_candidate("0xfast", "fake", fast_trades)
+
+    assert "activity cadence looks too fast to copy safely" in candidate.rejected_reasons
+    assert candidate.activity_score <= 0.2
+
+
+def test_pipeline_rejects_short_history_wallets() -> None:
+    pipeline = make_pipeline()
+    pipeline.config = AppConfig(
+        baskets=pipeline.config.baskets,
+        filters=pipeline.config.filters,
+        arbitrage=pipeline.config.arbitrage,
+        wallet_trades_path=pipeline.config.wallet_trades_path,
+        market_snapshots_path=pipeline.config.market_snapshots_path,
+        live_data=pipeline.config.live_data,
+        execution=pipeline.config.execution,
+        consensus=pipeline.config.consensus,
+        wallet_discovery=WalletDiscoveryConfig(
+            enabled=pipeline.config.wallet_discovery.enabled,
+            mode=pipeline.config.wallet_discovery.mode,
+            source=pipeline.config.wallet_discovery.source,
+            candidate_limit=pipeline.config.wallet_discovery.candidate_limit,
+            trade_limit_per_wallet=pipeline.config.wallet_discovery.trade_limit_per_wallet,
+            min_trades=pipeline.config.wallet_discovery.min_trades,
+            min_recent_trades=pipeline.config.wallet_discovery.min_recent_trades,
+            min_history_days=30,
+            recent_window_seconds=pipeline.config.wallet_discovery.recent_window_seconds,
+            min_avg_trade_size_usd=pipeline.config.wallet_discovery.min_avg_trade_size_usd,
+            min_assignment_score=pipeline.config.wallet_discovery.min_assignment_score,
+            exclude_existing_wallets=pipeline.config.wallet_discovery.exclude_existing_wallets,
+            max_wallets_per_basket=pipeline.config.wallet_discovery.max_wallets_per_basket,
+            max_new_wallets_per_run=pipeline.config.wallet_discovery.max_new_wallets_per_run,
+            topics=pipeline.config.wallet_discovery.topics,
+        ),
+    )
+    base = datetime.now(UTC)
+    short_history_trades = [
+        {
+            "question": f"NBA prop {index}",
+            "size": "25",
+            "createdAt": (base - timedelta(hours=index)).isoformat().replace("+00:00", "Z"),
+        }
+        for index in range(3)
+    ]
+
+    candidate = pipeline._build_candidate("0xshort", "fake", short_history_trades)
+
+    assert "history too short for registry promotion" in candidate.rejected_reasons
+    assert candidate.history_days == 1
+    assert candidate.history_score < 1.0
 
 
 def test_pipeline_still_evaluates_existing_wallets_for_manager_actions() -> None:

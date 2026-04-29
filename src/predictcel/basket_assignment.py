@@ -22,7 +22,13 @@ class BasketAssignmentEngine:
             f"primary_topic={candidate.topic_profile.primary_topic}",
             f"specialization={candidate.topic_profile.specialization_score:.4f}",
             f"recent_trades={candidate.recent_trades}",
+            f"history_days={candidate.history_days}",
             f"avg_trade_size_usd={candidate.avg_trade_size_usd:.2f}",
+            f"sample_score={candidate.sample_score:.4f}",
+            f"recency_score={candidate.recency_score:.4f}",
+            f"history_score={candidate.history_score:.4f}",
+            f"activity_score={candidate.activity_score:.4f}",
+            f"size_band_score={candidate.size_band_score:.4f}",
         ]
         if candidate.rejected_reasons:
             reasons.extend(f"warning={reason}" for reason in candidate.rejected_reasons)

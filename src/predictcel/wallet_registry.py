@@ -282,6 +282,12 @@ def build_live_basket_roster(
     registry_status_by_wallet = {
         entry.wallet: entry.status for entry in (registry_entries or [])
     }
+    registry_source_type_by_wallet = {
+        entry.wallet: entry.source_type for entry in (registry_entries or [])
+    }
+    registry_trust_seed_by_wallet = {
+        entry.wallet: entry.trust_seed for entry in (registry_entries or [])
+    }
     slot_counts = {
         "core": controller.core_slots,
         "rotating": controller.rotating_slots,
@@ -300,6 +306,7 @@ def build_live_basket_roster(
                 membership,
                 trades_by_topic_wallet.get((topic, membership.wallet), []),
                 config.filters.max_trade_age_seconds,
+                registry_trust_seed_by_wallet.get(membership.wallet, 0.0),
             ),
         )
         eligible_market_ids_by_wallet = {
@@ -315,6 +322,7 @@ def build_live_basket_roster(
                 "membership_tier": membership.tier,
                 "membership_rank": membership.rank,
                 "registry_status": registry_status_by_wallet.get(membership.wallet, "active"),
+                "trust_seed": registry_trust_seed_by_wallet.get(membership.wallet, 0.0),
                 "selected": False,
                 "selected_tier": None,
                 "eligible_trade_count": sum(
@@ -357,6 +365,18 @@ def build_live_basket_roster(
                     _record_wallet_decision_reason(
                         decision,
                         f"status_ineligible_for_{tier}",
+                    )
+                    continue
+                if not _quality_allowed_for_tier(
+                    tier=tier,
+                    source_type=registry_source_type_by_wallet.get(membership.wallet, "static_basket"),
+                    trust_seed=registry_trust_seed_by_wallet.get(membership.wallet, 0.0),
+                    minimum_quality=config.wallet_discovery.min_assignment_score,
+                    backup_is_live=controller.allow_backup_in_live_consensus,
+                ):
+                    _record_wallet_decision_reason(
+                        decision,
+                        f"quality_ineligible_for_{tier}",
                     )
                     continue
                 if tier in live_tiers and _exceeds_live_cluster_limit(
@@ -701,7 +721,8 @@ def _membership_activity_sort_key(
     membership: BasketMembership,
     trades: list[WalletTrade],
     max_trade_age_seconds: int,
-) -> tuple[int, int, int, int, int, int, int, str]:
+    trust_seed: float,
+) -> tuple[int, int, float, int, int, int, int, int, str]:
     eligible_trade_count = sum(
         1 for trade in trades if trade.age_seconds <= max_trade_age_seconds
     )
@@ -714,6 +735,7 @@ def _membership_activity_sort_key(
     return (
         0 if eligible_trade_count > 0 else 1,
         freshest_trade_age_seconds,
+        -trust_seed,
         -recent_trade_count_24h,
         -active_trade_count_7d,
         -eligible_trade_count,
@@ -821,7 +843,18 @@ def _registry_status_from_freshness(
         or eligible_trade_count < config.wallet_registry.min_eligible_trades_for_approval
     ):
         return "probation"
+    if not _meets_registry_quality_floor(config, entry):
+        return "probation"
     return "active"
+
+
+def _meets_registry_quality_floor(
+    config: AppConfig,
+    entry: WalletRegistryEntry,
+) -> bool:
+    if entry.source_type == "static_basket":
+        return True
+    return entry.trust_seed >= config.wallet_discovery.min_assignment_score
 
 
 def _status_allowed_for_tier(
@@ -840,6 +873,24 @@ def _status_allowed_for_tier(
     if tier == "explorer":
         return normalized_status in {"active", "probation", "stale"}
     return False
+
+
+def _quality_allowed_for_tier(
+    *,
+    tier: str,
+    source_type: str,
+    trust_seed: float,
+    minimum_quality: float,
+    backup_is_live: bool = False,
+) -> bool:
+    normalized_source_type = str(source_type).strip().lower()
+    if normalized_source_type == "static_basket":
+        return True
+    if tier in {"core", "rotating"}:
+        return trust_seed >= minimum_quality
+    if tier == "backup" and backup_is_live:
+        return trust_seed >= minimum_quality
+    return True
 
 
 def _record_wallet_decision_reason(

@@ -61,6 +61,9 @@ class BasketManagerPlanner:
                 if not current_baskets:
                     actions.append(self._action("observe", assignment.primary_topic, assignment, "low confidence assignment"))
                 continue
+            if not current_baskets and not self._clears_promotion_buffer(assignment):
+                actions.append(self._action("observe", assignment.primary_topic, assignment, "below promotion quality buffer"))
+                continue
 
             added = False
             for basket in assignment.recommended_baskets:
@@ -148,6 +151,12 @@ class BasketManagerPlanner:
         if mode == "propose_config":
             return "config proposal recommendation"
         return "report-only recommendation; manual approval required"
+
+    def _clears_promotion_buffer(self, assignment: BasketAssignment) -> bool:
+        threshold = self.config.wallet_discovery.min_assignment_score
+        if assignment.confidence == "HIGH":
+            return True
+        return assignment.overall_score >= min(threshold + 0.05, 1.0)
 
     def _action(self, action: str, basket: str, assignment: BasketAssignment, reason: str) -> BasketManagerAction:
         return BasketManagerAction(

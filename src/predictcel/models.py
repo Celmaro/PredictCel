@@ -81,6 +81,13 @@ class WalletQuality:
     average_age_seconds: float
     average_drift: float
     reason: str
+    freshness_score: float = 0.0
+    drift_score: float = 0.0
+    sample_score: float = 0.0
+    specialization_score: float = 0.0
+    activity_score: float = 0.0
+    liquidity_score: float = 0.0
+    copy_safety_score: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -155,8 +162,10 @@ class CopyCandidate:
     reason: str
     market_title: str = ""
     weighted_consensus: float = 0.0
+    quality_consensus: float = 0.0
     confidence_score: float = 0.0
     conflict_penalty: float = 0.0
+    dominant_wallet_share: float = 0.0
     recency_score: float = 0.0
     suggested_position_usd: float = 0.0
     market_regime: str = "UNKNOWN"
@@ -186,6 +195,12 @@ class WalletDiscoveryCandidate:
     score: float
     confidence: Literal["HIGH", "MEDIUM", "LOW"]
     rejected_reasons: list[str]
+    history_days: int = 0
+    sample_score: float = 0.0
+    recency_score: float = 0.0
+    history_score: float = 0.0
+    activity_score: float = 0.0
+    size_band_score: float = 0.0
 
 
 @dataclass(frozen=True)

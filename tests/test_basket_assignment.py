@@ -46,6 +46,10 @@ def make_candidate(score: float = 0.8) -> WalletDiscoveryCandidate:
         score=score,
         confidence="HIGH" if score >= 0.7 else "MEDIUM",
         rejected_reasons=[],
+        sample_score=0.9,
+        recency_score=0.8,
+        activity_score=1.0,
+        size_band_score=0.85,
     )
 
 
@@ -55,6 +59,8 @@ def test_assignment_recommends_matching_baskets() -> None:
     assert assignment.primary_topic == "sports"
     assert assignment.recommended_baskets == ["sports", "crypto"]
     assert assignment.confidence == "HIGH"
+    assert "activity_score=1.0000" in assignment.reasons
+    assert "size_band_score=0.8500" in assignment.reasons
 
 
 def test_manager_proposes_add_in_auto_update_mode() -> None:
@@ -75,6 +81,24 @@ def test_manager_observes_low_score_assignment() -> None:
     actions = BasketManagerPlanner(config).plan([assignment])
 
     assert actions[0].action == "observe"
+
+
+def test_manager_observes_borderline_new_assignment_below_promotion_buffer() -> None:
+    config = make_config()
+    assignment = BasketAssignment(
+        wallet_address="0xborderline",
+        primary_topic="sports",
+        recommended_baskets=["sports"],
+        topic_affinities={"sports": 1.0},
+        overall_score=0.53,
+        confidence="MEDIUM",
+        reasons=[],
+    )
+
+    actions = BasketManagerPlanner(config).plan([assignment])
+
+    assert actions[0].action == "observe"
+    assert "promotion quality buffer" in actions[0].reason
 
 
 def test_manager_suspends_existing_wallet_when_score_degrades() -> None:

@@ -110,8 +110,18 @@ class WalletQualityScorer:
                 else 0.0
             )
             sample_score = min(len(eligible) / 5.0, 1.0)
+            specialization_score = _topic_specialization_score(eligible)
+            activity_score = _human_pace_activity_score(eligible)
+            liquidity_score = _average_liquidity_score(eligible, markets, self.filters)
+            copy_safety_score = _copy_safety_score(eligible, markets)
             quality_score = round(
-                (freshness_score * 0.35) + (drift_score * 0.4) + (sample_score * 0.25),
+                (freshness_score * 0.22)
+                + (drift_score * 0.22)
+                + (sample_score * 0.14)
+                + (specialization_score * 0.16)
+                + (activity_score * 0.10)
+                + (liquidity_score * 0.10)
+                + (copy_safety_score * 0.06),
                 4,
             )
 
@@ -122,7 +132,14 @@ class WalletQualityScorer:
                 eligible_trade_count=len(eligible),
                 average_age_seconds=average_age,
                 average_drift=average_drift,
-                reason="exponential freshness, drift discipline, and sample size",
+                reason="exponential freshness, drift discipline, sample size, topic specialization, human trading pace, liquid markets, and copy-safe sizing",
+                freshness_score=round(freshness_score, 4),
+                drift_score=round(drift_score, 4),
+                sample_score=round(sample_score, 4),
+                specialization_score=round(specialization_score, 4),
+                activity_score=round(activity_score, 4),
+                liquidity_score=round(liquidity_score, 4),
+                copy_safety_score=round(copy_safety_score, 4),
             )
 
         self.last_rejection_counts = dict(sorted(rejection_counts.items()))
@@ -312,3 +329,68 @@ def _dedupe_wallet_trades(
         )
         deduped.setdefault(key, trade)
     return list(deduped.values())
+
+
+def _topic_specialization_score(trades: list[WalletTrade]) -> float:
+    if not trades:
+        return 0.0
+    topic_counts = Counter(trade.topic for trade in trades)
+    dominant_share = max(topic_counts.values()) / len(trades)
+    unique_topics = len(topic_counts)
+    if unique_topics <= 3:
+        breadth_penalty = 1.0
+    else:
+        breadth_penalty = max(0.25, 1.0 - ((unique_topics - 3) * 0.15))
+    return round(max(0.0, min(dominant_share * breadth_penalty, 1.0)), 4)
+
+
+def _human_pace_activity_score(trades: list[WalletTrade]) -> float:
+    if not trades:
+        return 0.0
+    ages = [max(trade.age_seconds, 0) for trade in trades]
+    observed_window_seconds = max(max(ages) - min(ages), 86_400)
+    trades_per_day = len(trades) * 86_400 / observed_window_seconds
+    if trades_per_day < 1.0:
+        return round(max(trades_per_day, 0.2), 4)
+    if trades_per_day <= 10.0:
+        return 1.0
+    if trades_per_day <= 20.0:
+        return round(max(0.4, 1.0 - ((trades_per_day - 10.0) * 0.06)), 4)
+    return round(max(0.0, 0.4 - ((trades_per_day - 20.0) * 0.02)), 4)
+
+
+def _average_liquidity_score(
+    trades: list[WalletTrade],
+    markets: dict[str, MarketSnapshot],
+    filters: FilterConfig,
+) -> float:
+    liquidities = [
+        markets[trade.market_id].liquidity_usd
+        for trade in trades
+        if trade.market_id in markets
+    ]
+    if not liquidities:
+        return 0.0
+    average_liquidity = sum(liquidities) / len(liquidities)
+    if filters.min_liquidity_usd <= 0:
+        return 1.0
+    return round(min(average_liquidity / (filters.min_liquidity_usd * 4.0), 1.0), 4)
+
+
+def _copy_safety_score(
+    trades: list[WalletTrade],
+    markets: dict[str, MarketSnapshot],
+) -> float:
+    size_to_liquidity = [
+        trade.size_usd / max(markets[trade.market_id].liquidity_usd, 1.0)
+        for trade in trades
+        if trade.market_id in markets
+    ]
+    if not size_to_liquidity:
+        return 0.0
+    average_ratio = sum(size_to_liquidity) / len(size_to_liquidity)
+    if average_ratio <= 0.01:
+        return 1.0
+    if average_ratio >= 0.20:
+        return 0.0
+    return round(max(0.0, 1.0 - ((average_ratio - 0.01) / 0.19)), 4)

@@ -74,6 +74,7 @@ class WalletDiscoveryConfig:
     trade_limit_per_wallet: int = 100
     min_trades: int = 20
     min_recent_trades: int = 5
+    min_history_days: int = 1
     recent_window_seconds: int = 2_592_000
     min_avg_trade_size_usd: float = 10.0
     min_assignment_score: float = 0.50
@@ -288,6 +289,7 @@ def _validate_wallet_discovery(config: WalletDiscoveryConfig) -> None:
     _validate_positive(config.trade_limit_per_wallet, "trade_limit_per_wallet")
     _validate_positive(config.min_trades, "min_trades", True)
     _validate_positive(config.min_recent_trades, "min_recent_trades", True)
+    _validate_positive(config.min_history_days, "min_history_days", True)
     _validate_positive(config.recent_window_seconds, "recent_window_seconds")
     _validate_positive(config.min_avg_trade_size_usd, "min_avg_trade_size_usd", True)
     _validate_range(config.min_assignment_score, 0, 1, "min_assignment_score")

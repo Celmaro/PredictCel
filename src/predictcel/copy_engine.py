@@ -289,18 +289,19 @@ class CopyEngine:
         wallet_votes = self._latest_wallet_votes(valid_trades)
         weighted_by_side: dict[str, float] = defaultdict(float)
         wallet_weights: dict[str, float] = {}
-        trade_weights: list[tuple[WalletTrade, float, str]] = []
+        price_weights: list[tuple[WalletTrade, float, str]] = []
         for trade in wallet_votes.values():
             side = trade.side.upper()
-            weight = self._trade_weight(trade, wallet_qualities)
-            weighted_by_side[side] += weight
-            wallet_weights[trade.wallet] = weight
-            trade_weights.append((trade, weight, side))
+            vote_weight = self._vote_weight(trade, wallet_qualities)
+            price_weight = self._price_weight(trade, wallet_qualities)
+            weighted_by_side[side] += vote_weight
+            wallet_weights[trade.wallet] = vote_weight
+            price_weights.append((trade, price_weight, side))
 
         if not weighted_by_side:
             return None, "no_weighted_votes", Counter()
         side = max(weighted_by_side, key=weighted_by_side.get)
-        aligned = [trade for trade, _, trade_side in trade_weights if trade_side == side]
+        aligned = [trade for trade, _, trade_side in price_weights if trade_side == side]
         if not aligned:
             return None, "no_aligned_trades", Counter()
 
@@ -335,11 +336,23 @@ class CopyEngine:
         if weighted_consensus < self.config.consensus.min_weighted_consensus:
             return None, "below_weighted_consensus", Counter()
 
-        confidence_score = self._confidence_score(aligned_weight, total_weight)
+        quality_consensus = self._quality_consensus(aligned_wallets, wallet_qualities)
+        dominant_wallet_share = self._dominant_wallet_share(aligned_wallets, wallet_weights)
+        confidence_score = self._confidence_score(
+            aligned_weight,
+            total_weight,
+            quality_consensus=quality_consensus,
+            dominant_wallet_share=dominant_wallet_share,
+        )
         if confidence_score < self.config.consensus.min_confidence_score:
             return None, "below_confidence", Counter()
 
-        reference_price = self._weighted_reference_price(list(wallet_votes.values()), trade_weights)
+        aligned_price_weights = [
+            (trade, weight, trade_side)
+            for trade, weight, trade_side in price_weights
+            if trade_side == side
+        ]
+        reference_price = self._weighted_reference_price(aligned, aligned_price_weights)
         current_price = market.yes_ask if side == "YES" else market.no_ask
         side_spread = market.yes_spread if side == "YES" else market.no_spread
         side_ask_size = market.yes_ask_size if side == "YES" else market.no_ask_size
@@ -420,8 +433,10 @@ class CopyEngine:
                 reason="weighted basket consensus, market regime, confidence, recency, liquidity, drift, and tradable orderbook inputs passed",
                 market_title=market.title,
                 weighted_consensus=weighted_consensus,
+                quality_consensus=quality_consensus,
                 confidence_score=confidence_score,
                 conflict_penalty=conflict_penalty,
+                dominant_wallet_share=dominant_wallet_share,
                 recency_score=recency_score,
                 suggested_position_usd=suggested_position_usd,
                 market_regime=regime.label,
@@ -440,7 +455,7 @@ class CopyEngine:
                 latest[trade.wallet] = trade
         return latest
 
-    def _trade_weight(
+    def _vote_weight(
         self,
         trade: WalletTrade,
         wallet_qualities: dict[str, WalletQuality],
@@ -453,9 +468,28 @@ class CopyEngine:
         size_weight = min(
             max(
                 trade.size_usd / max(self.config.filters.min_position_size_usd, 1.0),
-                0.25,
+                1.0,
             ),
-            3.0,
+            2.0,
+        )
+        return max(quality_weight * recency_weight * size_weight, 0.0001)
+
+    def _price_weight(
+        self,
+        trade: WalletTrade,
+        wallet_qualities: dict[str, WalletQuality],
+    ) -> float:
+        quality = wallet_qualities.get(trade.wallet)
+        quality_weight = quality.score if quality is not None else 0.5
+        recency_weight = 0.5 ** (
+            trade.age_seconds / self.config.consensus.recency_half_life_seconds
+        )
+        size_weight = min(
+            max(
+                trade.size_usd / max(self.config.filters.min_position_size_usd, 1.0),
+                0.5,
+            ),
+            2.0,
         )
         return max(quality_weight * recency_weight * size_weight, 0.0001)
 
@@ -472,7 +506,7 @@ class CopyEngine:
                 total_weight += weight
         else:
             for trade in trades:
-                weight = self._trade_weight(trade, {})
+                weight = self._price_weight(trade, {})
                 weighted_sum += trade.price * weight
                 total_weight += weight
         return (
@@ -481,7 +515,14 @@ class CopyEngine:
             else sum(trade.price for trade in trades) / len(trades)
         )
 
-    def _confidence_score(self, aligned_weight: float, total_weight: float) -> float:
+    def _confidence_score(
+        self,
+        aligned_weight: float,
+        total_weight: float,
+        *,
+        quality_consensus: float,
+        dominant_wallet_share: float,
+    ) -> float:
         prior = self.config.consensus.confidence_prior_strength
         posterior_mean = (
             (aligned_weight + prior * 0.5) / (total_weight + prior)
@@ -493,7 +534,42 @@ class CopyEngine:
             if total_weight + prior
             else 0.0
         )
-        return round(max(0.0, min(1.0, posterior_mean * sample_strength)), 4)
+        score = posterior_mean * sample_strength
+        score += max(0.0, quality_consensus - 0.5) * 0.1
+        score -= max(0.0, dominant_wallet_share - 0.75) * 0.1
+        return round(max(0.0, min(1.0, score)), 4)
+
+    def _quality_consensus(
+        self,
+        aligned_wallets: list[str],
+        wallet_qualities: dict[str, WalletQuality],
+    ) -> float:
+        if not aligned_wallets:
+            return 0.0
+        values = [
+            wallet_qualities[wallet].score
+            for wallet in aligned_wallets
+            if wallet in wallet_qualities
+        ]
+        if not values:
+            return 0.5
+        return round(sum(values) / len(values), 4)
+
+    def _dominant_wallet_share(
+        self,
+        aligned_wallets: list[str],
+        wallet_weights: dict[str, float],
+    ) -> float:
+        if not aligned_wallets:
+            return 0.0
+        aligned_values = [
+            wallet_weights.get(wallet, 0.0)
+            for wallet in aligned_wallets
+        ]
+        total = sum(aligned_values)
+        if total <= 0:
+            return 0.0
+        return round(max(aligned_values) / total, 4)
 
     def _conflict_penalty(self, aligned_weight: float, total_weight: float) -> float:
         if total_weight <= 0:

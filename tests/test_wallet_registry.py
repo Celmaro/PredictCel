@@ -230,6 +230,131 @@ def test_build_live_basket_roster_ranks_recent_wallets_into_live_slots() -> None
     assert roster["geopolitics"]["refresh_reasons"] == []
 
 
+def test_build_live_basket_roster_uses_trust_seed_as_quality_tiebreaker() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    captured_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    config = replace(
+        config,
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=2,
+            core_slots=1,
+            rotating_slots=1,
+            backup_slots=0,
+            explorer_slots=0,
+            force_refresh_if_fresh_core_below=1,
+            min_active_eligible_wallets=2,
+        ),
+    )
+    memberships = [
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w_low",
+            tier="core",
+            rank=1,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+        BasketMembership(
+            topic="geopolitics",
+            wallet="w_high",
+            tier="core",
+            rank=2,
+            active=True,
+            joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+            effective_until=None,
+            promotion_reason="seeded",
+            demotion_reason="",
+        ),
+    ]
+    registry_entries = [
+        WalletRegistryEntry("w_low", "wallet_discovery", "polymarket_data_api", 0.55, "active", captured_at),
+        WalletRegistryEntry("w_high", "wallet_discovery", "polymarket_data_api", 0.85, "active", captured_at),
+    ]
+    trades = [
+        WalletTrade("w_low", "geopolitics", "m1", "YES", 0.5, 20.0, 300),
+        WalletTrade("w_high", "geopolitics", "m2", "YES", 0.5, 20.0, 300),
+    ]
+
+    roster = build_live_basket_roster(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=captured_at,
+    )
+
+    assert roster["geopolitics"]["selected_wallets"] == {
+        "core": ["w_high"],
+        "rotating": ["w_low"],
+        "backup": [],
+        "explorer": [],
+    }
+    decisions = {
+        decision["wallet"]: decision
+        for decision in roster["geopolitics"]["wallet_decisions"]
+    }
+    assert decisions["w_high"]["trust_seed"] == 0.85
+    assert decisions["w_low"]["trust_seed"] == 0.55
+
+
+def test_build_live_basket_roster_demotes_low_trust_discovered_wallets_from_live_tiers() -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    captured_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    config = replace(
+        config,
+        wallet_discovery=replace(config.wallet_discovery, min_assignment_score=0.5),
+        basket_controller=replace(
+            config.basket_controller,
+            tracked_basket_target=3,
+            core_slots=1,
+            rotating_slots=1,
+            backup_slots=1,
+            explorer_slots=1,
+            force_refresh_if_fresh_core_below=1,
+            min_active_eligible_wallets=2,
+        ),
+    )
+    memberships = [
+        BasketMembership("geopolitics", "w_core", "core", 1, True, captured_at, None, "seeded", ""),
+        BasketMembership("geopolitics", "w_low", "rotating", 2, True, captured_at, None, "discovered", ""),
+        BasketMembership("geopolitics", "w_high", "explorer", 3, True, captured_at, None, "discovered", ""),
+    ]
+    registry_entries = [
+        WalletRegistryEntry("w_core", "static_basket", "config.baskets", 1.0, "active", captured_at),
+        WalletRegistryEntry("w_low", "wallet_discovery", "polymarket_data_api", 0.45, "active", captured_at),
+        WalletRegistryEntry("w_high", "wallet_discovery", "polymarket_data_api", 0.8, "active", captured_at),
+    ]
+    trades = [
+        WalletTrade("w_core", "geopolitics", "m1", "YES", 0.5, 20.0, 120),
+        WalletTrade("w_low", "geopolitics", "m2", "YES", 0.5, 20.0, 150),
+        WalletTrade("w_high", "geopolitics", "m3", "YES", 0.5, 20.0, 180),
+    ]
+
+    roster = build_live_basket_roster(
+        config,
+        memberships,
+        trades,
+        registry_entries=registry_entries,
+        captured_at=captured_at,
+    )
+
+    assert roster["geopolitics"]["selected_wallets"] == {
+        "core": ["w_core"],
+        "rotating": ["w_high"],
+        "backup": ["w_low"],
+        "explorer": [],
+    }
+    decisions = {
+        decision["wallet"]: decision
+        for decision in roster["geopolitics"]["wallet_decisions"]
+    }
+    assert "quality_ineligible_for_rotating" in decisions["w_low"]["decision_reasons"]
+
+
 def test_build_live_basket_roster_flags_refresh_when_core_is_not_fresh_enough() -> None:
     config = load_config(Path("config/predictcel.example.json"))
     captured_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -549,6 +674,7 @@ def test_build_live_basket_roster_excludes_probation_from_core_and_rotating() ->
         "membership_tier": "core",
         "membership_rank": 1,
         "registry_status": "probation",
+        "trust_seed": 0.8,
         "selected": True,
         "selected_tier": "backup",
         "eligible_trade_count": 1,
@@ -619,6 +745,7 @@ def test_build_live_basket_roster_excludes_probation_from_backup_when_backup_is_
         "membership_tier": "backup",
         "membership_rank": 3,
         "registry_status": "probation",
+        "trust_seed": 0.8,
         "selected": True,
         "selected_tier": "explorer",
         "eligible_trade_count": 1,
@@ -853,6 +980,7 @@ def test_refresh_registry_entries_from_trades_updates_status_from_freshness() ->
     config = replace(
         config,
         filters=replace(config.filters, max_trade_age_seconds=3600),
+        wallet_discovery=replace(config.wallet_discovery, min_assignment_score=0.5),
         wallet_registry=replace(
             config.wallet_registry,
             min_probation_days=7,
@@ -868,6 +996,8 @@ def test_refresh_registry_entries_from_trades_updates_status_from_freshness() ->
         WalletRegistryEntry("w_active", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
         WalletRegistryEntry("w_probation_age", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 18, tzinfo=UTC)),
         WalletRegistryEntry("w_probation_count", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
+        WalletRegistryEntry("w_probation_quality", "wallet_discovery", "polymarket_data_api", 0.4, "active", datetime(2026, 1, 1, tzinfo=UTC)),
+        WalletRegistryEntry("w_discovered_active", "wallet_discovery", "polymarket_data_api", 0.7, "active", datetime(2026, 1, 1, tzinfo=UTC)),
         WalletRegistryEntry("w_stale", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
         WalletRegistryEntry("w_suspended", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
         WalletRegistryEntry("w_retired", "static_basket", "config.baskets", 1.0, "active", datetime(2026, 1, 1, tzinfo=UTC)),
@@ -878,6 +1008,10 @@ def test_refresh_registry_entries_from_trades_updates_status_from_freshness() ->
         WalletTrade("w_probation_age", "geopolitics", "m3", "YES", 0.6, 15.0, 600),
         WalletTrade("w_probation_age", "geopolitics", "m4", "YES", 0.6, 15.0, 1200),
         WalletTrade("w_probation_count", "geopolitics", "m5", "YES", 0.6, 15.0, 600),
+        WalletTrade("w_probation_quality", "geopolitics", "m5a", "YES", 0.6, 15.0, 300),
+        WalletTrade("w_probation_quality", "geopolitics", "m5b", "YES", 0.6, 15.0, 900),
+        WalletTrade("w_discovered_active", "geopolitics", "m5c", "YES", 0.6, 15.0, 300),
+        WalletTrade("w_discovered_active", "geopolitics", "m5d", "YES", 0.6, 15.0, 900),
         WalletTrade("w_stale", "geopolitics", "m6", "YES", 0.6, 15.0, 80 * 3600),
         WalletTrade("w_suspended", "geopolitics", "m7", "YES", 0.6, 15.0, 200 * 3600),
         WalletTrade("w_retired", "geopolitics", "m8", "YES", 0.6, 15.0, 40 * 24 * 3600),
@@ -895,6 +1029,8 @@ def test_refresh_registry_entries_from_trades_updates_status_from_freshness() ->
         "w_active": "active",
         "w_probation_age": "probation",
         "w_probation_count": "probation",
+        "w_probation_quality": "probation",
+        "w_discovered_active": "active",
         "w_stale": "stale",
         "w_suspended": "suspended",
         "w_retired": "retired",

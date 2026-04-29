@@ -497,6 +497,45 @@ def test_conflicting_vote_reduces_copyability_score() -> None:
     assert conflicted.copyability_score < clean.copyability_score
 
 
+def test_consensus_prefers_wallet_quality_over_trade_size_for_vote_direction() -> None:
+    consensus = ConsensusConfig(min_weighted_consensus=0.50, min_confidence_score=0.20)
+    engine = CopyEngine(make_config(consensus))
+    trades = [
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.58, 100, 60),
+        WalletTrade("w2", "geopolitics", "m1", "YES", 0.59, 110, 90),
+        WalletTrade("w3", "geopolitics", "m1", "NO", 0.41, 2000, 60),
+    ]
+
+    candidate = engine.evaluate(trades, {"m1": make_market()}, make_qualities())[0]
+
+    assert candidate.side == "YES"
+
+
+def test_concentrated_agreement_reduces_confidence_and_position_size() -> None:
+    consensus = ConsensusConfig(
+        min_weighted_consensus=0.50,
+        min_confidence_score=0.20,
+        bankroll_usd=1000.0,
+        kelly_fraction=1.0,
+        max_suggested_position_usd=25.0,
+    )
+    engine = CopyEngine(make_config(consensus))
+    balanced_trades = [
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.58, 200, 60),
+        WalletTrade("w2", "geopolitics", "m1", "YES", 0.59, 200, 60),
+    ]
+    concentrated_trades = [
+        WalletTrade("w1", "geopolitics", "m1", "YES", 0.58, 200, 60),
+        WalletTrade("w3", "geopolitics", "m1", "YES", 0.59, 200, 1500),
+    ]
+
+    balanced = engine.evaluate(balanced_trades, {"m1": make_market()}, make_qualities())[0]
+    concentrated = engine.evaluate(concentrated_trades, {"m1": make_market()}, make_qualities())[0]
+
+    assert concentrated.confidence_score < balanced.confidence_score
+    assert concentrated.suggested_position_usd < balanced.suggested_position_usd
+
+
 def test_suggested_position_size_is_capped() -> None:
     consensus = ConsensusConfig(
         min_confidence_score=0.20,

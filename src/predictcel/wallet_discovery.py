@@ -172,16 +172,36 @@ class WalletDiscoveryPipeline:
         profile = classify_wallet_topics(trades, self.config.wallet_discovery.topics)
         total_trades = len(trades)
         recent_trades = sum(1 for trade in trades if _age_seconds(trade) <= self.config.wallet_discovery.recent_window_seconds)
+        history_days = _observed_history_days(trades)
         avg_size = _average_trade_size(trades)
+        sample_score = min(total_trades / max(self.config.wallet_discovery.min_trades * 3, 1), 1.0)
+        recency_score = min(recent_trades / max(self.config.wallet_discovery.min_recent_trades * 3, 1), 1.0)
+        history_score = min(
+            history_days / max(self.config.wallet_discovery.min_history_days, 1),
+            1.0,
+        )
+        activity_score = _activity_score(trades)
+        size_band_score = _size_band_score(avg_size, self.config.wallet_discovery.min_avg_trade_size_usd)
         rejected = []
         if total_trades < self.config.wallet_discovery.min_trades:
             rejected.append("not enough total trades")
         if recent_trades < self.config.wallet_discovery.min_recent_trades:
             rejected.append("not enough recent trades")
+        if history_days < self.config.wallet_discovery.min_history_days:
+            rejected.append("history too short for registry promotion")
         if avg_size < self.config.wallet_discovery.min_avg_trade_size_usd:
             rejected.append("average trade size too small")
+        if activity_score <= 0.2:
+            rejected.append("activity cadence looks too fast to copy safely")
 
-        score = self._candidate_score(profile.specialization_score, total_trades, recent_trades, avg_size)
+        score = self._candidate_score(
+            specialization=profile.specialization_score,
+            sample_score=sample_score,
+            recency_score=recency_score,
+            history_score=history_score,
+            activity_score=activity_score,
+            size_band_score=size_band_score,
+        )
         return WalletDiscoveryCandidate(
             wallet_address=address,
             source=source,
@@ -192,13 +212,31 @@ class WalletDiscoveryPipeline:
             score=score,
             confidence=_confidence(score),
             rejected_reasons=rejected,
+            history_days=history_days,
+            sample_score=round(sample_score, 4),
+            recency_score=round(recency_score, 4),
+            history_score=round(history_score, 4),
+            activity_score=round(activity_score, 4),
+            size_band_score=round(size_band_score, 4),
         )
 
-    def _candidate_score(self, specialization: float, total_trades: int, recent_trades: int, avg_size: float) -> float:
-        sample_score = min(total_trades / max(self.config.wallet_discovery.min_trades * 3, 1), 1.0)
-        recent_score = min(recent_trades / max(self.config.wallet_discovery.min_recent_trades * 3, 1), 1.0)
-        size_score = min(avg_size / max(self.config.wallet_discovery.min_avg_trade_size_usd * 5, 1.0), 1.0)
-        score = (specialization * 0.35) + (sample_score * 0.25) + (recent_score * 0.25) + (size_score * 0.15)
+    def _candidate_score(
+        self,
+        specialization: float,
+        sample_score: float,
+        recency_score: float,
+        history_score: float,
+        activity_score: float,
+        size_band_score: float,
+    ) -> float:
+        score = (
+            (specialization * 0.30)
+            + (sample_score * 0.20)
+            + (recency_score * 0.18)
+            + (history_score * 0.12)
+            + (activity_score * 0.12)
+            + (size_band_score * 0.08)
+        )
         return round(max(0.0, min(score, 1.0)), 4)
 
     def _safe_fetch_trades(self, address: str) -> list[dict[str, Any]]:
@@ -244,16 +282,74 @@ def _average_trade_size(trades: list[dict[str, Any]]) -> float:
     return sum(sizes) / len(sizes) if sizes else 0.0
 
 
-def _age_seconds(trade: dict[str, Any]) -> int:
+def _activity_score(trades: list[dict[str, Any]]) -> float:
+    trades_per_day = _estimated_trades_per_day(trades)
+    if trades_per_day <= 0:
+        return 0.0
+    if trades_per_day < 1.0:
+        return round(max(trades_per_day, 0.25), 4)
+    if trades_per_day <= 10.0:
+        return 1.0
+    if trades_per_day <= 20.0:
+        return round(max(0.3, 1.0 - ((trades_per_day - 10.0) * 0.07)), 4)
+    return round(max(0.0, 0.3 - ((trades_per_day - 20.0) * 0.02)), 4)
+
+
+def _estimated_trades_per_day(trades: list[dict[str, Any]]) -> float:
+    if not trades:
+        return 0.0
+    trade_days = {
+        _trade_datetime(trade).date()
+        for trade in trades
+        if _trade_datetime(trade) is not None
+    }
+    observed_days = max(len(trade_days), 1)
+    return len(trades) / observed_days
+
+
+def _observed_history_days(trades: list[dict[str, Any]]) -> int:
+    trade_datetimes = [
+        trade_dt
+        for trade in trades
+        if (trade_dt := _trade_datetime(trade)) is not None
+    ]
+    if not trade_datetimes:
+        return 0
+    earliest = min(trade_datetimes)
+    latest = max(trade_datetimes)
+    return max((latest.date() - earliest.date()).days + 1, 1)
+
+
+def _size_band_score(avg_size: float, minimum_size: float) -> float:
+    if minimum_size <= 0:
+        return 1.0
+    if avg_size < minimum_size:
+        return 0.0
+    preferred_size = minimum_size * 3
+    soft_cap = minimum_size * 20
+    if avg_size <= preferred_size:
+        return round(min(avg_size / preferred_size, 1.0), 4)
+    if avg_size <= soft_cap:
+        taper = (avg_size - preferred_size) / max(soft_cap - preferred_size, 1.0)
+        return round(max(0.6, 1.0 - (taper * 0.4)), 4)
+    return 0.6
+
+
+def _trade_datetime(trade: dict[str, Any]) -> datetime | None:
     value = trade.get("timestamp") or trade.get("createdAt") or trade.get("created_at")
     if value is None:
-        return 10**9
+        return None
     try:
         if isinstance(value, (int, float)):
-            dt = datetime.fromtimestamp(float(value), tz=UTC)
-        else:
-            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
+            return datetime.fromtimestamp(float(value), tz=UTC)
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
     except ValueError:
+        return None
+
+
+def _age_seconds(trade: dict[str, Any]) -> int:
+    dt = _trade_datetime(trade)
+    if dt is None:
         return 10**9
     return max(int((datetime.now(UTC) - dt).total_seconds()), 0)
 
