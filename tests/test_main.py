@@ -2405,61 +2405,35 @@ def test_build_wallet_registry_summary_ignores_static_explorer_bench_depth_for_p
     assert summary["promotion_watch_by_topic"] == {}
 
 
-def test_probe_token_orderbook_uses_fresh_client(monkeypatch) -> None:
+def test_probe_token_orderbook_uses_passed_client() -> None:
     observed = {}
 
-    class FreshProbeClient:
-        def __init__(
-            self,
-            gamma_base_url,
-            data_base_url,
-            clob_base_url,
-            timeout_seconds,
-            max_retries,
-            retry_base_delay_seconds,
-        ):
-            observed["args"] = (
-                gamma_base_url,
-                data_base_url,
-                clob_base_url,
-                timeout_seconds,
-                max_retries,
-                retry_base_delay_seconds,
-            )
-
+    class ReusedProbeClient(ProbeSourceClient):
         def fetch_order_book(self, token_id: str):
+            observed["token_id"] = token_id
             raise RuntimeError(f"root cause for {token_id}")
 
-    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FreshProbeClient)
+    client = ReusedProbeClient()
 
-    result = _probe_token_orderbook(ProbeSourceClient(), "token_yes")
+    result = _probe_token_orderbook(client, "token_yes")
 
     assert result == {
         "token_id": "token_yes",
         "error": "RuntimeError: root cause for token_yes",
     }
-    assert observed["args"] == (
-        "https://gamma-api.polymarket.com",
-        "https://data-api.polymarket.com",
-        "https://clob.polymarket.com",
-        15,
-        1,
-        0.5,
-    )
+    assert observed == {"token_id": "token_yes"}
 
 
-def test_probe_token_lookup_uses_fresh_client(monkeypatch) -> None:
-    class FreshProbeClient:
-        def __init__(self, *args):
-            pass
+def test_probe_token_lookup_uses_passed_client() -> None:
+    observed = {}
 
+    class ReusedProbeClient(ProbeSourceClient):
         def fetch_markets_by_clob_token_ids(
             self,
             token_ids: list[str],
             chunk_size: int = 25,
         ):
-            assert token_ids == ["token_yes"]
-            assert chunk_size == 1
+            observed["call"] = (token_ids, chunk_size)
             return [
                 {
                     "conditionId": "cond_1",
@@ -2468,9 +2442,7 @@ def test_probe_token_lookup_uses_fresh_client(monkeypatch) -> None:
                 }
             ]
 
-    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FreshProbeClient)
-
-    result = _probe_token_lookup(ProbeSourceClient(), "token_yes")
+    result = _probe_token_lookup(ReusedProbeClient(), "token_yes")
 
     assert result == {
         "matched_rows": 1,
@@ -2480,21 +2452,21 @@ def test_probe_token_lookup_uses_fresh_client(monkeypatch) -> None:
         "token_ids": ["token_yes", "token_no"],
         "matched_input_token": True,
     }
+    assert observed == {"call": (["token_yes"], 1)}
 
 
-def test_recover_unresolved_token_market_rows_uses_single_token_probes(
-    monkeypatch,
-) -> None:
-    class FreshProbeClient:
-        def __init__(self, *args):
-            pass
+def test_recover_unresolved_token_market_rows_uses_single_token_probes() -> None:
+    class ReusedProbeClient(ProbeSourceClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[list[str], int]] = []
 
         def fetch_markets_by_clob_token_ids(
             self,
             token_ids: list[str],
             chunk_size: int = 25,
         ):
-            assert chunk_size == 1
+            self.calls.append((token_ids, chunk_size))
             if token_ids == ["token_yes"]:
                 return [
                     {
@@ -2505,10 +2477,10 @@ def test_recover_unresolved_token_market_rows_uses_single_token_probes(
                 ]
             return []
 
-    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FreshProbeClient)
+    client = ReusedProbeClient()
 
     rows, stats, unresolved = _recover_unresolved_token_market_rows(
-        ProbeSourceClient(),
+        client,
         ["token_yes", "token_missing"],
     )
 
@@ -2521,6 +2493,10 @@ def test_recover_unresolved_token_market_rows_uses_single_token_probes(
     ]
     assert stats == {"requested": 2, "matched": 1, "unmatched": 1}
     assert unresolved == ["token_missing"]
+    assert sorted(client.calls) == [
+        (["token_missing"], 1),
+        (["token_yes"], 1),
+    ]
 
 
 def test_propagate_canonical_market_updates_rebinds_stale_aliases() -> None:

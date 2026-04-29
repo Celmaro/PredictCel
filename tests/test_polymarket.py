@@ -115,6 +115,29 @@ class FakeFilteredTradeClient(PolymarketPublicClient):
         }
 
 
+class CachedVariantTradeClient(PolymarketPublicClient):
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+
+    def _get_json(self, url: str):
+        self.urls.append(url)
+        if "address=0xabc" in url:
+            return {
+                "trades": [
+                    {
+                        "asset": "token_yes",
+                        "side": "BUY_YES",
+                        "price": "0.54",
+                        "sizeUsd": "25",
+                        "createdAt": "2025-12-31T23:50:00Z",
+                        "user": "0xabc",
+                    }
+                ]
+            }
+        return {"trades": []}
+
+
 class FakeHTTPResponse:
     def __init__(self, payload):
         self.payload = payload
@@ -266,6 +289,19 @@ def test_fetch_wallet_trades_filters_rows_to_requested_wallet() -> None:
     assert rows[0]["asset"] == "token_right"
 
 
+def test_fetch_wallet_trades_caches_preferred_endpoint_variant() -> None:
+    client = CachedVariantTradeClient()
+
+    first_rows = client.fetch_wallet_trades("0xabc", 5)
+    second_rows = client.fetch_wallet_trades("0xabc", 5)
+
+    assert first_rows[0]["asset"] == "token_yes"
+    assert second_rows[0]["asset"] == "token_yes"
+    assert "user=0xabc" in client.urls[0]
+    assert "address=0xabc" in client.urls[1]
+    assert "address=0xabc" in client.urls[2]
+
+
 def test_fetch_market_trades_uses_repeated_market_query_params() -> None:
     client = FakeTradeClient()
 
@@ -370,10 +406,14 @@ def test_fetch_order_book_treats_missing_clob_book_as_empty_payload(
 ) -> None:
     client = PolymarketPublicClient(max_retries=1)
 
-    def fake_urlopen(request, timeout=15):
-        raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
+    class FakeTransport:
+        async def fetch_json(self, url: str):
+            raise HTTPError(url, 404, "Not Found", hdrs=None, fp=None)
 
-    monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
+        def run(self, coroutine):
+            return asyncio.run(coroutine)
+
+    monkeypatch.setattr(client, "_http_transport", FakeTransport())
 
     book = client.fetch_order_book("missing_token")
 
@@ -384,17 +424,19 @@ def test_fetch_order_book_treats_missing_clob_book_as_empty_payload(
 def test_missing_clob_book_does_not_block_later_valid_books(monkeypatch) -> None:
     client = PolymarketPublicClient(max_retries=1)
 
-    def fake_urlopen(request, timeout=15):
-        if "missing_token" in request.full_url:
-            raise HTTPError(request.full_url, 404, "Not Found", hdrs=None, fp=None)
-        return FakeHTTPResponse(
-            {
+    class FakeTransport:
+        async def fetch_json(self, url: str):
+            if "missing_token" in url:
+                raise HTTPError(url, 404, "Not Found", hdrs=None, fp=None)
+            return {
                 "bids": [{"price": "0.48", "size": "10"}],
                 "asks": [{"price": "0.52", "size": "12"}],
             }
-        )
 
-    monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
+        def run(self, coroutine):
+            return asyncio.run(coroutine)
+
+    monkeypatch.setattr(client, "_http_transport", FakeTransport())
 
     missing_book = client.fetch_order_book("missing_token")
     valid_book = client.fetch_order_book("valid_token")
@@ -408,19 +450,17 @@ def test_gamma_circuit_breaker_does_not_block_clob_requests(monkeypatch) -> None
     client = PolymarketPublicClient(max_retries=1)
     client._gamma_circuit_breaker.failure_threshold = 1
 
-    def fake_urlopen(request, timeout=15):
-        if request.full_url.startswith(client.gamma_base_url):
+    def fake_fetch_json_with_retries(url: str):
+        if url.startswith(client.gamma_base_url):
             raise URLError("gamma down")
-        if request.full_url.startswith(client.clob_base_url):
-            return FakeHTTPResponse(
-                {
-                    "bids": [{"price": "0.48", "size": "10"}],
-                    "asks": [{"price": "0.52", "size": "12"}],
-                }
-            )
-        raise AssertionError(f"Unexpected URL: {request.full_url}")
+        if url.startswith(client.clob_base_url):
+            return {
+                "bids": [{"price": "0.48", "size": "10"}],
+                "asks": [{"price": "0.52", "size": "12"}],
+            }
+        raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
+    monkeypatch.setattr(client, "_fetch_json_with_retries", fake_fetch_json_with_retries)
 
     with pytest.raises(URLError):
         client.fetch_active_markets(1)
@@ -477,14 +517,14 @@ def test_get_json_deduplicates_inflight_requests(monkeypatch) -> None:
     release = threading.Event()
     calls = {"count": 0}
 
-    def fake_urlopen(request, timeout=15):
-        del timeout
+    def fake_fetch_json_with_retries(url: str):
+        del url
         calls["count"] += 1
         started.set()
         release.wait(timeout=1)
-        return FakeHTTPResponse({"markets": [{"conditionId": "cond_1"}]})
+        return {"markets": [{"conditionId": "cond_1"}]}
 
-    monkeypatch.setattr("predictcel.polymarket.urlopen", fake_urlopen)
+    monkeypatch.setattr(client, "_fetch_json_with_retries", fake_fetch_json_with_retries)
 
     def fetch():
         return client._get_json(f"{client.gamma_base_url}/markets?limit=1")
@@ -501,6 +541,19 @@ def test_get_json_deduplicates_inflight_requests(monkeypatch) -> None:
         {"markets": [{"conditionId": "cond_1"}]},
         {"markets": [{"conditionId": "cond_1"}]},
     ]
+
+
+def test_memory_cache_evicts_oldest_entries_when_bounded() -> None:
+    client = PolymarketPublicClient()
+    client._cache_max_entries = 2
+
+    client._set_cached("one", {"value": 1})
+    client._set_cached("two", {"value": 2})
+    client._set_cached("three", {"value": 3})
+
+    assert client._get_cached("one") is None
+    assert client._get_cached("two") == {"value": 2}
+    assert client._get_cached("three") == {"value": 3}
 
 
 def test_wallet_trade_from_data_uses_outcome_and_timestamp() -> None:
@@ -686,3 +739,23 @@ def test_validate_response_accepts_outcome_prices_market_payload() -> None:
         {"data": [{"conditionId": "cond_1", "outcomePrices": "[0.61, 0.35]"}]},
         "https://gamma-api.polymarket.com/markets?limit=1",
     )
+
+
+def test_validate_response_skips_anomaly_scan_when_not_sampled(monkeypatch) -> None:
+    client = PolymarketPublicClient()
+    called = {"value": False}
+
+    monkeypatch.setattr(client, "_should_sample_validation", lambda: False)
+
+    def fake_validate_price_anomalies(payload, url):
+        del payload, url
+        called["value"] = True
+
+    monkeypatch.setattr(client, "_validate_price_anomalies", fake_validate_price_anomalies)
+
+    client._validate_response(
+        [{"yes": 0.61, "no": 0.35}],
+        "https://gamma-api.polymarket.com/data",
+    )
+
+    assert called["value"] is False
