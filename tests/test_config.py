@@ -10,7 +10,7 @@ def test_example_config_loads() -> None:
     config = load_config(Path("config/predictcel.example.json"))
 
     assert config.baskets
-    assert len(config.baskets) == 5
+    assert len(config.baskets) == 8
     assert config.filters.min_liquidity_usd > 0
     assert config.arbitrage.min_gross_edge > 0
     assert config.execution is not None
