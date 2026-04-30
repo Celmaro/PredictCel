@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
+from urllib.request import Request, urlopen
 
 import aiohttp
 from .models import MarketSnapshot, WalletTrade
@@ -127,25 +128,15 @@ class _AsyncHttpTransport:
         return future.result(timeout=timeout)
 
     async def fetch_json(self, url: str) -> Any:
-        if self._session is None:
-            raise RuntimeError("HTTP transport session not available")
         try:
-            async with self._session.get(
-                url,
-                headers={"User-Agent": "PredictCel/0.1"},
-            ) as response:
-                text = await response.text()
-                if response.status >= 400:
-                    raise HTTPError(
-                        url,
-                        response.status,
-                        response.reason,
-                        hdrs=response.headers,
-                        fp=None,
-                    )
-        except aiohttp.ClientError as exc:
+            return await asyncio.to_thread(self._fetch_json_sync, url)
+        except OSError as exc:
             raise URLError(str(exc)) from exc
-        return json.loads(text)
+
+    def _fetch_json_sync(self, url: str) -> Any:
+        request = Request(url, headers={"User-Agent": "PredictCel/0.1"})
+        with urlopen(request, timeout=self.timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
 
     def close(self) -> None:
         with self._lock:

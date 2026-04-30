@@ -9,7 +9,7 @@ description = "Paper-mode basket consensus and arbitrage sidecar scaffold"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Celmaro" }]
-dependencies = ["numpy>=1.24.0", "aiohttp>=3.9.0"]
+dependencies = ["numpy>=1.24.0", "aiohttp>=3.9.0", "pycryptodome>=3.20.0"]
 
 [project.optional-dependencies]
 dev = ["mypy>=1.11.0", "pytest>=8.0", "pytest-benchmark>=4.0.0", "pytest-mock>=3.12.0"]
