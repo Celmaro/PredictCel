@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+import sqlite3
 from uuid import uuid4
 
 import pytest
@@ -294,6 +295,47 @@ def test_open_orders_round_trip_by_client_order_id() -> None:
         assert record["status"] == "filled"
         assert record["filled_shares"] == 50.0
         assert record["avg_fill_price"] == 0.5
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_store_init_migrates_legacy_open_orders_before_client_id_index() -> None:
+    db_path = Path(__file__).with_name(f".predictcel-legacy-open-orders-{uuid4().hex}.db")
+    connection = sqlite3.connect(str(db_path))
+    try:
+        connection.execute(
+            """
+            CREATE TABLE open_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_id TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                side TEXT NOT NULL,
+                token_id TEXT NOT NULL,
+                order_type TEXT NOT NULL,
+                price REAL NOT NULL,
+                amount REAL NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    store = SignalStore(str(db_path))
+    try:
+        columns = {
+            row[1]
+            for row in store.connection.execute("PRAGMA table_info(open_orders)")
+        }
+        assert "client_order_id" in columns
+        indexes = {
+            row[1] for row in store.connection.execute("PRAGMA index_list(open_orders)")
+        }
+        assert "idx_open_orders_client_order_id" in indexes
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)

@@ -257,18 +257,6 @@ class SignalStore:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_positions_opened_at ON positions(opened_at)"
             )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_open_orders_status_market ON open_orders(status, market_id)"
-            )
-            cursor.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_open_orders_client_order_id ON open_orders(client_order_id)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_basket_memberships_topic_tier ON basket_memberships(topic, tier)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_basket_health_topic_captured_at ON basket_health_snapshots(topic, captured_at DESC)"
-            )
             self._ensure_column(
                 "positions", "entry_shares", "REAL NOT NULL DEFAULT 0.0"
             )
@@ -286,6 +274,18 @@ class SignalStore:
                 "open_orders", "avg_fill_price", "REAL NOT NULL DEFAULT 0.0"
             )
             self._ensure_column("open_orders", "payload", "TEXT NOT NULL DEFAULT '{}'")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_open_orders_status_market ON open_orders(status, market_id)"
+            )
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_open_orders_client_order_id ON open_orders(client_order_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_basket_memberships_topic_tier ON basket_memberships(topic, tier)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_basket_health_topic_captured_at ON basket_health_snapshots(topic, captured_at DESC)"
+            )
 
             self.connection.commit()
 
