@@ -78,3 +78,97 @@ def test_load_config_rejects_invalid_basket_promotion_thresholds(tmp_path) -> No
 
     with pytest.raises(ConfigError, match="min_live_eligible_wallets"):
         load_config(config_path)
+
+
+def test_load_config_rejects_recent_trade_threshold_above_total(monkeypatch) -> None:
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
+    payload["wallet_discovery"]["min_trades"] = 5
+    payload["wallet_discovery"]["min_recent_trades"] = 6
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda self, encoding="utf-8": json.dumps(payload),
+    )
+
+    with pytest.raises(ConfigError, match="min_recent_trades"):
+        load_config("synthetic-config.json")
+
+
+def test_load_config_rejects_execution_single_position_above_total_exposure(
+    monkeypatch,
+) -> None:
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
+    payload["execution"]["exposure"]["max_total_exposure_usd"] = 50
+    payload["execution"]["exposure"]["max_single_position_usd"] = 60
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda self, encoding="utf-8": json.dumps(payload),
+    )
+
+    with pytest.raises(ConfigError, match="max_single_position_usd"):
+        load_config("synthetic-config.json")
+
+
+def test_load_config_rejects_arbitrage_min_position_above_max_position(
+    monkeypatch,
+) -> None:
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
+    payload["arbitrage"]["min_profitable_position_usd"] = 55
+    payload["arbitrage"]["max_position_usd"] = 50
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda self, encoding="utf-8": json.dumps(payload),
+    )
+
+    with pytest.raises(ConfigError, match="min_profitable_position_usd"):
+        load_config("synthetic-config.json")
+
+
+def test_load_config_rejects_arbitrage_target_return_above_max_return(
+    monkeypatch,
+) -> None:
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
+    payload["arbitrage"]["target_annualized_return"] = 11
+    payload["arbitrage"]["max_annualized_return"] = 10
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda self, encoding="utf-8": json.dumps(payload),
+    )
+
+    with pytest.raises(ConfigError, match="target_annualized_return"):
+        load_config("synthetic-config.json")
+
+
+def test_load_config_rejects_invalid_basket_wallet_address(tmp_path) -> None:
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
+    payload["baskets"][0]["wallets"] = ["not-a-wallet"]
+    config_path = tmp_path / "invalid-basket-wallet.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="invalid wallet addresses"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_invalid_live_data_url(tmp_path) -> None:
+    payload = json.loads(
+        Path("config/predictcel.example.json").read_text(encoding="utf-8")
+    )
+    payload["live_data"]["gamma_base_url"] = "notaurl"
+    config_path = tmp_path / "invalid-live-url.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="gamma_base_url"):
+        load_config(config_path)

@@ -1771,6 +1771,8 @@ def test_apply_basket_manager_actions_to_memberships_adds_and_deactivates_regist
     assert diagnostics == {
         "actions_applied": 2,
         "action_counts": {"add": 1, "suspend": 1},
+        "advisory_action_counts": {"observe": 1},
+        "ignored_action_counts": {},
         "memberships_activated": 1,
         "memberships_deactivated": 1,
     }

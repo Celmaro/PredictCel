@@ -11,6 +11,9 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+HEX_CHARS = set("0123456789abcdefABCDEF")
 
 
 def _default_topic_keywords() -> dict[str, list[str]]:
@@ -253,6 +256,28 @@ def _validate_baskets(baskets: list[BasketRule]) -> None:
             raise ConfigError(f"Invalid quorum_ratio for topic {basket.topic}.")
         if not basket.wallets:
             raise ConfigError(f"Basket {basket.topic} has no wallets.")
+        invalid_wallets = [
+            wallet for wallet in basket.wallets if not _is_evm_address(wallet)
+        ]
+        if invalid_wallets:
+            raise ConfigError(
+                f"Basket {basket.topic} has invalid wallet addresses: {invalid_wallets[:3]}"
+            )
+
+
+def _is_evm_address(value: str) -> bool:
+    value = str(value).strip()
+    return (
+        len(value) == 42
+        and value.startswith("0x")
+        and all(char in HEX_CHARS for char in value[2:])
+    )
+
+
+def _validate_http_url(value: str, name: str) -> None:
+    parsed = urlparse(str(value).strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ConfigError(f"{name} must be a valid http(s) URL.")
 
 
 def _validate_filters(filters: FilterConfig) -> None:
@@ -323,6 +348,9 @@ def _validate_wallet_discovery(config: WalletDiscoveryConfig) -> None:
     _validate_range(config.min_assignment_score, 0, 1, "min_assignment_score")
     _validate_positive(config.max_wallets_per_basket, "max_wallets_per_basket")
     _validate_positive(config.max_new_wallets_per_run, "max_new_wallets_per_run")
+
+    if config.min_recent_trades > config.min_trades:
+        raise ConfigError("min_recent_trades cannot exceed min_trades.")
 
 
 def _validate_wallet_registry(config: WalletRegistryConfig) -> None:
@@ -458,6 +486,15 @@ def _validate_arbitrage(config: ArbitrageConfig) -> None:
     )
     _validate_positive(config.max_annualized_return, "max_annualized_return")
 
+    if config.min_profitable_position_usd > config.max_position_usd:
+        raise ConfigError(
+            "min_profitable_position_usd cannot exceed max_position_usd."
+        )
+    if config.target_annualized_return > config.max_annualized_return:
+        raise ConfigError(
+            "target_annualized_return cannot exceed max_annualized_return."
+        )
+
 
 def _validate_live_data(config: LiveDataConfig | None) -> None:
     """Validate live data configuration."""
@@ -467,6 +504,9 @@ def _validate_live_data(config: LiveDataConfig | None) -> None:
     _validate_positive(config.market_limit, "market_limit")
     _validate_positive(config.trade_limit, "trade_limit")
     _validate_positive(config.request_timeout_seconds, "request_timeout_seconds")
+    _validate_http_url(config.gamma_base_url, "gamma_base_url")
+    _validate_http_url(config.data_base_url, "data_base_url")
+    _validate_http_url(config.clob_base_url, "clob_base_url")
 
 
 def _validate_execution(config: ExecutionConfig | None) -> None:
@@ -506,6 +546,13 @@ def _validate_execution(config: ExecutionConfig | None) -> None:
             "max_single_position_usd",
             True,
         )
+        if (
+            config.exposure.max_single_position_usd
+            > config.exposure.max_total_exposure_usd
+        ):
+            raise ConfigError(
+                "max_single_position_usd cannot exceed max_total_exposure_usd."
+            )
 
 
 def _build_execution_config(payload: dict[str, Any]) -> ExecutionConfig:
@@ -608,6 +655,22 @@ def load_config(path: str | Path) -> AppConfig:
     _validate_arbitrage(arbitrage)
     _validate_live_data(live_data)
     _validate_execution(execution)
+
+    wallet_trades_path = Path(payload["wallet_trades_path"])
+    market_snapshots_path = Path(payload["market_snapshots_path"])
+    if not wallet_trades_path.exists():
+        raise ConfigError(f"wallet_trades_path does not exist: {wallet_trades_path}")
+    if not market_snapshots_path.exists():
+        raise ConfigError(
+            f"market_snapshots_path does not exist: {market_snapshots_path}"
+        )
+    if (
+        wallet_discovery.source == "curated_wallet_file"
+        and not Path(wallet_discovery.wallet_candidates_path).exists()
+    ):
+        raise ConfigError(
+            "wallet_candidates_path does not exist for curated_wallet_file source."
+        )
 
     return AppConfig(
         baskets=baskets,

@@ -31,6 +31,40 @@ __all__ = [
 ]
 
 
+def _normalized_contract_value(value: str) -> str:
+    return str(value).strip().lower()
+
+
+def _normalized_execution_status(value: str) -> str:
+    normalized = _normalized_contract_value(value)
+    if normalized in {"success", "matched", "filled"}:
+        return "filled"
+    if normalized in {"submitted", "accepted", "live"}:
+        return "submitted"
+    if normalized in {"pending", "open", "queued"}:
+        return "pending"
+    if normalized in {"failed", "failure", "error", "rejected"}:
+        return "error"
+    if normalized in {"simulated", "dry_run"}:
+        return "dry_run"
+    if normalized in {"cancelled", "canceled"}:
+        return "canceled"
+    return normalized
+
+
+def _normalized_position_status(value: str) -> str:
+    normalized = _normalized_contract_value(value)
+    if normalized in {"open", "opening"}:
+        return "open"
+    if normalized in {"closing"}:
+        return "closing"
+    if normalized in {"closed"}:
+        return "closed"
+    if normalized in {"liquidated"}:
+        return "liquidated"
+    return normalized
+
+
 @dataclass(frozen=True)
 class WalletTrade:
     """Represents a single trade made by a wallet."""
@@ -238,12 +272,25 @@ class BasketAssignment:
 class BasketManagerAction:
     """Action recommended by the basket manager."""
 
-    action: Literal["ADD", "REMOVE", "REVIEW"]
+    action: Literal[
+        "ADD",
+        "REMOVE",
+        "REVIEW",
+        "add",
+        "remove",
+        "review",
+        "suspend",
+        "observe",
+        "rebalance",
+    ]
     basket: str
     wallet_address: str
     score: float
     confidence: Literal["HIGH", "MEDIUM", "LOW"]
     reason: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "action", _normalized_contract_value(self.action))
 
 
 @dataclass(frozen=True)
@@ -278,7 +325,7 @@ class ExecutionIntent:
 
     market_id: str
     topic: str
-    side: Literal["YES", "NO"]
+    side: Literal["YES", "NO", "CLOSE"]
     token_id: str
     amount_usd: float
     worst_price: float
@@ -294,16 +341,22 @@ class ExecutionResult:
 
     market_id: str
     topic: str
-    side: Literal["YES", "NO"]
+    side: Literal["YES", "NO", "CLOSE"]
     token_id: str
     amount_usd: float
     worst_price: float
-    status: Literal["SUCCESS", "FAILED", "PENDING"]
+    status: Literal["dry_run", "submitted", "filled", "pending", "error", "canceled"]
     order_id: str
     error: str
     copyability_score: float
     reason: str
     market_title: str = ""
+    client_order_id: str = ""
+    filled_shares: float = 0.0
+    avg_fill_price: float = 0.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "status", _normalized_execution_status(self.status))
 
 
 @dataclass(frozen=True)
@@ -323,5 +376,10 @@ class Position:
     take_profit_pct: float
     stop_loss_pct: float
     max_hold_minutes: int
-    status: Literal["OPEN", "CLOSED", "LIQUIDATED"]
+    status: Literal["open", "closing", "closed", "liquidated"]
     market_title: str = ""
+    entry_shares: float = 0.0
+    remaining_shares: float = 0.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "status", _normalized_position_status(self.status))

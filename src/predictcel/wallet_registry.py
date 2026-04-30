@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+import logging
 from typing import TYPE_CHECKING, Iterable
 
 from .models import (
@@ -19,6 +20,8 @@ from .models import (
 
 if TYPE_CHECKING:
     from .config import AppConfig
+
+logger = logging.getLogger(__name__)
 
 TIER_ORDER = ("core", "rotating", "backup", "explorer")
 TIER_PRIORITY = {tier: index for index, tier in enumerate(TIER_ORDER)}
@@ -699,12 +702,26 @@ def apply_basket_manager_actions_to_memberships(
     registry_by_wallet = {entry.wallet: entry for entry in registry_entries}
 
     action_counts: dict[str, int] = defaultdict(int)
+    advisory_action_counts: dict[str, int] = defaultdict(int)
+    ignored_action_counts: dict[str, int] = defaultdict(int)
     memberships_activated = 0
     memberships_deactivated = 0
 
     for action in actions:
         action_name = str(action.action).strip().lower()
+        if action_name in {"observe", "rebalance"}:
+            advisory_action_counts[action_name] += 1
+            continue
         if action_name not in {"add", "suspend", "remove"}:
+            ignored_action_counts[action_name] += 1
+            logger.warning(
+                "Ignoring unsupported basket manager action",
+                extra={
+                    "action": action_name,
+                    "basket": action.basket,
+                    "wallet": action.wallet_address,
+                },
+            )
             continue
         membership_key = (action.basket, action.wallet_address)
         existing_membership = memberships_by_key.get(membership_key)
@@ -774,6 +791,8 @@ def apply_basket_manager_actions_to_memberships(
     diagnostics = {
         "actions_applied": sum(action_counts.values()),
         "action_counts": dict(sorted(action_counts.items())),
+        "advisory_action_counts": dict(sorted(advisory_action_counts.items())),
+        "ignored_action_counts": dict(sorted(ignored_action_counts.items())),
         "memberships_activated": memberships_activated,
         "memberships_deactivated": memberships_deactivated,
     }

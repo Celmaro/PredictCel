@@ -1,9 +1,11 @@
 import asyncio
+import inspect
 import json
 import logging
 import random
 import threading
 import time
+from collections.abc import Iterable, Iterator, MutableMapping
 from collections import OrderedDict
 from concurrent.futures import as_completed
 from dataclasses import replace
@@ -19,14 +21,163 @@ from .runtime import shared_io_executor
 
 logger = logging.getLogger(__name__)
 
-_metrics_local = threading.local()
+_metrics_lock = threading.Lock()
+_metrics = {"requests": 0, "errors": 0}
 
 
-def _get_metrics() -> dict:
-    """Get thread-local metrics."""
-    if not hasattr(_metrics_local, "metrics"):
-        _metrics_local.metrics = {"requests": 0, "errors": 0}
-    return _metrics_local.metrics
+def _record_metric(key: str, value: int = 1) -> None:
+    with _metrics_lock:
+        _metrics[key] = _metrics.get(key, 0) + value
+
+
+def get_polymarket_metrics(*, reset: bool = False) -> dict[str, int]:
+    with _metrics_lock:
+        snapshot = dict(_metrics)
+        if reset:
+            for key in _metrics:
+                _metrics[key] = 0
+        return snapshot
+
+
+class MarketCatalog(MutableMapping[str, MarketSnapshot]):
+    """Canonical market store with a separate alias index."""
+
+    def __init__(self) -> None:
+        self._canonical: dict[str, MarketSnapshot] = {}
+        self._alias_to_canonical: dict[str, str] = {}
+
+    def __getitem__(self, key: str) -> MarketSnapshot:
+        canonical_id = self.resolve_canonical_id(key)
+        if canonical_id is None:
+            raise KeyError(key)
+        return self._canonical[canonical_id]
+
+    def __setitem__(self, key: str, snapshot: MarketSnapshot) -> None:
+        canonical_id = _normalized_market_key(snapshot.market_id)
+        lookup_key = _normalized_market_key(key)
+        if not canonical_id or not lookup_key:
+            return
+        self._canonical[canonical_id] = snapshot
+        self._alias_to_canonical.pop(canonical_id, None)
+        if lookup_key != canonical_id:
+            self.add_alias(lookup_key, canonical_id)
+
+    def __delitem__(self, key: str) -> None:
+        canonical_id = self.resolve_canonical_id(key)
+        if canonical_id is None:
+            raise KeyError(key)
+        if _normalized_market_key(key) == canonical_id:
+            self._canonical.pop(canonical_id, None)
+            aliases_to_remove = [
+                alias
+                for alias, mapped_canonical in self._alias_to_canonical.items()
+                if mapped_canonical == canonical_id
+            ]
+            for alias in aliases_to_remove:
+                self._alias_to_canonical.pop(alias, None)
+            return
+        self._alias_to_canonical.pop(_normalized_market_key(key), None)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._canonical)
+
+    def __len__(self) -> int:
+        return len(self._canonical)
+
+    def get(self, key: str, default: Any = None) -> MarketSnapshot | Any:
+        canonical_id = self.resolve_canonical_id(key)
+        if canonical_id is None:
+            return default
+        return self._canonical.get(canonical_id, default)
+
+    def __contains__(self, key: object) -> bool:
+        return self.resolve_canonical_id(str(key)) is not None if key is not None else False
+
+    def items(self):
+        return self._canonical.items()
+
+    def keys(self):
+        return self._canonical.keys()
+
+    def values(self):
+        return self._canonical.values()
+
+    def lookup_items(self) -> list[tuple[str, MarketSnapshot]]:
+        items = list(self._canonical.items())
+        items.extend(
+            (alias, self._canonical[canonical_id])
+            for alias, canonical_id in self._alias_to_canonical.items()
+            if canonical_id in self._canonical
+        )
+        return items
+
+    def replace_canonical(self, snapshot: MarketSnapshot) -> None:
+        canonical_id = _normalized_market_key(snapshot.market_id)
+        if canonical_id:
+            self._canonical[canonical_id] = snapshot
+            self._alias_to_canonical.pop(canonical_id, None)
+
+    def add_alias(self, alias: str, snapshot_or_canonical_id: MarketSnapshot | str) -> bool:
+        alias_key = _normalized_market_key(alias)
+        if isinstance(snapshot_or_canonical_id, MarketSnapshot):
+            canonical_id = _normalized_market_key(snapshot_or_canonical_id.market_id)
+            if canonical_id:
+                self._canonical.setdefault(canonical_id, snapshot_or_canonical_id)
+        else:
+            canonical_id = _normalized_market_key(snapshot_or_canonical_id)
+        if not alias_key or not canonical_id:
+            return False
+        if alias_key == canonical_id:
+            return False
+        if alias_key in self._canonical and alias_key != canonical_id:
+            logger.warning(
+                "Skipping conflicting market alias %s for canonical market %s; already reserved as canonical",
+                alias_key,
+                canonical_id,
+            )
+            return False
+        existing_canonical = self._alias_to_canonical.get(alias_key)
+        if existing_canonical is not None and existing_canonical != canonical_id:
+            logger.warning(
+                "Skipping conflicting market alias %s for canonical market %s; already mapped to %s",
+                alias_key,
+                canonical_id,
+                existing_canonical,
+            )
+            return False
+        self._alias_to_canonical[alias_key] = canonical_id
+        return existing_canonical is None
+
+    def resolve_canonical_id(self, key: str) -> str | None:
+        lookup_key = _normalized_market_key(key)
+        if not lookup_key:
+            return None
+        if lookup_key in self._canonical:
+            return lookup_key
+        canonical_id = self._alias_to_canonical.get(lookup_key)
+        if canonical_id is not None and canonical_id in self._canonical:
+            return canonical_id
+        return None
+
+    def update(
+        self,
+        other: MutableMapping[str, MarketSnapshot] | dict[str, MarketSnapshot] | "MarketCatalog",
+        **kwargs: MarketSnapshot,
+    ) -> None:
+        if isinstance(other, MarketCatalog):
+            for canonical_id, snapshot in other.items():
+                self.replace_canonical(snapshot)
+            for alias, snapshot in other.lookup_items():
+                self.add_alias(alias, snapshot)
+        else:
+            for key, snapshot in other.items():
+                self[key] = snapshot
+        for key, snapshot in kwargs.items():
+            self[key] = snapshot
+
+
+def _normalized_market_key(value: Any) -> str:
+    return str(value).strip()
 
 
 class CircuitBreaker:
@@ -40,7 +191,7 @@ class CircuitBreaker:
         self.state = "CLOSED"
         self._lock = threading.Lock()
 
-    def call(self, func, *args, **kwargs):
+    def call(self, func, *args, should_count_failure=None, **kwargs):
         """Execute function with circuit breaker protection."""
         with self._lock:
             if self.state == "OPEN":
@@ -54,8 +205,9 @@ class CircuitBreaker:
             self._on_success()
             return result
         except Exception as e:
-            self._on_failure()
-            raise e
+            if should_count_failure is None or should_count_failure(e):
+                self._on_failure()
+            raise
 
     def _on_success(self):
         """Reset failure count on success."""
@@ -82,18 +234,18 @@ class _AsyncHttpTransport:
         self._lock = threading.Lock()
 
     def _ensure_started(self) -> None:
-        if self._thread is not None:
+        if self._thread is None:
+            with self._lock:
+                if self._thread is None:
+                    self._ready.clear()
+                    self._thread = threading.Thread(
+                        target=self._run_loop,
+                        name="predictcel-http",
+                        daemon=True,
+                    )
+                    self._thread.start()
+        if self._ready.is_set():
             return
-        with self._lock:
-            if self._thread is not None:
-                return
-            self._ready.clear()
-            self._thread = threading.Thread(
-                target=self._run_loop,
-                name="predictcel-http",
-                daemon=True,
-            )
-            self._thread.start()
         if not self._ready.wait(timeout=max(self.timeout_seconds, 1) + 5):
             raise TimeoutError("Timed out starting HTTP transport")
 
@@ -118,14 +270,25 @@ class _AsyncHttpTransport:
         return aiohttp.ClientSession(connector=connector, timeout=timeout)
 
     def run(self, coroutine, timeout_seconds: float | None = None):
-        self._ensure_started()
-        if self._loop is None:
-            raise RuntimeError("HTTP transport loop not available")
-        future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+        future = None
+        try:
+            self._ensure_started()
+            if self._loop is None:
+                raise RuntimeError("HTTP transport loop not available")
+            future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+        except Exception:
+            close = getattr(coroutine, "close", None)
+            if callable(close):
+                close()
+            raise
         timeout = timeout_seconds
         if timeout is None:
             timeout = max(self.timeout_seconds, 1) + 5
-        return future.result(timeout=timeout)
+        try:
+            return future.result(timeout=timeout)
+        except Exception:
+            future.cancel()
+            raise
 
     async def fetch_json(self, url: str) -> Any:
         try:
@@ -148,9 +311,13 @@ class _AsyncHttpTransport:
             self._session = None
         if loop is None or thread is None:
             return
-        if session is not None and not session.closed:
-            asyncio.run_coroutine_threadsafe(session.close(), loop).result(timeout=5)
-        loop.call_soon_threadsafe(loop.stop)
+        if session is not None and not session.closed and not loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(session.close(), loop).result(timeout=5)
+            except (RuntimeError, TimeoutError):
+                logger.debug("Failed to close HTTP transport session cleanly")
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=5)
 
 
@@ -203,7 +370,8 @@ class PolymarketPublicClient:
             self.DEFAULT_RESPONSE_VALIDATION_SAMPLE_RATE
         )
         self._wallet_trade_variant_lock = threading.Lock()
-        self._preferred_wallet_trade_variant: tuple[str, str] | None = None
+        self._preferred_wallet_trade_variants: dict[str, tuple[str, str]] = {}
+        self._wallet_trade_retryable_error_budget = max(2, self.max_retries)
         self._http_transport = _AsyncHttpTransport(self.timeout_seconds)
         self._gamma_circuit_breaker = CircuitBreaker()
         self._data_circuit_breaker = CircuitBreaker()
@@ -399,8 +567,9 @@ class PolymarketPublicClient:
             ("/activity", "user"),
             ("/activity", "address"),
         ]
+        wallet_key = wallet.lower()
         with self._wallet_trade_variant_lock:
-            preferred_variant = self._preferred_wallet_trade_variant
+            preferred_variant = self._preferred_wallet_trade_variants.get(wallet_key)
         if preferred_variant in request_variants:
             request_variants = [preferred_variant] + [
                 variant
@@ -408,10 +577,10 @@ class PolymarketPublicClient:
                 if variant != preferred_variant
             ]
 
-        wallet_key = wallet.lower()
         best_rows: list[dict[str, Any]] = []
         best_scored_rows: list[dict[str, Any]] = []
         errors: list[str] = []
+        retryable_errors = 0
 
         for path, wallet_param in request_variants:
             base_url = f"{self.data_base_url}{path}"
@@ -421,6 +590,10 @@ class PolymarketPublicClient:
                 payload = self._get_json(f"{base_url}?{query}")
             except Exception as e:
                 errors.append(f"{base_url}: {type(e).__name__}")
+                if self._counts_toward_circuit_breaker(e):
+                    retryable_errors += 1
+                    if retryable_errors >= self._wallet_trade_retryable_error_budget:
+                        break
                 continue
 
             rows = _extract_list(payload)
@@ -441,7 +614,10 @@ class PolymarketPublicClient:
                 best_rows = candidate_rows
                 if candidate_rows:
                     with self._wallet_trade_variant_lock:
-                        self._preferred_wallet_trade_variant = (path, wallet_param)
+                        self._preferred_wallet_trade_variants[wallet_key] = (
+                            path,
+                            wallet_param,
+                        )
             elif len(candidate_rows) > len(best_rows):
                 best_rows = candidate_rows
 
@@ -505,46 +681,60 @@ class PolymarketPublicClient:
         """Subscribe to real-time market updates via WebSocket."""
         ws_url = "wss://ws.polymarket.com"
         reconnect_attempt = 0
+        callback_futures = set()
 
-        while True:
-            logger.info(
-                f"Connecting to WebSocket at {ws_url} for {len(market_ids)} markets"
-            )
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.ws_connect(ws_url) as ws:
-                        logger.info("WebSocket connected successfully")
-                        subscribe_msg = {"type": "subscribe", "markets": market_ids}
-                        await ws.send_json(subscribe_msg)
-                        logger.info(f"Subscribed to market updates for {market_ids}")
+        def _discard_callback_future(future) -> None:
+            callback_futures.discard(future)
 
-                        async for msg in ws:
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                data = msg.json()
-                                if data.get("type") == "update":
-                                    reconnect_attempt = 0
-                                    logger.debug(f"Received market update: {data}")
-                                    callback(data)
-                            elif msg.type == aiohttp.WSMsgType.ERROR:
-                                logger.error("WebSocket error encountered")
-                                break
-                            elif msg.type == aiohttp.WSMsgType.CLOSED:
-                                logger.info("WebSocket connection closed")
-                                break
-            except asyncio.CancelledError:
-                raise
-            except aiohttp.ClientError as e:
-                logger.error(f"WebSocket client error: {e}")
-            except asyncio.TimeoutError:
-                logger.error("WebSocket connection timeout")
-            except Exception as e:
-                logger.error(f"WebSocket unexpected error: {e}")
-                raise
+        try:
+            while True:
+                logger.info(
+                    f"Connecting to WebSocket at {ws_url} for {len(market_ids)} markets"
+                )
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.ws_connect(ws_url) as ws:
+                            logger.info("WebSocket connected successfully")
+                            subscribe_msg = {"type": "subscribe", "markets": market_ids}
+                            await ws.send_json(subscribe_msg)
+                            logger.info(f"Subscribed to market updates for {market_ids}")
 
-            delay = _retry_delay(self.retry_base_delay_seconds, reconnect_attempt)
-            reconnect_attempt += 1
-            logger.info(f"Reconnecting WebSocket after {delay:.2f}s")
-            await asyncio.sleep(delay)
+                            async for msg in ws:
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    data = msg.json()
+                                    if data.get("type") == "update":
+                                        reconnect_attempt = 0
+                                        logger.debug(f"Received market update: {data}")
+                                        future = self._schedule_market_update_callback(
+                                            callback, data
+                                        )
+                                        callback_futures.add(future)
+                                        future.add_done_callback(
+                                            _discard_callback_future
+                                        )
+                                elif msg.type == aiohttp.WSMsgType.ERROR:
+                                    logger.error("WebSocket error encountered")
+                                    break
+                                elif msg.type == aiohttp.WSMsgType.CLOSED:
+                                    logger.info("WebSocket connection closed")
+                                    break
+                except asyncio.CancelledError:
+                    raise
+                except aiohttp.ClientError as e:
+                    logger.error(f"WebSocket client error: {e}")
+                except asyncio.TimeoutError:
+                    logger.error("WebSocket connection timeout")
+                except Exception as e:
+                    logger.error(f"WebSocket unexpected error: {e}")
+                    raise
+
+                delay = _retry_delay(self.retry_base_delay_seconds, reconnect_attempt)
+                reconnect_attempt += 1
+                logger.info(f"Reconnecting WebSocket after {delay:.2f}s")
+                await asyncio.sleep(delay)
+        finally:
+            for future in tuple(callback_futures):
+                future.cancel()
 
     def _fetch_markets_by_array_filter(
         self, filter_name: str, values: list[str], chunk_size: int
@@ -579,12 +769,43 @@ class PolymarketPublicClient:
     def _is_missing_clob_order_book(self, url: str, error: HTTPError) -> bool:
         return error.code == 404 and url.startswith(f"{self.clob_base_url}/book?")
 
+    def _schedule_market_update_callback(self, callback: callable, data: dict[str, Any]):
+        loop = asyncio.get_running_loop()
+        callback_call = getattr(callback, "__call__", None)
+        if inspect.iscoroutinefunction(callback) or inspect.iscoroutinefunction(
+            callback_call
+        ):
+            future = loop.create_task(callback(data))
+        else:
+            future = loop.run_in_executor(shared_io_executor(), callback, data)
+        future.add_done_callback(self._log_market_update_callback_failure)
+        return future
+
+    @staticmethod
+    def _log_market_update_callback_failure(future) -> None:
+        try:
+            future.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Market update callback failed")
+
+    def _inflight_wait_timeout_seconds(self) -> float:
+        request_timeout = max(self.timeout_seconds, 1) + 5
+        retry_budget = 0.0
+        for attempt in range(max(self.max_retries - 1, 0)):
+            retry_budget += self.retry_base_delay_seconds * (2**attempt) * 1.5
+        return request_timeout * self.max_retries + retry_budget + 1
+
+    def _counts_toward_circuit_breaker(self, error: Exception) -> bool:
+        if isinstance(error, HTTPError):
+            return error.code in {408, 429} or 500 <= error.code < 600
+        return isinstance(error, (URLError, TimeoutError, OSError, json.JSONDecodeError))
+
     def _get_json(self, url: str) -> Any:
         """Make HTTP GET request with caching and retries."""
 
         def _fetch_url():
-            metrics = _get_metrics()
-
             cached = self._get_cached(url)
             if cached is not None:
                 return cached
@@ -605,8 +826,16 @@ class PolymarketPublicClient:
                     is_leader = False
 
             if not is_leader:
-                inflight["event"].wait()
+                wait_completed = inflight["event"].wait(
+                    timeout=self._inflight_wait_timeout_seconds()
+                )
                 try:
+                    if not wait_completed:
+                        logger.warning(
+                            f"Timed out waiting for in-flight request for {url}; "
+                            "retrying directly"
+                        )
+                        return self._fetch_json_with_retries(url)
                     error = inflight["error"]
                     if error is not None:
                         raise error
@@ -637,11 +866,13 @@ class PolymarketPublicClient:
                     self._inflight_requests.pop(url, None)
             return result
 
-        return self._breaker_for_url(url).call(_fetch_url)
+        return self._breaker_for_url(url).call(
+            _fetch_url,
+            should_count_failure=self._counts_toward_circuit_breaker,
+        )
 
     def _fetch_json_with_retries(self, url: str) -> Any:
-        metrics = _get_metrics()
-        metrics["requests"] += 1
+        _record_metric("requests")
         for attempt in range(self.max_retries):
             try:
                 payload = self._http_transport.run(self._http_transport.fetch_json(url))
@@ -650,13 +881,13 @@ class PolymarketPublicClient:
             except HTTPError as error:
                 if self._is_missing_clob_order_book(url, error):
                     return {}
-                metrics["errors"] += 1
+                _record_metric("errors")
                 if attempt >= self.max_retries - 1:
                     raise
                 delay = _retry_delay(self.retry_base_delay_seconds, attempt)
                 self._http_transport.run(asyncio.sleep(delay), timeout_seconds=delay + 5)
             except (URLError, TimeoutError, OSError, json.JSONDecodeError):
-                metrics["errors"] += 1
+                _record_metric("errors")
                 if attempt >= self.max_retries - 1:
                     raise
                 delay = _retry_delay(self.retry_base_delay_seconds, attempt)
@@ -793,80 +1024,124 @@ class PolymarketPublicClient:
             )
 
 
-def build_market_snapshots(items: list[dict[str, Any]]) -> dict[str, MarketSnapshot]:
+def build_market_snapshots(items: list[dict[str, Any]]) -> MarketCatalog:
     """Build market snapshots from Gamma API items."""
-    snapshots: dict[str, MarketSnapshot] = {}
+    snapshots = MarketCatalog()
     for item in items:
         snapshot = market_snapshot_from_gamma(item)
         if snapshot is None:
             continue
+        snapshots.replace_canonical(snapshot)
         for market_id in _market_snapshot_aliases(item, snapshot):
-            snapshots.setdefault(market_id, snapshot)
+            if market_id == snapshot.market_id:
+                continue
+            snapshots.add_alias(market_id, snapshot)
     return snapshots
 
 
 def enrich_market_snapshots_with_orderbooks(
-    snapshots: dict[str, MarketSnapshot],
+    snapshots: MutableMapping[str, MarketSnapshot],
     client: PolymarketPublicClient,
-    max_workers: int = 8,
-) -> dict[str, MarketSnapshot]:
+    max_workers: int = 24,
+    min_liquidity_usd: float = 0.0,
+) -> MarketCatalog:
     """Enrich market snapshots with order book data."""
     if not snapshots:
-        return {}
+        return MarketCatalog()
 
     unique_snapshots: dict[str, MarketSnapshot] = {}
     aliases_by_canonical: dict[str, list[str]] = {}
 
-    for alias, snapshot in snapshots.items():
+    lookup_items = (
+        snapshots.lookup_items() if hasattr(snapshots, "lookup_items") else snapshots.items()
+    )
+    for alias, snapshot in lookup_items:
         unique_snapshots.setdefault(snapshot.market_id, snapshot)
         aliases_by_canonical.setdefault(snapshot.market_id, []).append(alias)
 
-    enriched_unique: dict[str, MarketSnapshot] = {}
-    workers = max(1, min(max_workers, len(unique_snapshots)))
+    market_items = [
+        (market_id, snapshot)
+        for market_id, snapshot in unique_snapshots.items()
+        if snapshot.liquidity_usd >= min_liquidity_usd
+    ]
+    if not market_items:
+        enriched = MarketCatalog()
+        for canonical_id, aliases in aliases_by_canonical.items():
+            snapshot = unique_snapshots[canonical_id]
+            enriched.replace_canonical(snapshot)
+            for alias in aliases:
+                if alias != canonical_id:
+                    enriched.add_alias(alias, snapshot)
+        return enriched
 
+    token_ids = sorted(
+        {
+            token_id
+            for _market_id, snapshot in market_items
+            for token_id in (snapshot.yes_token_id, snapshot.no_token_id)
+            if token_id
+        }
+    )
+    fetch_order_book = getattr(client, "fetch_order_book", None)
+    if not callable(fetch_order_book):
+        enriched = MarketCatalog()
+        for canonical_id, aliases in aliases_by_canonical.items():
+            snapshot = unique_snapshots[canonical_id]
+            enriched.replace_canonical(snapshot)
+            for alias in aliases:
+                if alias != canonical_id:
+                    enriched.add_alias(alias, snapshot)
+        return enriched
+    book_payloads: dict[str, dict[str, Any]] = {}
+    token_workers = max(1, min(max_workers * 2, len(token_ids))) if token_ids else 0
     executor = shared_io_executor()
-    market_items = list(unique_snapshots.items())
     futures = {
-        executor.submit(_enrich_one_snapshot, snapshot, client): market_id
-        for market_id, snapshot in market_items[:workers]
+        executor.submit(fetch_order_book, token_id): token_id
+        for token_id in token_ids[:token_workers]
     }
-    pending_items = iter(market_items[workers:])
+    pending_token_ids = iter(token_ids[token_workers:])
     while futures:
         for future in as_completed(tuple(futures)):
-            market_id = futures.pop(future)
+            token_id = futures.pop(future)
             try:
-                enriched_unique[market_id] = future.result()
+                payload = future.result()
             except Exception as e:
-                logger.debug(f"Failed to enrich snapshot {market_id}: {e}")
-                enriched_unique[market_id] = unique_snapshots[market_id]
+                logger.debug(f"Failed to fetch order book {token_id}: {e}")
+                payload = {}
+            book_payloads[token_id] = payload if isinstance(payload, dict) else {}
 
-            next_item = next(pending_items, None)
-            if next_item is not None:
-                next_market_id, next_snapshot = next_item
-                futures[executor.submit(_enrich_one_snapshot, next_snapshot, client)] = (
-                    next_market_id
+            next_token_id = next(pending_token_ids, None)
+            if next_token_id is not None:
+                futures[executor.submit(fetch_order_book, next_token_id)] = (
+                    next_token_id
                 )
 
-    enriched: dict[str, MarketSnapshot] = {}
+    enriched_unique = {
+        market_id: _enrich_snapshot_from_books(
+            snapshot,
+            book_payloads.get(snapshot.yes_token_id, {}),
+            book_payloads.get(snapshot.no_token_id, {}),
+        )
+        for market_id, snapshot in market_items
+    }
+
+    enriched = MarketCatalog()
     for canonical_id, aliases in aliases_by_canonical.items():
         snapshot = enriched_unique.get(canonical_id, unique_snapshots[canonical_id])
+        enriched.replace_canonical(snapshot)
         for alias in aliases:
-            enriched[alias] = snapshot
+            if alias != canonical_id:
+                enriched.add_alias(alias, snapshot)
 
     return enriched
 
 
-def _enrich_one_snapshot(
-    snapshot: MarketSnapshot, client: PolymarketPublicClient
+def _enrich_snapshot_from_books(
+    snapshot: MarketSnapshot,
+    yes_book: dict[str, Any],
+    no_book: dict[str, Any],
 ) -> MarketSnapshot:
     """Enrich a single snapshot with order book data."""
-    yes_book = (
-        client.fetch_order_book(snapshot.yes_token_id) if snapshot.yes_token_id else {}
-    )
-    no_book = (
-        client.fetch_order_book(snapshot.no_token_id) if snapshot.no_token_id else {}
-    )
-
     yes_bid = _book_best_price(yes_book, "bids")
     no_bid = _book_best_price(no_book, "bids")
     yes_ask = _book_best_price(yes_book, "asks") or snapshot.yes_ask
@@ -912,8 +1187,9 @@ def build_wallet_trades(
             continue
 
         for item in items:
+            normalized_item = _flatten_trade_payload(item)
             for topic in topics:
-                trade = wallet_trade_from_data(wallet, topic, item, now)
+                trade = wallet_trade_from_data(wallet, topic, normalized_item, now)
                 if trade is not None:
                     trades.append(trade)
 

@@ -1,6 +1,8 @@
 import json
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from predictcel.basket_assignment import BasketAssignmentEngine
 from predictcel.basket_manager import BasketManagerPlanner
 from predictcel.config import (
@@ -142,6 +144,31 @@ def make_pipeline(mode: str = "auto_update") -> WalletDiscoveryPipeline:
     )
     pipeline.manager = BasketManagerPlanner(pipeline.config)
     return pipeline
+
+
+def test_pipeline_init_closes_client_when_source_setup_fails(monkeypatch) -> None:
+    created_clients = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+            self.closed = False
+            created_clients.append(self)
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr("predictcel.wallet_discovery.PolymarketPublicClient", FakeClient)
+    monkeypatch.setattr(
+        WalletDiscoveryPipeline,
+        "_build_source",
+        lambda self: (_ for _ in ()).throw(RuntimeError("source setup failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="source setup failed"):
+        WalletDiscoveryPipeline(make_config())
+
+    assert created_clients[0].closed is True
 
 
 class FakeMarketTradesClient:
@@ -335,6 +362,27 @@ def test_build_mutated_config_removes_wallets_for_remove_and_suspend_actions() -
     assert mutated["baskets"][0]["wallets"] == ["0xexisting"]
 
 
+def test_build_mutated_config_normalizes_legacy_uppercase_actions() -> None:
+    pipeline = make_pipeline()
+    payload = {
+        "baskets": [
+            {
+                "topic": "sports",
+                "wallets": ["0xexisting", "0xremove"],
+                "quorum_ratio": 0.66,
+            }
+        ]
+    }
+    actions = [
+        BasketManagerAction("ADD", "sports", "0xNew", 0.9, "HIGH", "add it"),
+        BasketManagerAction("REMOVE", "sports", "0xREMOVE", 0.2, "LOW", "remove it"),
+    ]
+
+    mutated = pipeline.build_mutated_config(payload, actions)
+
+    assert mutated["baskets"][0]["wallets"] == ["0xexisting", "0xNew"]
+
+
 def test_market_trades_source_collects_unique_wallet_candidates() -> None:
     source = DataApiMarketTradesWalletSource(
         FakeMarketTradesClient(),
@@ -510,3 +558,20 @@ def test_pipeline_uses_curated_wallet_file_source_when_configured(tmp_path) -> N
         "0xcurated1",
         "0xcurated2",
     ]
+
+
+def test_pipeline_raises_when_trade_fetch_failures_exceed_threshold() -> None:
+    pipeline = make_pipeline()
+
+    class FailingSource(FakeSource):
+        def fetch_wallet_trades(self, address: str, limit: int):
+            del address, limit
+            raise RuntimeError("upstream down")
+
+    pipeline.source = FailingSource()
+
+    with pytest.raises(
+        RuntimeError,
+        match="wallet discovery trade fetch failures exceeded threshold",
+    ):
+        pipeline.run()

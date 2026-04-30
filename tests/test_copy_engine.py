@@ -489,6 +489,37 @@ def test_weighted_consensus_can_reject_raw_quorum_with_stale_low_quality_votes()
     )
 
 
+def test_copy_engine_honors_env_max_entry_price_override(monkeypatch) -> None:
+    monkeypatch.setenv("PREDICTCEL_MAX_ENTRY_PRICE", "0.97")
+    engine = CopyEngine(make_config())
+    late_market = replace(make_market(), yes_ask=0.96, best_bid=0.94)
+    trades = [
+        WalletTrade(
+            wallet="w1",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.95,
+            size_usd=200,
+            age_seconds=600,
+        ),
+        WalletTrade(
+            wallet="w2",
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            price=0.95,
+            size_usd=220,
+            age_seconds=800,
+        ),
+    ]
+
+    candidates = engine.evaluate(trades, {"m1": late_market}, make_qualities())
+
+    assert len(candidates) == 1
+    assert candidates[0].market_id == "m1"
+
+
 def test_conflicting_vote_reduces_copyability_score() -> None:
     consensus = ConsensusConfig(
         min_weighted_consensus=0.50,

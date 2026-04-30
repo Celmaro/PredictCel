@@ -1,6 +1,9 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
+
+import pytest
 
 from predictcel.models import (
     BasketHealth,
@@ -17,6 +20,8 @@ def make_position(
     status: str,
     amount: float = 25.0,
     token_id: str = "yes_token",
+    entry_shares: float = 0.0,
+    remaining_shares: float = 0.0,
 ) -> Position:
     now = datetime.now(UTC)
     return Position(
@@ -34,6 +39,8 @@ def make_position(
         stop_loss_pct=0.1,
         max_hold_minutes=1440,
         status=status,
+        entry_shares=entry_shares,
+        remaining_shares=remaining_shares,
     )
 
 
@@ -107,6 +114,56 @@ def make_store() -> tuple[SignalStore, Path]:
     return SignalStore(str(db_path)), db_path
 
 
+def test_store_init_closes_connection_when_schema_setup_fails(monkeypatch) -> None:
+    db_path = Path(__file__).with_name(f".predictcel-init-fail-{uuid4().hex}.db")
+    observed = {"closed": False}
+
+    class FakeConnection:
+        def execute(self, _sql: str) -> None:
+            return None
+
+        def close(self) -> None:
+            observed["closed"] = True
+
+    monkeypatch.setattr("predictcel.storage.sqlite3.connect", lambda *args, **kwargs: FakeConnection())
+    monkeypatch.setattr(
+        SignalStore,
+        "_init_schema",
+        lambda self: (_ for _ in ()).throw(RuntimeError("schema setup failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="schema setup failed"):
+        SignalStore(str(db_path))
+
+    assert observed["closed"] is True
+
+
+def test_store_connect_uses_cross_thread_sqlite_settings(monkeypatch) -> None:
+    db_path = Path(__file__).with_name(f".predictcel-connect-{uuid4().hex}.db")
+    observed: dict[str, object] = {}
+
+    class FakeConnection:
+        def execute(self, _sql: str) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    def fake_connect(*args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return FakeConnection()
+
+    monkeypatch.setattr("predictcel.storage.sqlite3.connect", fake_connect)
+    monkeypatch.setattr(SignalStore, "_init_schema", lambda self: None)
+
+    store = SignalStore(str(db_path))
+    store.close()
+
+    assert observed["kwargs"]["check_same_thread"] is False
+    assert observed["kwargs"]["timeout"] == 60.0
+
+
 def test_active_positions_count_as_held_and_exposed() -> None:
     store, db_path = make_store()
     try:
@@ -160,6 +217,83 @@ def test_update_position_by_token_id_preserves_same_market_positions() -> None:
         assert len(open_positions) == 1
         assert open_positions[0].token_id == "no_token"
         assert open_positions[0].status == "open"
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_positions_round_trip_share_counts_and_close_updates_remaining_shares() -> None:
+    store, db_path = make_store()
+    try:
+        store.save_position(
+            make_position(
+                "m1",
+                "open",
+                25.0,
+                entry_shares=50.0,
+                remaining_shares=12.5,
+            )
+        )
+
+        open_positions = store.get_open_positions()
+
+        assert open_positions[0].entry_shares == 50.0
+        assert open_positions[0].remaining_shares == 12.5
+
+        store.update_position(
+            "m1",
+            current_price=0.6,
+            unrealized_pnl=5.0,
+            status="closed",
+            remaining_shares=0.0,
+        )
+
+        assert store.get_open_positions() == []
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_open_orders_round_trip_by_client_order_id() -> None:
+    store, db_path = make_store()
+    try:
+        store.upsert_open_order(
+            market_id="m1",
+            topic="geopolitics",
+            side="YES",
+            token_id="yes_token",
+            order_type="FOK",
+            price=0.55,
+            amount=25.0,
+            status="submitted",
+            client_order_id="pc-123",
+            order_id="order-123",
+            filled_shares=0.0,
+            avg_fill_price=0.0,
+            payload='{"status":"submitted"}',
+        )
+        store.upsert_open_order(
+            market_id="m1",
+            topic="geopolitics",
+            side="YES",
+            token_id="yes_token",
+            order_type="FOK",
+            price=0.55,
+            amount=25.0,
+            status="filled",
+            client_order_id="pc-123",
+            order_id="order-123",
+            filled_shares=50.0,
+            avg_fill_price=0.5,
+            payload='{"status":"filled"}',
+        )
+
+        record = store.get_open_order_by_client_id("pc-123")
+
+        assert record is not None
+        assert record["status"] == "filled"
+        assert record["filled_shares"] == 50.0
+        assert record["avg_fill_price"] == 0.5
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)
@@ -263,6 +397,48 @@ def test_filter_and_mark_candidates_atomically_skips_recent_and_same_batch_dupli
         db_path.unlink(missing_ok=True)
 
 
+def test_signal_dedup_ttl_can_be_overridden_from_env(monkeypatch) -> None:
+    store, db_path = make_store()
+    try:
+        monkeypatch.setenv("PREDICTCEL_SIGNAL_DEDUP_TTL_MINUTES", "0")
+        store.mark_signal_seen("m1", "geopolitics", "YES")
+
+        fresh, skipped = store.filter_and_mark_candidates_atomically(
+            [make_candidate("m1", "YES")]
+        )
+
+        assert [candidate.market_id for candidate in fresh] == ["m1"]
+        assert skipped == 0
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_signal_store_handles_concurrent_signal_writes() -> None:
+    store, db_path = make_store()
+    try:
+        def mark_and_read(index: int) -> tuple[bool, bool]:
+            market_id = f"m{index}"
+            store.mark_signal_seen(market_id, "geopolitics", "YES")
+            seen_single = store.has_recent_signal(market_id, "geopolitics", "YES")
+            seen_batch = bool(
+                store.has_recent_signals([(market_id, "geopolitics", "YES")])
+            )
+            return seen_single, seen_batch
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(mark_and_read, range(40)))
+
+        assert all(result == (True, True) for result in results)
+        total_rows = store.connection.execute(
+            "SELECT COUNT(*) FROM signal_fingerprints"
+        ).fetchone()[0]
+        assert total_rows == 40
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
 def test_portfolio_var_falls_back_to_analytical_when_monte_carlo_unavailable() -> None:
     store, db_path = make_store()
     try:
@@ -326,6 +502,31 @@ def test_wallet_registry_tables_round_trip_latest_state() -> None:
         }
         assert latest_health["geopolitics"].health_state == "thin"
         assert latest_health["sports"].health_state == "healthy"
+    finally:
+        store.connection.close()
+        db_path.unlink(missing_ok=True)
+
+
+def test_prune_history_limits_high_churn_tables() -> None:
+    store, db_path = make_store()
+    try:
+        for index in range(5):
+            store.mark_signal_seen(f"m{index}", "geopolitics", "YES")
+            store.save_copy_candidates([make_candidate(f"copy_{index}")])
+
+        pruned = store.prune_history(max_rows_per_table=2)
+
+        remaining_copy_rows = store.connection.execute(
+            "SELECT COUNT(*) FROM copy_candidates"
+        ).fetchone()[0]
+        remaining_signal_rows = store.connection.execute(
+            "SELECT COUNT(*) FROM signal_fingerprints"
+        ).fetchone()[0]
+
+        assert pruned["copy_candidates"] == 3
+        assert pruned["signal_fingerprints"] == 1
+        assert remaining_copy_rows == 2
+        assert remaining_signal_rows == 4
     finally:
         store.connection.close()
         db_path.unlink(missing_ok=True)

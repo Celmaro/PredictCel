@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import json
 import time
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+from urllib.error import URLError
 
 import pytest
 
@@ -23,31 +23,17 @@ def load_fixture(name: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-class MockResponse:
-    def __init__(self, body: bytes, status: int = 200):
-        self._body = BytesIO(body)
-        self.status = status
-
-    def read(self, n: int | None = None) -> bytes:
-        return self._body.read(n)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-
 class TestGammaAPIIntegration:
     """Integration tests for Gamma API endpoints."""
 
     def test_fetch_active_markets_returns_realistic_data(self):
         """Verify we can parse realistic Gamma API market responses."""
         fixture = load_fixture("gamma_markets")
-        body = json.dumps(fixture).encode()
-        mock = MockResponse(body)
 
-        with patch("predictcel.polymarket.urlopen", return_value=mock):
+        with patch(
+            "predictcel.polymarket.PolymarketPublicClient._fetch_json_with_retries",
+            return_value=fixture,
+        ):
             from predictcel.polymarket import PolymarketPublicClient
 
             client = PolymarketPublicClient()
@@ -60,10 +46,11 @@ class TestGammaAPIIntegration:
     def test_fetch_markets_by_condition_ids(self):
         """Verify batch market lookup by condition IDs."""
         fixture = load_fixture("gamma_markets")
-        body = json.dumps(fixture).encode()
-        mock = MockResponse(body)
 
-        with patch("predictcel.polymarket.urlopen", return_value=mock):
+        with patch(
+            "predictcel.polymarket.PolymarketPublicClient._fetch_json_with_retries",
+            return_value=fixture,
+        ):
             from predictcel.polymarket import PolymarketPublicClient
 
             client = PolymarketPublicClient()
@@ -79,10 +66,11 @@ class TestDataAPIIntegration:
     def test_fetch_wallet_trades_filters_correctly(self):
         """Verify wallet trade fetching filters by wallet address."""
         fixture = load_fixture("data_api_trades")
-        body = json.dumps(fixture).encode()
-        mock = MockResponse(body)
 
-        with patch("predictcel.polymarket.urlopen", return_value=mock):
+        with patch(
+            "predictcel.polymarket.PolymarketPublicClient._fetch_json_with_retries",
+            return_value=fixture,
+        ):
             from predictcel.polymarket import PolymarketPublicClient
 
             client = PolymarketPublicClient()
@@ -98,10 +86,11 @@ class TestDataAPIIntegration:
     def test_fetch_wallet_trades_empty_for_unknown_wallet(self):
         """Unknown wallet should return empty or filtered results."""
         fixture = load_fixture("data_api_trades")
-        body = json.dumps(fixture).encode()
-        mock = MockResponse(body)
 
-        with patch("predictcel.polymarket.urlopen", return_value=mock):
+        with patch(
+            "predictcel.polymarket.PolymarketPublicClient._fetch_json_with_retries",
+            return_value=fixture,
+        ):
             from predictcel.polymarket import PolymarketPublicClient
 
             client = PolymarketPublicClient()
@@ -113,10 +102,11 @@ class TestDataAPIIntegration:
     def test_fetch_leaderboard_parses_correctly(self):
         """Verify leaderboard data is parsed with proper wallet and PnL."""
         fixture = load_fixture("leaderboard")
-        body = json.dumps(fixture).encode()
-        mock = MockResponse(body)
 
-        with patch("predictcel.polymarket.urlopen", return_value=mock):
+        with patch(
+            "predictcel.polymarket.PolymarketPublicClient._fetch_json_with_retries",
+            return_value=fixture,
+        ):
             from predictcel.polymarket import PolymarketPublicClient
 
             client = PolymarketPublicClient()
@@ -133,10 +123,11 @@ class TestOrderBookIntegration:
     def test_fetch_order_book_returns_bids_and_asks(self):
         """Verify order book contains bid/ask levels."""
         fixture = load_fixture("orderbook_btc")
-        body = json.dumps(fixture).encode()
-        mock = MockResponse(body)
 
-        with patch("predictcel.polymarket.urlopen", return_value=mock):
+        with patch(
+            "predictcel.polymarket.PolymarketPublicClient._fetch_json_with_retries",
+            return_value=fixture,
+        ):
             from predictcel.polymarket import PolymarketPublicClient
 
             client = PolymarketPublicClient()
@@ -161,8 +152,8 @@ class TestCircuitBreakerIntegration:
         cb.recovery_timeout = 3600  # Don't auto-recover during test
 
         with patch(
-            "predictcel.polymarket.urlopen",
-            side_effect=Exception("Network error"),
+            "predictcel.polymarket.PolymarketPublicClient._fetch_json_with_retries",
+            side_effect=URLError("Network error"),
         ):
             for i in range(3):
                 try:

@@ -6,6 +6,7 @@ Polymarket leaderboards and external analytics.
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -27,6 +28,10 @@ from .wallet_topics import classify_wallet_topics
 
 __all__ = ["WalletDiscoveryPipeline"]
 
+TRADE_FETCH_FAILURE_RATIO_THRESHOLD = 0.5
+
+logger = logging.getLogger(__name__)
+
 
 class WalletDiscoveryPipeline:
     def __init__(self, config: AppConfig) -> None:
@@ -44,16 +49,27 @@ class WalletDiscoveryPipeline:
             else "https://clob.polymarket.com",
             timeout_seconds=live_data.request_timeout_seconds if live_data else 15,
         )
-        self.source = self._build_source()
-        self.assignment_engine = BasketAssignmentEngine(config.wallet_discovery)
-        self.current_wallets_by_topic = {
-            basket.topic: {wallet.lower() for wallet in basket.wallets}
-            for basket in config.baskets
-        }
-        self.manager = BasketManagerPlanner(
-            config,
-            current_wallets_by_topic=self.current_wallets_by_topic,
-        )
+        try:
+            self.source = self._build_source()
+            self.assignment_engine = BasketAssignmentEngine(config.wallet_discovery)
+            self.current_wallets_by_topic = {
+                basket.topic: {wallet.lower() for wallet in basket.wallets}
+                for basket in config.baskets
+            }
+            self.manager = BasketManagerPlanner(
+                config,
+                current_wallets_by_topic=self.current_wallets_by_topic,
+            )
+            self._trade_fetch_failures: dict[str, str] = {}
+        except Exception:
+            try:
+                self.client.close()
+            except Exception:
+                logger.debug("Failed to close discovery client", exc_info=True)
+            raise
+
+    def close(self) -> None:
+        self.client.close()
 
     def set_current_wallets_by_topic(
         self,
@@ -75,6 +91,7 @@ class WalletDiscoveryPipeline:
         list[BasketAssignment],
         list[BasketManagerAction],
     ]:
+        self._trade_fetch_failures = {}
         raw_candidates = self.source.fetch_candidates(
             self.config.wallet_discovery.candidate_limit
         )
@@ -107,6 +124,17 @@ class WalletDiscoveryPipeline:
                 self._build_candidate(
                     address, "current_basket", self._safe_fetch_trades(address)
                 )
+            )
+
+        attempted_wallets = len(seen)
+        failure_count = len(self._trade_fetch_failures)
+        if (
+            attempted_wallets
+            and failure_count / attempted_wallets >= TRADE_FETCH_FAILURE_RATIO_THRESHOLD
+        ):
+            raise RuntimeError(
+                "wallet discovery trade fetch failures exceeded threshold "
+                f"({failure_count}/{attempted_wallets})"
             )
 
         accepted = [
@@ -314,7 +342,15 @@ class WalletDiscoveryPipeline:
             return self.source.fetch_wallet_trades(
                 address, self.config.wallet_discovery.trade_limit_per_wallet
             )
-        except Exception:
+        except Exception as exc:
+            self._trade_fetch_failures[address] = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "Wallet discovery trade fetch failed",
+                extra={
+                    "wallet": address,
+                    "error": self._trade_fetch_failures[address],
+                },
+            )
             return []
 
     def _build_source(

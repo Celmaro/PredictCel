@@ -5,9 +5,44 @@ across the codebase. Centralizing them makes the code easier to
 maintain and modify.
 """
 
+import os
+
+# Environment Variables
+MAX_ENTRY_PRICE_ENV_VAR = "PREDICTCEL_MAX_ENTRY_PRICE"
+MIN_ENTRY_MINUTES_TO_RESOLUTION_ENV_VAR = "PREDICTCEL_MIN_MINUTES_TO_RESOLUTION"
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def max_entry_price() -> float:
+    return _env_float(MAX_ENTRY_PRICE_ENV_VAR, 0.95)
+
+
+def min_entry_minutes_to_resolution() -> int:
+    return _env_int(MIN_ENTRY_MINUTES_TO_RESOLUTION_ENV_VAR, 30)
+
+
 # Trading Constants
-MAX_ENTRY_PRICE = 0.95
-MIN_ENTRY_MINUTES_TO_RESOLUTION = 30
+MAX_ENTRY_PRICE = max_entry_price()
+MIN_ENTRY_MINUTES_TO_RESOLUTION = min_entry_minutes_to_resolution()
 DEFAULT_TRADE_COUNT_THRESHOLD = 25
 DEFAULT_MAX_TRADE_SIZE = 500
 DEFAULT_PNL_THRESHOLD = 100_000
@@ -46,6 +81,10 @@ DEFAULT_MIN_SIGNAL_ALLOCATION_USD = 5.0
 DEFAULT_BUY_AMOUNT_USD = 10.0
 
 __all__ = [
+    "MAX_ENTRY_PRICE_ENV_VAR",
+    "MIN_ENTRY_MINUTES_TO_RESOLUTION_ENV_VAR",
+    "max_entry_price",
+    "min_entry_minutes_to_resolution",
     # Trading
     "MAX_ENTRY_PRICE",
     "MIN_ENTRY_MINUTES_TO_RESOLUTION",

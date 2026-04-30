@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -10,6 +11,7 @@ import aiohttp
 
 from predictcel.polymarket import (
     PolymarketPublicClient,
+    _AsyncHttpTransport,
     _extract_list,
     build_market_snapshots,
     build_wallet_trades,
@@ -132,6 +134,42 @@ class CachedVariantTradeClient(PolymarketPublicClient):
                         "sizeUsd": "25",
                         "createdAt": "2025-12-31T23:50:00Z",
                         "user": "0xabc",
+                    }
+                ]
+            }
+        return {"trades": []}
+
+
+class PerWalletVariantTradeClient(PolymarketPublicClient):
+    def __init__(self):
+        super().__init__()
+        self.urls = []
+
+    def _get_json(self, url: str):
+        self.urls.append(url)
+        if "address=0xaaa" in url:
+            return {
+                "trades": [
+                    {
+                        "asset": "token_a",
+                        "side": "BUY_YES",
+                        "price": "0.54",
+                        "sizeUsd": "25",
+                        "createdAt": "2025-12-31T23:50:00Z",
+                        "user": "0xaaa",
+                    }
+                ]
+            }
+        if "user=0xbbb" in url:
+            return {
+                "trades": [
+                    {
+                        "asset": "token_b",
+                        "side": "BUY_YES",
+                        "price": "0.55",
+                        "sizeUsd": "20",
+                        "createdAt": "2025-12-31T23:55:00Z",
+                        "user": "0xbbb",
                     }
                 ]
             }
@@ -302,6 +340,35 @@ def test_fetch_wallet_trades_caches_preferred_endpoint_variant() -> None:
     assert "address=0xabc" in client.urls[2]
 
 
+def test_fetch_wallet_trades_keeps_endpoint_preference_scoped_per_wallet() -> None:
+    client = PerWalletVariantTradeClient()
+
+    first_rows = client.fetch_wallet_trades("0xaaa", 5)
+    client.urls.clear()
+    second_rows = client.fetch_wallet_trades("0xbbb", 5)
+
+    assert first_rows[0]["asset"] == "token_a"
+    assert second_rows[0]["asset"] == "token_b"
+    assert "user=0xbbb" in client.urls[0]
+
+
+def test_fetch_wallet_trades_stops_after_retryable_error_budget(monkeypatch) -> None:
+    client = PolymarketPublicClient()
+    client._wallet_trade_retryable_error_budget = 2
+    attempted_urls = []
+
+    def fake_get_json(url: str):
+        attempted_urls.append(url)
+        raise URLError("upstream unavailable")
+
+    monkeypatch.setattr(client, "_get_json", fake_get_json)
+
+    rows = client.fetch_wallet_trades("0xabc", 5)
+
+    assert rows == []
+    assert len(attempted_urls) == 2
+
+
 def test_fetch_market_trades_uses_repeated_market_query_params() -> None:
     client = FakeTradeClient()
 
@@ -323,9 +390,33 @@ def test_build_market_snapshots_indexes_common_aliases() -> None:
         ]
     )
 
+    assert len(snapshots) == 1
     assert snapshots["cond_1"].market_id == "cond_1"
     assert snapshots["will-event-x-happen"].market_id == "cond_1"
     assert snapshots["yes_token"].market_id == "cond_1"
+    assert list(snapshots.items()) == [("cond_1", snapshots["cond_1"])]
+
+
+def test_build_market_snapshots_keeps_canonical_ids_authoritative_on_alias_conflict() -> None:
+    snapshots = build_market_snapshots(
+        [
+            {
+                "conditionId": "cond_1",
+                "slug": "cond_2",
+                "outcomePrices": "[0.61, 0.35]",
+            },
+            {
+                "conditionId": "cond_2",
+                "slug": "second-market",
+                "outcomePrices": "[0.55, 0.41]",
+            },
+        ]
+    )
+
+    assert snapshots["cond_1"].market_id == "cond_1"
+    assert snapshots["cond_2"].market_id == "cond_2"
+    assert snapshots["second-market"].market_id == "cond_2"
+    assert len(snapshots) == 2
 
 
 def test_enrich_market_snapshots_with_orderbooks_adds_spread_and_depth() -> None:
@@ -399,6 +490,42 @@ def test_enrich_market_snapshots_requires_tradable_ask_depth() -> None:
     assert enriched["cond_1"].yes_ask_size == 0
     assert enriched["cond_1"].no_ask_size == 0
     assert enriched["cond_1"].orderbook_ready is False
+
+
+def test_enrich_market_snapshots_skips_low_liquidity_orderbooks() -> None:
+    low_liquidity_snapshot = market_snapshot_from_gamma(
+        {
+            "conditionId": "cond_low",
+            "question": "Low liquidity market",
+            "outcomePrices": "[0.61, 0.35]",
+            "bestBid": "0.58",
+            "liquidityNum": "100",
+            "endDate": "2030-01-01T00:00:00Z",
+            "category": "geopolitics",
+            "clobTokenIds": '["yes_low", "no_low"]',
+        }
+    )
+    assert low_liquidity_snapshot is not None
+
+    class TrackingClient(FakeClient):
+        def __init__(self):
+            super().__init__({})
+            self.calls: list[str] = []
+
+        def fetch_order_book(self, token_id: str):
+            self.calls.append(token_id)
+            return super().fetch_order_book(token_id)
+
+    client = TrackingClient()
+
+    enriched = enrich_market_snapshots_with_orderbooks(
+        {"cond_low": low_liquidity_snapshot},
+        client,
+        min_liquidity_usd=5000.0,
+    )
+
+    assert enriched["cond_low"] == low_liquidity_snapshot
+    assert client.calls == []
 
 
 def test_fetch_order_book_treats_missing_clob_book_as_empty_payload(
@@ -481,22 +608,66 @@ def test_subscribe_market_updates_reconnects_after_closed_socket(monkeypatch) ->
             FakeWSMessage(
                 aiohttp.WSMsgType.TEXT,
                 {"type": "update", "market": "m1"},
-            )
+            ),
+            FakeWSMessage(aiohttp.WSMsgType.CLOSED),
         ]
     )
     sleep_calls = []
-    updates = []
     queued_sockets = [first_socket, second_socket]
 
     async def fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
+        if len(sleep_calls) >= 2:
+            raise asyncio.CancelledError()
 
     def fake_client_session():
         return FakeClientSession([queued_sockets.pop(0)])
 
     def callback(payload) -> None:
-        updates.append(payload)
+        del payload
+
+    monkeypatch.setattr("predictcel.polymarket.aiohttp.ClientSession", fake_client_session)
+    monkeypatch.setattr("predictcel.polymarket._retry_delay", lambda base, attempt: 0.25)
+    monkeypatch.setattr("predictcel.polymarket.asyncio.sleep", fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(client.subscribe_market_updates(["m1"], callback))
+
+    assert sleep_calls == [0.25, 0.25]
+    assert first_socket.sent_messages == [{"type": "subscribe", "markets": ["m1"]}]
+    assert second_socket.sent_messages == [{"type": "subscribe", "markets": ["m1"]}]
+
+
+def test_subscribe_market_updates_isolates_blocking_callback(monkeypatch) -> None:
+    client = PolymarketPublicClient()
+    socket = FakeWebSocket(
+        [
+            FakeWSMessage(
+                aiohttp.WSMsgType.TEXT,
+                {"type": "update", "market": "m1"},
+            ),
+            FakeWSMessage(aiohttp.WSMsgType.CLOSED),
+        ]
+    )
+    callback_started = threading.Event()
+    release_callback = threading.Event()
+    sleep_calls = []
+    updates = []
+
+    async def fake_sleep(delay: float) -> None:
+        assert callback_started.wait(timeout=1)
+        sleep_calls.append(delay)
+        release_callback.set()
         raise asyncio.CancelledError()
+
+    def fake_client_session():
+        return FakeClientSession([socket])
+
+    def callback(payload) -> None:
+        updates.append(payload)
+        callback_started.set()
+        release_callback.wait(timeout=1)
+        raise RuntimeError("boom")
 
     monkeypatch.setattr("predictcel.polymarket.aiohttp.ClientSession", fake_client_session)
     monkeypatch.setattr("predictcel.polymarket._retry_delay", lambda base, attempt: 0.25)
@@ -506,8 +677,6 @@ def test_subscribe_market_updates_reconnects_after_closed_socket(monkeypatch) ->
         asyncio.run(client.subscribe_market_updates(["m1"], callback))
 
     assert sleep_calls == [0.25]
-    assert first_socket.sent_messages == [{"type": "subscribe", "markets": ["m1"]}]
-    assert second_socket.sent_messages == [{"type": "subscribe", "markets": ["m1"]}]
     assert updates == [{"type": "update", "market": "m1"}]
 
 
@@ -541,6 +710,142 @@ def test_get_json_deduplicates_inflight_requests(monkeypatch) -> None:
         {"markets": [{"conditionId": "cond_1"}]},
         {"markets": [{"conditionId": "cond_1"}]},
     ]
+
+
+def test_get_json_follower_timeout_falls_back_to_direct_fetch(monkeypatch) -> None:
+    client = PolymarketPublicClient(max_retries=1)
+    started = threading.Event()
+    release = threading.Event()
+    calls = {"count": 0}
+
+    def fake_fetch_json_with_retries(url: str):
+        del url
+        calls["count"] += 1
+        if calls["count"] == 1:
+            started.set()
+            release.wait(timeout=1)
+            return {"markets": [{"conditionId": "leader"}]}
+        return {"markets": [{"conditionId": "fallback"}]}
+
+    monkeypatch.setattr(client, "_fetch_json_with_retries", fake_fetch_json_with_retries)
+    monkeypatch.setattr(client, "_inflight_wait_timeout_seconds", lambda: 0.05)
+
+    def fetch():
+        return client._get_json(f"{client.gamma_base_url}/markets?limit=1")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(fetch)
+        assert started.wait(timeout=1)
+        second = executor.submit(fetch)
+        fallback_result = second.result(timeout=1)
+        release.set()
+        leader_result = first.result(timeout=1)
+
+    assert calls["count"] == 2
+    assert leader_result == {"markets": [{"conditionId": "leader"}]}
+    assert fallback_result == {"markets": [{"conditionId": "fallback"}]}
+    assert client._inflight_requests == {}
+
+
+def test_non_retryable_errors_do_not_open_circuit_breaker(monkeypatch) -> None:
+    client = PolymarketPublicClient(max_retries=1)
+    client._gamma_circuit_breaker.failure_threshold = 1
+
+    def fail(url: str):
+        del url
+        raise ValueError("bad payload")
+
+    monkeypatch.setattr(client, "_fetch_json_with_retries", fail)
+
+    with pytest.raises(ValueError, match="bad payload"):
+        client.fetch_active_markets(1)
+
+    assert client._gamma_circuit_breaker.state == "CLOSED"
+
+    monkeypatch.setattr(
+        client,
+        "_fetch_json_with_retries",
+        lambda url: {"markets": [{"conditionId": "cond_1", "outcomePrices": "[0.6, 0.4]"}]},
+    )
+
+    rows = client.fetch_active_markets(1)
+
+    assert rows == [{"conditionId": "cond_1", "outcomePrices": "[0.6, 0.4]"}]
+    assert client._gamma_circuit_breaker.state == "CLOSED"
+
+
+def test_async_http_transport_close_ignores_closed_loop() -> None:
+    transport = _AsyncHttpTransport(timeout_seconds=1)
+
+    class FakeLoop:
+        def is_closed(self) -> bool:
+            return True
+
+    class FakeThread:
+        def __init__(self) -> None:
+            self.join_calls = []
+
+        def join(self, timeout=None) -> None:
+            self.join_calls.append(timeout)
+
+    class FakeSession:
+        closed = False
+
+        async def close(self) -> None:
+            raise AssertionError("closed loop should not schedule session close")
+
+    thread = FakeThread()
+    transport._loop = FakeLoop()
+    transport._thread = thread
+    transport._session = FakeSession()
+
+    transport.close()
+
+    assert thread.join_calls == [5]
+
+
+def test_async_http_transport_run_closes_coroutine_when_start_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _AsyncHttpTransport(timeout_seconds=1)
+
+    async def sample() -> None:
+        return None
+
+    coroutine = sample()
+    monkeypatch.setattr(
+        transport,
+        "_ensure_started",
+        lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        transport.run(coroutine)
+
+    assert inspect.getcoroutinestate(coroutine) == inspect.CORO_CLOSED
+
+
+def test_async_http_transport_waits_for_existing_thread_to_become_ready() -> None:
+    transport = _AsyncHttpTransport(timeout_seconds=1)
+
+    class FakeReady:
+        def __init__(self) -> None:
+            self.wait_calls = []
+
+        def is_set(self) -> bool:
+            return False
+
+        def wait(self, timeout=None) -> bool:
+            self.wait_calls.append(timeout)
+            return True
+
+    ready = FakeReady()
+    transport._thread = object()
+    transport._ready = ready
+
+    transport._ensure_started()
+
+    assert ready.wait_calls == [6]
 
 
 def test_memory_cache_evicts_oldest_entries_when_bounded() -> None:
