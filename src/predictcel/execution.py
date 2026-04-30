@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import time
+from concurrent.futures import as_completed
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -15,6 +16,7 @@ from .models import (
     MarketSnapshot,
     Position,
 )
+from .runtime import shared_io_executor
 
 MIN_ENTRY_MINUTES_TO_RESOLUTION = 30
 MAX_ENTRY_PRICE = 0.95
@@ -153,9 +155,27 @@ class LiveOrderExecutor:
             return []
         if self.config.dry_run:
             return [self._dry_run_result(intent) for intent in intents]
+        if len(intents) == 1:
+            return [self._execute_live_intent(intents[0])]
 
+        executor = shared_io_executor()
+        futures = {
+            executor.submit(self._execute_live_intent, intent): index
+            for index, intent in enumerate(intents)
+        }
+        results: list[ExecutionResult | None] = [None] * len(intents)
+        for future in as_completed(tuple(futures)):
+            results[futures[future]] = future.result()
+        return [result for result in results if result is not None]
+
+    def _execute_live_intent(self, intent: ExecutionIntent) -> ExecutionResult:
         client = self._build_client()
-        return [self._submit_intent(client, intent) for intent in intents]
+        try:
+            return self._submit_intent(client, intent)
+        finally:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
 
     def _dry_run_result(self, intent: ExecutionIntent) -> ExecutionResult:
         return ExecutionResult(

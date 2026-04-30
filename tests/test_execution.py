@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+import time
 
 from predictcel.config import (
     ExecutionConfig,
@@ -729,6 +730,68 @@ def test_live_executor_dry_run_preserves_close_side() -> None:
     assert results[0].market_title == "One"
     assert results[0].side == "CLOSE"
     assert results[0].status == "dry_run"
+
+
+def test_live_order_executor_closes_clients_and_preserves_result_order(monkeypatch) -> None:
+    config = replace(make_execution_config(), dry_run=False)
+    executor = LiveOrderExecutor(config, make_live_data())
+    built_clients = []
+
+    class FakeClient:
+        def __init__(self, index: int) -> None:
+            self.index = index
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    def fake_build_client():
+        client = FakeClient(len(built_clients))
+        built_clients.append(client)
+        return client
+
+    def fake_submit_intent(client, intent):
+        if intent.market_id == "m1":
+            time.sleep(0.05)
+        result = executor._dry_run_result(intent)
+        return replace(result, order_id=str(client.index), status="submitted")
+
+    monkeypatch.setattr(executor, "_build_client", fake_build_client)
+    monkeypatch.setattr(executor, "_submit_intent", fake_submit_intent)
+
+    intents = [
+        ExecutionIntent(
+            market_id="m1",
+            topic="geopolitics",
+            side="YES",
+            token_id="yes_1",
+            amount_usd=25.0,
+            worst_price=0.54,
+            copyability_score=0.9,
+            order_type="FOK",
+            reason="first",
+            market_title="One",
+        ),
+        ExecutionIntent(
+            market_id="m2",
+            topic="sports",
+            side="NO",
+            token_id="no_2",
+            amount_usd=20.0,
+            worst_price=0.44,
+            copyability_score=0.8,
+            order_type="FOK",
+            reason="second",
+            market_title="Two",
+        ),
+    ]
+
+    results = executor.execute(intents)
+
+    assert [result.market_id for result in results] == ["m1", "m2"]
+    assert [result.order_id for result in results] == ["0", "1"]
+    assert len(built_clients) == 2
+    assert all(client.closed for client in built_clients)
 
 
 def test_retry_delay_adds_bounded_jitter() -> None:

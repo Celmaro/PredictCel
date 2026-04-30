@@ -36,18 +36,16 @@ class SignalStore:
     def _connect(self) -> None:
         """Establish database connection."""
         if self._connection is None:
-            self._connection = sqlite3.connect(self._db_path)
+            self._connection = sqlite3.connect(self._db_path, timeout=30.0)
+            self._connection.execute("PRAGMA journal_mode=WAL")
+            self._connection.execute("PRAGMA synchronous=NORMAL")
+            self._connection.execute("PRAGMA busy_timeout = 30000")
 
     def close(self) -> None:
         """Close database connection."""
         if self._connection is not None:
-            try:
-                self._connection.commit()
-            except sqlite3.Error:
-                pass
-            finally:
-                self._connection.close()
-                self._connection = None
+            self._connection.close()
+            self._connection = None
 
     def __enter__(self) -> "SignalStore":
         """Context manager entry."""
@@ -55,6 +53,11 @@ class SignalStore:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Context manager exit - ensures connection is closed."""
+        if exc_type is not None and self._connection is not None:
+            try:
+                self._connection.rollback()
+            except sqlite3.Error:
+                pass
         self.close()
 
     def __del__(self) -> None:
@@ -235,7 +238,6 @@ class SignalStore:
             "CREATE INDEX IF NOT EXISTS idx_basket_health_topic_captured_at ON basket_health_snapshots(topic, captured_at DESC)"
         )
 
-        self.connection.execute("PRAGMA synchronous = NORMAL")
         self.connection.commit()
 
     def save_copy_candidates(self, candidates: Iterable[CopyCandidate]) -> None:
@@ -338,22 +340,26 @@ class SignalStore:
             for result in execution_results
         ]
 
-        if candidate_rows:
-            cursor.executemany(
-                "INSERT INTO copy_candidates (market_id, topic, side, consensus_ratio, payload) VALUES (?, ?, ?, ?, ?)",
-                candidate_rows,
-            )
-        if opportunity_rows:
-            cursor.executemany(
-                "INSERT INTO arbitrage_opportunities (market_id, topic, gross_edge, payload) VALUES (?, ?, ?, ?)",
-                opportunity_rows,
-            )
-        if execution_rows:
-            cursor.executemany(
-                "INSERT INTO execution_results (market_id, topic, side, status, payload) VALUES (?, ?, ?, ?, ?)",
-                execution_rows,
-            )
-        self.connection.commit()
+        try:
+            if candidate_rows:
+                cursor.executemany(
+                    "INSERT INTO copy_candidates (market_id, topic, side, consensus_ratio, payload) VALUES (?, ?, ?, ?, ?)",
+                    candidate_rows,
+                )
+            if opportunity_rows:
+                cursor.executemany(
+                    "INSERT INTO arbitrage_opportunities (market_id, topic, gross_edge, payload) VALUES (?, ?, ?, ?)",
+                    opportunity_rows,
+                )
+            if execution_rows:
+                cursor.executemany(
+                    "INSERT INTO execution_results (market_id, topic, side, status, payload) VALUES (?, ?, ?, ?, ?)",
+                    execution_rows,
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
 
     def save_position(self, position: Position) -> None:
         """Save a single position."""

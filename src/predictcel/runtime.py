@@ -31,7 +31,11 @@ def shared_compute_executor() -> ThreadPoolExecutor:
         return _compute_executor
 
 
-def shutdown_shared_executors() -> None:
+def shutdown_shared_executors(
+    *,
+    wait: bool = True,
+    cancel_futures: bool = True,
+) -> None:
     global _io_executor, _compute_executor
     with _executor_lock:
         io_executor = _io_executor
@@ -40,9 +44,9 @@ def shutdown_shared_executors() -> None:
         _compute_executor = None
 
     if io_executor is not None:
-        io_executor.shutdown(wait=False, cancel_futures=False)
+        io_executor.shutdown(wait=wait, cancel_futures=cancel_futures)
     if compute_executor is not None:
-        compute_executor.shutdown(wait=False, cancel_futures=False)
+        compute_executor.shutdown(wait=wait, cancel_futures=cancel_futures)
 
 
 atexit.register(shutdown_shared_executors)

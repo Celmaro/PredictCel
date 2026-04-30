@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 import random
@@ -39,7 +40,7 @@ class CircuitBreaker:
         self.state = "CLOSED"
         self._lock = threading.Lock()
 
-    def call(self, func, *args, **kwargs):
+    def call(self, func, *args, should_count_failure=None, **kwargs):
         """Execute function with circuit breaker protection."""
         with self._lock:
             if self.state == "OPEN":
@@ -53,8 +54,9 @@ class CircuitBreaker:
             self._on_success()
             return result
         except Exception as e:
-            self._on_failure()
-            raise e
+            if should_count_failure is None or should_count_failure(e):
+                self._on_failure()
+            raise
 
     def _on_success(self):
         """Reset failure count on success."""
@@ -157,9 +159,13 @@ class _AsyncHttpTransport:
             self._session = None
         if loop is None or thread is None:
             return
-        if session is not None and not session.closed:
-            asyncio.run_coroutine_threadsafe(session.close(), loop).result(timeout=5)
-        loop.call_soon_threadsafe(loop.stop)
+        if session is not None and not session.closed and not loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(session.close(), loop).result(timeout=5)
+            except (RuntimeError, TimeoutError):
+                logger.debug("Failed to close HTTP transport session cleanly")
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=5)
 
 
@@ -212,7 +218,8 @@ class PolymarketPublicClient:
             self.DEFAULT_RESPONSE_VALIDATION_SAMPLE_RATE
         )
         self._wallet_trade_variant_lock = threading.Lock()
-        self._preferred_wallet_trade_variant: tuple[str, str] | None = None
+        self._preferred_wallet_trade_variants: dict[str, tuple[str, str]] = {}
+        self._wallet_trade_retryable_error_budget = max(2, self.max_retries)
         self._http_transport = _AsyncHttpTransport(self.timeout_seconds)
         self._gamma_circuit_breaker = CircuitBreaker()
         self._data_circuit_breaker = CircuitBreaker()
@@ -408,8 +415,9 @@ class PolymarketPublicClient:
             ("/activity", "user"),
             ("/activity", "address"),
         ]
+        wallet_key = wallet.lower()
         with self._wallet_trade_variant_lock:
-            preferred_variant = self._preferred_wallet_trade_variant
+            preferred_variant = self._preferred_wallet_trade_variants.get(wallet_key)
         if preferred_variant in request_variants:
             request_variants = [preferred_variant] + [
                 variant
@@ -417,10 +425,10 @@ class PolymarketPublicClient:
                 if variant != preferred_variant
             ]
 
-        wallet_key = wallet.lower()
         best_rows: list[dict[str, Any]] = []
         best_scored_rows: list[dict[str, Any]] = []
         errors: list[str] = []
+        retryable_errors = 0
 
         for path, wallet_param in request_variants:
             base_url = f"{self.data_base_url}{path}"
@@ -430,6 +438,10 @@ class PolymarketPublicClient:
                 payload = self._get_json(f"{base_url}?{query}")
             except Exception as e:
                 errors.append(f"{base_url}: {type(e).__name__}")
+                if self._counts_toward_circuit_breaker(e):
+                    retryable_errors += 1
+                    if retryable_errors >= self._wallet_trade_retryable_error_budget:
+                        break
                 continue
 
             rows = _extract_list(payload)
@@ -450,7 +462,10 @@ class PolymarketPublicClient:
                 best_rows = candidate_rows
                 if candidate_rows:
                     with self._wallet_trade_variant_lock:
-                        self._preferred_wallet_trade_variant = (path, wallet_param)
+                        self._preferred_wallet_trade_variants[wallet_key] = (
+                            path,
+                            wallet_param,
+                        )
             elif len(candidate_rows) > len(best_rows):
                 best_rows = candidate_rows
 
@@ -514,46 +529,60 @@ class PolymarketPublicClient:
         """Subscribe to real-time market updates via WebSocket."""
         ws_url = "wss://ws.polymarket.com"
         reconnect_attempt = 0
+        callback_futures = set()
 
-        while True:
-            logger.info(
-                f"Connecting to WebSocket at {ws_url} for {len(market_ids)} markets"
-            )
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.ws_connect(ws_url) as ws:
-                        logger.info("WebSocket connected successfully")
-                        subscribe_msg = {"type": "subscribe", "markets": market_ids}
-                        await ws.send_json(subscribe_msg)
-                        logger.info(f"Subscribed to market updates for {market_ids}")
+        def _discard_callback_future(future) -> None:
+            callback_futures.discard(future)
 
-                        async for msg in ws:
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                data = msg.json()
-                                if data.get("type") == "update":
-                                    reconnect_attempt = 0
-                                    logger.debug(f"Received market update: {data}")
-                                    callback(data)
-                            elif msg.type == aiohttp.WSMsgType.ERROR:
-                                logger.error("WebSocket error encountered")
-                                break
-                            elif msg.type == aiohttp.WSMsgType.CLOSED:
-                                logger.info("WebSocket connection closed")
-                                break
-            except asyncio.CancelledError:
-                raise
-            except aiohttp.ClientError as e:
-                logger.error(f"WebSocket client error: {e}")
-            except asyncio.TimeoutError:
-                logger.error("WebSocket connection timeout")
-            except Exception as e:
-                logger.error(f"WebSocket unexpected error: {e}")
-                raise
+        try:
+            while True:
+                logger.info(
+                    f"Connecting to WebSocket at {ws_url} for {len(market_ids)} markets"
+                )
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.ws_connect(ws_url) as ws:
+                            logger.info("WebSocket connected successfully")
+                            subscribe_msg = {"type": "subscribe", "markets": market_ids}
+                            await ws.send_json(subscribe_msg)
+                            logger.info(f"Subscribed to market updates for {market_ids}")
 
-            delay = _retry_delay(self.retry_base_delay_seconds, reconnect_attempt)
-            reconnect_attempt += 1
-            logger.info(f"Reconnecting WebSocket after {delay:.2f}s")
-            await asyncio.sleep(delay)
+                            async for msg in ws:
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    data = msg.json()
+                                    if data.get("type") == "update":
+                                        reconnect_attempt = 0
+                                        logger.debug(f"Received market update: {data}")
+                                        future = self._schedule_market_update_callback(
+                                            callback, data
+                                        )
+                                        callback_futures.add(future)
+                                        future.add_done_callback(
+                                            _discard_callback_future
+                                        )
+                                elif msg.type == aiohttp.WSMsgType.ERROR:
+                                    logger.error("WebSocket error encountered")
+                                    break
+                                elif msg.type == aiohttp.WSMsgType.CLOSED:
+                                    logger.info("WebSocket connection closed")
+                                    break
+                except asyncio.CancelledError:
+                    raise
+                except aiohttp.ClientError as e:
+                    logger.error(f"WebSocket client error: {e}")
+                except asyncio.TimeoutError:
+                    logger.error("WebSocket connection timeout")
+                except Exception as e:
+                    logger.error(f"WebSocket unexpected error: {e}")
+                    raise
+
+                delay = _retry_delay(self.retry_base_delay_seconds, reconnect_attempt)
+                reconnect_attempt += 1
+                logger.info(f"Reconnecting WebSocket after {delay:.2f}s")
+                await asyncio.sleep(delay)
+        finally:
+            for future in tuple(callback_futures):
+                future.cancel()
 
     def _fetch_markets_by_array_filter(
         self, filter_name: str, values: list[str], chunk_size: int
@@ -588,6 +617,39 @@ class PolymarketPublicClient:
     def _is_missing_clob_order_book(self, url: str, error: HTTPError) -> bool:
         return error.code == 404 and url.startswith(f"{self.clob_base_url}/book?")
 
+    def _schedule_market_update_callback(self, callback: callable, data: dict[str, Any]):
+        loop = asyncio.get_running_loop()
+        callback_call = getattr(callback, "__call__", None)
+        if inspect.iscoroutinefunction(callback) or inspect.iscoroutinefunction(
+            callback_call
+        ):
+            future = loop.create_task(callback(data))
+        else:
+            future = loop.run_in_executor(shared_io_executor(), callback, data)
+        future.add_done_callback(self._log_market_update_callback_failure)
+        return future
+
+    @staticmethod
+    def _log_market_update_callback_failure(future) -> None:
+        try:
+            future.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Market update callback failed")
+
+    def _inflight_wait_timeout_seconds(self) -> float:
+        request_timeout = max(self.timeout_seconds, 1) + 5
+        retry_budget = 0.0
+        for attempt in range(max(self.max_retries - 1, 0)):
+            retry_budget += self.retry_base_delay_seconds * (2**attempt) * 1.5
+        return request_timeout * self.max_retries + retry_budget + 1
+
+    def _counts_toward_circuit_breaker(self, error: Exception) -> bool:
+        if isinstance(error, HTTPError):
+            return error.code in {408, 429} or 500 <= error.code < 600
+        return isinstance(error, (URLError, TimeoutError, OSError, json.JSONDecodeError))
+
     def _get_json(self, url: str) -> Any:
         """Make HTTP GET request with caching and retries."""
 
@@ -614,8 +676,16 @@ class PolymarketPublicClient:
                     is_leader = False
 
             if not is_leader:
-                inflight["event"].wait()
+                wait_completed = inflight["event"].wait(
+                    timeout=self._inflight_wait_timeout_seconds()
+                )
                 try:
+                    if not wait_completed:
+                        logger.warning(
+                            f"Timed out waiting for in-flight request for {url}; "
+                            "retrying directly"
+                        )
+                        return self._fetch_json_with_retries(url)
                     error = inflight["error"]
                     if error is not None:
                         raise error
@@ -646,7 +716,10 @@ class PolymarketPublicClient:
                     self._inflight_requests.pop(url, None)
             return result
 
-        return self._breaker_for_url(url).call(_fetch_url)
+        return self._breaker_for_url(url).call(
+            _fetch_url,
+            should_count_failure=self._counts_toward_circuit_breaker,
+        )
 
     def _fetch_json_with_retries(self, url: str) -> Any:
         metrics = _get_metrics()
@@ -921,8 +994,9 @@ def build_wallet_trades(
             continue
 
         for item in items:
+            normalized_item = _flatten_trade_payload(item)
             for topic in topics:
-                trade = wallet_trade_from_data(wallet, topic, item, now)
+                trade = wallet_trade_from_data(wallet, topic, normalized_item, now)
                 if trade is not None:
                     trades.append(trade)
 

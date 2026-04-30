@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from predictcel.models import (
     BasketHealth,
     BasketMembership,
@@ -105,6 +107,30 @@ def make_health(topic: str, state: str, captured_at: datetime) -> BasketHealth:
 def make_store() -> tuple[SignalStore, Path]:
     db_path = Path(__file__).with_name(f".predictcel-test-{uuid4().hex}.db")
     return SignalStore(str(db_path)), db_path
+
+
+def test_store_init_closes_connection_when_schema_setup_fails(monkeypatch) -> None:
+    db_path = Path(__file__).with_name(f".predictcel-init-fail-{uuid4().hex}.db")
+    observed = {"closed": False}
+
+    class FakeConnection:
+        def execute(self, _sql: str) -> None:
+            return None
+
+        def close(self) -> None:
+            observed["closed"] = True
+
+    monkeypatch.setattr("predictcel.storage.sqlite3.connect", lambda *args, **kwargs: FakeConnection())
+    monkeypatch.setattr(
+        SignalStore,
+        "_init_schema",
+        lambda self: (_ for _ in ()).throw(RuntimeError("schema setup failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="schema setup failed"):
+        SignalStore(str(db_path))
+
+    assert observed["closed"] is True
 
 
 def test_active_positions_count_as_held_and_exposed() -> None:

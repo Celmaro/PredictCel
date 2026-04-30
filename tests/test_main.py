@@ -3,9 +3,12 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from predictcel.config import BasketRule, load_config
 from predictcel import discover_wallets
 from predictcel.main import (
+    LiveInputFetchThresholdError,
     _analysis_trades,
     _auto_feed_wallet_registry_from_discovery,
     _build_wallet_registry_summary,
@@ -432,7 +435,7 @@ def test_load_live_inputs_uses_registry_memberships_for_wallet_fetches(
     def fake_fetch_wallet_payloads(client, wallets, limit):
         del client, limit
         observed["wallets"] = list(wallets)
-        return {wallet: [] for wallet in wallets}
+        return {wallet: [] for wallet in wallets}, []
 
     monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FakeLiveClient)
     monkeypatch.setattr(
@@ -484,19 +487,22 @@ def test_load_live_inputs_tracks_trade_market_id_source_breakdown(monkeypatch) -
 
     def fake_fetch_wallet_payloads(client, wallets, limit):
         del client, limit
-        return {
-            wallets[0]: [
-                {
-                    "asset": "token_yes",
-                    "market": {"id": "market_123", "slug": "will-x-happen"},
-                },
-                {
-                    "clobTokenId": "token_no",
-                    "market": {"conditionId": "cond_1"},
-                },
-                {"asset": "token_fallback"},
-            ]
-        }
+        return (
+            {
+                wallets[0]: [
+                    {
+                        "asset": "token_yes",
+                        "market": {"id": "market_123", "slug": "will-x-happen"},
+                    },
+                    {
+                        "clobTokenId": "token_no",
+                        "market": {"conditionId": "cond_1"},
+                    },
+                    {"asset": "token_fallback"},
+                ]
+            },
+            [],
+        )
 
     monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FakeLiveClient)
     monkeypatch.setattr(
@@ -581,7 +587,7 @@ def test_load_live_inputs_recovers_unresolved_token_markets(monkeypatch) -> None
     monkeypatch.setattr("predictcel.main.PolymarketPublicClient", TokenProbeClient)
     monkeypatch.setattr(
         "predictcel.main._fetch_wallet_payloads",
-        lambda client, wallets, limit: {wallets[0]: [{"asset": "token_yes"}]},
+        lambda client, wallets, limit: ({wallets[0]: [{"asset": "token_yes"}]}, []),
     )
     monkeypatch.setattr(
         "predictcel.main.build_wallet_trades",
@@ -665,7 +671,7 @@ def test_load_live_inputs_indexes_token_aliases_from_loaded_market_rows(
     monkeypatch.setattr("predictcel.main.PolymarketPublicClient", AliasRichClient)
     monkeypatch.setattr(
         "predictcel.main._fetch_wallet_payloads",
-        lambda client, wallets, limit: {wallets[0]: [{"asset": "token_yes"}]},
+        lambda client, wallets, limit: ({wallets[0]: [{"asset": "token_yes"}]}, []),
     )
     monkeypatch.setattr(
         "predictcel.main.build_wallet_trades",
@@ -696,6 +702,51 @@ def test_load_live_inputs_indexes_token_aliases_from_loaded_market_rows(
     assert diagnostics["supplemental_market_ids_requested"] == 0
     assert diagnostics["token_probe_requested"] == 0
     assert diagnostics["token_aliases_added_from_rows"] >= 2
+
+
+def test_load_live_inputs_raises_when_wallet_fetch_failures_exceed_threshold(
+    monkeypatch,
+) -> None:
+    registry_wallets = [
+        "0x1111111111111111111111111111111111111111",
+        "0x2222222222222222222222222222222222222222",
+    ]
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        wallet_registry=replace(
+            load_config(Path("config/predictcel.example.json")).wallet_registry,
+            enabled=True,
+            seed_from_baskets=False,
+        ),
+    )
+    store = DiscoveryStore(
+        memberships=[
+            BasketMembership(
+                topic="sports",
+                wallet=wallet,
+                tier="core",
+                rank=index + 1,
+                active=True,
+                joined_at=datetime(2026, 1, 1, tzinfo=UTC),
+                effective_until=None,
+                promotion_reason="seeded",
+                demotion_reason="",
+            )
+            for index, wallet in enumerate(registry_wallets)
+        ]
+    )
+
+    monkeypatch.setattr("predictcel.main.PolymarketPublicClient", FakeLiveClient)
+    monkeypatch.setattr(
+        "predictcel.main._fetch_wallet_payloads",
+        lambda client, wallets, limit: ({wallet: [] for wallet in wallets}, wallets),
+    )
+
+    with pytest.raises(
+        LiveInputFetchThresholdError,
+        match="wallet fetch failures exceeded threshold",
+    ):
+        _load_live_inputs(config, store)
 
 
 def test_classify_unmatched_token_ids_breaks_down_gap_types() -> None:
@@ -1039,6 +1090,41 @@ def test_run_wallet_discovery_report_only_does_not_persist_when_db_is_provided(
     assert '"discovered_wallets_ingested": 0' in output
 
 
+def test_run_wallet_discovery_closes_pipeline_when_store_setup_fails(
+    monkeypatch,
+) -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    observed = {"pipeline_closed": False}
+
+    class FakePipeline:
+        def __init__(self, _config) -> None:
+            self.config = _config
+
+        def close(self) -> None:
+            observed["pipeline_closed"] = True
+
+    monkeypatch.setattr("predictcel.main.load_config", lambda _: config)
+    monkeypatch.setattr("predictcel.main.WalletDiscoveryPipeline", FakePipeline)
+    monkeypatch.setattr(
+        "predictcel.main.SignalStore",
+        lambda db_path: (_ for _ in ()).throw(RuntimeError(f"db init failed: {db_path}")),
+    )
+
+    with pytest.raises(RuntimeError, match="db init failed: predictcel.db"):
+        _run_wallet_discovery(
+            [
+                "--config",
+                "config/predictcel.example.json",
+                "--db",
+                "predictcel.db",
+                "--output-dir",
+                "data",
+            ]
+        )
+
+    assert observed["pipeline_closed"] is True
+
+
 def test_auto_feed_wallet_registry_from_discovery_ingests_accepted_candidates(
     monkeypatch,
 ) -> None:
@@ -1329,6 +1415,41 @@ def test_compact_cycle_output_includes_execution_state() -> None:
         "planner_ran": False,
         "diagnostics": {"candidates_seen": 2, "candidates_planned": 0},
     }
+
+
+def test_compact_cycle_output_omits_sensitive_state_by_default() -> None:
+    compact = _compact_cycle_output(
+        {
+            "mode": "live",
+            "summary": {"copy_candidates": 1},
+            "latency_ms": {"total_cycle_ms": 10},
+            "db": {"path": "/data/predictcel.db"},
+            "portfolio_summary": {"current_exposure_usd": 0},
+            "execution_results": [{"status": "filled"}],
+            "open_positions": [{"market_id": "m1"}],
+        }
+    )
+
+    assert "execution_results" not in compact
+    assert "open_positions" not in compact
+
+
+def test_compact_cycle_output_includes_sensitive_state_when_requested() -> None:
+    compact = _compact_cycle_output(
+        {
+            "mode": "live",
+            "summary": {"copy_candidates": 1},
+            "latency_ms": {"total_cycle_ms": 10},
+            "db": {"path": "/data/predictcel.db"},
+            "portfolio_summary": {"current_exposure_usd": 0},
+            "execution_results": [{"status": "filled"}],
+            "open_positions": [{"market_id": "m1"}],
+        },
+        include_sensitive=True,
+    )
+
+    assert compact["execution_results"] == [{"status": "filled"}]
+    assert compact["open_positions"] == [{"market_id": "m1"}]
 
 
 def test_compact_cycle_output_includes_wallet_registry_summary() -> None:
