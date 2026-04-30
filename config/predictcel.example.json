@@ -6,8 +6,8 @@
     "gamma_base_url": "https://gamma-api.polymarket.com",
     "data_base_url": "https://data-api.polymarket.com",
     "clob_base_url": "https://clob.polymarket.com",
-    "market_limit": 250,
-    "trade_limit": 25,
+    "market_limit": 1000,
+    "trade_limit": 100,
     "request_timeout_seconds": 15
   },
   "filters": {
@@ -107,7 +107,7 @@
     "rotation_interval_hours": 24,
     "force_refresh_if_fresh_core_below": 3,
     "allow_backup_in_live_consensus": false,
-    "min_basket_participation_ratio": 0.8,
+    "min_basket_participation_ratio": 0.5,
     "min_weighted_participation_ratio": 0.75,
     "min_active_eligible_wallets": 5,
     "min_aligned_wallet_count": 4,
