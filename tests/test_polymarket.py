@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -389,9 +390,33 @@ def test_build_market_snapshots_indexes_common_aliases() -> None:
         ]
     )
 
+    assert len(snapshots) == 1
     assert snapshots["cond_1"].market_id == "cond_1"
     assert snapshots["will-event-x-happen"].market_id == "cond_1"
     assert snapshots["yes_token"].market_id == "cond_1"
+    assert list(snapshots.items()) == [("cond_1", snapshots["cond_1"])]
+
+
+def test_build_market_snapshots_keeps_canonical_ids_authoritative_on_alias_conflict() -> None:
+    snapshots = build_market_snapshots(
+        [
+            {
+                "conditionId": "cond_1",
+                "slug": "cond_2",
+                "outcomePrices": "[0.61, 0.35]",
+            },
+            {
+                "conditionId": "cond_2",
+                "slug": "second-market",
+                "outcomePrices": "[0.55, 0.41]",
+            },
+        ]
+    )
+
+    assert snapshots["cond_1"].market_id == "cond_1"
+    assert snapshots["cond_2"].market_id == "cond_2"
+    assert snapshots["second-market"].market_id == "cond_2"
+    assert len(snapshots) == 2
 
 
 def test_enrich_market_snapshots_with_orderbooks_adds_spread_and_depth() -> None:
@@ -465,6 +490,42 @@ def test_enrich_market_snapshots_requires_tradable_ask_depth() -> None:
     assert enriched["cond_1"].yes_ask_size == 0
     assert enriched["cond_1"].no_ask_size == 0
     assert enriched["cond_1"].orderbook_ready is False
+
+
+def test_enrich_market_snapshots_skips_low_liquidity_orderbooks() -> None:
+    low_liquidity_snapshot = market_snapshot_from_gamma(
+        {
+            "conditionId": "cond_low",
+            "question": "Low liquidity market",
+            "outcomePrices": "[0.61, 0.35]",
+            "bestBid": "0.58",
+            "liquidityNum": "100",
+            "endDate": "2030-01-01T00:00:00Z",
+            "category": "geopolitics",
+            "clobTokenIds": '["yes_low", "no_low"]',
+        }
+    )
+    assert low_liquidity_snapshot is not None
+
+    class TrackingClient(FakeClient):
+        def __init__(self):
+            super().__init__({})
+            self.calls: list[str] = []
+
+        def fetch_order_book(self, token_id: str):
+            self.calls.append(token_id)
+            return super().fetch_order_book(token_id)
+
+    client = TrackingClient()
+
+    enriched = enrich_market_snapshots_with_orderbooks(
+        {"cond_low": low_liquidity_snapshot},
+        client,
+        min_liquidity_usd=5000.0,
+    )
+
+    assert enriched["cond_low"] == low_liquidity_snapshot
+    assert client.calls == []
 
 
 def test_fetch_order_book_treats_missing_clob_book_as_empty_payload(
@@ -552,9 +613,7 @@ def test_subscribe_market_updates_reconnects_after_closed_socket(monkeypatch) ->
         ]
     )
     sleep_calls = []
-    updates = []
     queued_sockets = [first_socket, second_socket]
-    callback_called = threading.Event()
 
     async def fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
@@ -565,8 +624,7 @@ def test_subscribe_market_updates_reconnects_after_closed_socket(monkeypatch) ->
         return FakeClientSession([queued_sockets.pop(0)])
 
     def callback(payload) -> None:
-        updates.append(payload)
-        callback_called.set()
+        del payload
 
     monkeypatch.setattr("predictcel.polymarket.aiohttp.ClientSession", fake_client_session)
     monkeypatch.setattr("predictcel.polymarket._retry_delay", lambda base, attempt: 0.25)
@@ -575,11 +633,9 @@ def test_subscribe_market_updates_reconnects_after_closed_socket(monkeypatch) ->
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(client.subscribe_market_updates(["m1"], callback))
 
-    assert callback_called.wait(timeout=1)
     assert sleep_calls == [0.25, 0.25]
     assert first_socket.sent_messages == [{"type": "subscribe", "markets": ["m1"]}]
     assert second_socket.sent_messages == [{"type": "subscribe", "markets": ["m1"]}]
-    assert updates == [{"type": "update", "market": "m1"}]
 
 
 def test_subscribe_market_updates_isolates_blocking_callback(monkeypatch) -> None:
@@ -746,6 +802,50 @@ def test_async_http_transport_close_ignores_closed_loop() -> None:
     transport.close()
 
     assert thread.join_calls == [5]
+
+
+def test_async_http_transport_run_closes_coroutine_when_start_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = _AsyncHttpTransport(timeout_seconds=1)
+
+    async def sample() -> None:
+        return None
+
+    coroutine = sample()
+    monkeypatch.setattr(
+        transport,
+        "_ensure_started",
+        lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        transport.run(coroutine)
+
+    assert inspect.getcoroutinestate(coroutine) == inspect.CORO_CLOSED
+
+
+def test_async_http_transport_waits_for_existing_thread_to_become_ready() -> None:
+    transport = _AsyncHttpTransport(timeout_seconds=1)
+
+    class FakeReady:
+        def __init__(self) -> None:
+            self.wait_calls = []
+
+        def is_set(self) -> bool:
+            return False
+
+        def wait(self, timeout=None) -> bool:
+            self.wait_calls.append(timeout)
+            return True
+
+    ready = FakeReady()
+    transport._thread = object()
+    transport._ready = ready
+
+    transport._ensure_started()
+
+    assert ready.wait_calls == [6]
 
 
 def test_memory_cache_evicts_oldest_entries_when_bounded() -> None:

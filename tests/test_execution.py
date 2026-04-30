@@ -1,6 +1,10 @@
+import sys
+import types
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import time
+
+import pytest
 
 from predictcel.config import (
     ExecutionConfig,
@@ -50,6 +54,59 @@ def make_live_data() -> LiveDataConfig:
         trade_limit=10,
         request_timeout_seconds=15,
     )
+
+
+class RecordingStore:
+    def __init__(self) -> None:
+        self.records: list[dict[str, object]] = []
+
+    def upsert_open_order(self, **kwargs) -> None:
+        self.records.append(dict(kwargs))
+
+
+def install_fake_clob_modules(monkeypatch) -> None:
+    package = types.ModuleType("py_clob_client")
+    clob_types = types.ModuleType("py_clob_client.clob_types")
+    constants = types.ModuleType("py_clob_client.order_builder.constants")
+
+    class FakeMarketOrderArgs:
+        def __init__(self, **kwargs) -> None:
+            self.__dict__.update(kwargs)
+
+    class FakeOrderType:
+        FOK = "FOK"
+        FAK = "FAK"
+
+    clob_types.MarketOrderArgs = FakeMarketOrderArgs
+    clob_types.OrderType = FakeOrderType
+    constants.BUY = "BUY"
+    constants.SELL = "SELL"
+    monkeypatch.setitem(sys.modules, "py_clob_client", package)
+    monkeypatch.setitem(sys.modules, "py_clob_client.clob_types", clob_types)
+    monkeypatch.setitem(
+        sys.modules,
+        "py_clob_client.order_builder.constants",
+        constants,
+    )
+
+
+def install_fake_clob_client_module(
+    monkeypatch,
+    client_cls,
+    *,
+    api_creds_cls=None,
+) -> None:
+    package = types.ModuleType("py_clob_client")
+    client_module = types.ModuleType("py_clob_client.client")
+    clob_types = sys.modules.get("py_clob_client.clob_types") or types.ModuleType(
+        "py_clob_client.clob_types"
+    )
+    client_module.ClobClient = client_cls
+    if api_creds_cls is not None:
+        clob_types.ApiCreds = api_creds_cls
+    monkeypatch.setitem(sys.modules, "py_clob_client", package)
+    monkeypatch.setitem(sys.modules, "py_clob_client.client", client_module)
+    monkeypatch.setitem(sys.modules, "py_clob_client.clob_types", clob_types)
 
 
 def test_execution_planner_selects_top_copyable_markets() -> None:
@@ -607,6 +664,50 @@ def test_execution_planner_skips_late_price_entries() -> None:
     assert intents == []
 
 
+def test_execution_planner_honors_env_entry_threshold_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("PREDICTCEL_MIN_MINUTES_TO_RESOLUTION", "10")
+    monkeypatch.setenv("PREDICTCEL_MAX_ENTRY_PRICE", "0.97")
+    config = make_execution_config()
+    planner = ExecutionPlanner(config, config.position)
+    candidates = [
+        CopyCandidate(
+            topic="geopolitics",
+            market_id="m1",
+            side="YES",
+            consensus_ratio=0.67,
+            reference_price=0.95,
+            current_price=0.96,
+            liquidity_usd=12000,
+            source_wallets=["w1", "w2"],
+            wallet_quality_score=0.8,
+            copyability_score=0.83,
+            reason="ok",
+        )
+    ]
+    markets = {
+        "m1": MarketSnapshot(
+            market_id="m1",
+            topic="geopolitics",
+            title="One",
+            yes_ask=0.96,
+            no_ask=0.03,
+            best_bid=0.95,
+            liquidity_usd=12000,
+            minutes_to_resolution=20,
+            yes_token_id="yes_1",
+            no_token_id="no_1",
+            yes_ask_size=100,
+            orderbook_ready=True,
+        )
+    }
+
+    intents = planner.plan(
+        candidates, markets, held_market_ids=set(), current_exposure_usd=0.0
+    )
+
+    assert [intent.market_id for intent in intents] == ["m1"]
+
+
 def test_live_order_executor_returns_dry_run_results() -> None:
     config = make_execution_config()
     executor = LiveOrderExecutor(config, make_live_data())
@@ -703,9 +804,229 @@ def test_exit_runner_creates_close_intent_without_mutating_status() -> None:
     assert intents[0].market_title == "One"
     assert intents[0].side == "CLOSE"
     assert intents[0].token_id == "yes_1"
+    assert intents[0].amount_usd == 27.0
     assert updated[0].market_title == "One"
     assert updated[0].status == "open"
     assert updated[0].unrealized_pnl > 0
+
+
+def test_exit_runner_uses_remaining_shares_for_close_sizing() -> None:
+    config = make_execution_config()
+    runner = ExitRunner(config, make_live_data())
+    opened_at = datetime.now(UTC) - timedelta(minutes=30)
+    positions = [
+        Position(
+            market_id="m1",
+            topic="geopolitics",
+            side="YES",
+            token_id="yes_1",
+            entry_price=0.5,
+            entry_amount_usd=25.0,
+            current_price=0.5,
+            unrealized_pnl=0.0,
+            opened_at=opened_at,
+            last_updated=opened_at,
+            take_profit_pct=0.1,
+            stop_loss_pct=0.1,
+            max_hold_minutes=1440,
+            status="open",
+            entry_shares=50.0,
+            remaining_shares=10.0,
+        )
+    ]
+    markets = {
+        "m1": MarketSnapshot(
+            market_id="m1",
+            topic="geopolitics",
+            title="One",
+            yes_ask=0.56,
+            no_ask=0.43,
+            best_bid=0.54,
+            liquidity_usd=12000,
+            minutes_to_resolution=180,
+            yes_token_id="yes_1",
+            yes_bid=0.54,
+            orderbook_ready=True,
+        )
+    }
+
+    intents, _updated = runner.evaluate_and_close(positions, markets)
+
+    assert len(intents) == 1
+    assert intents[0].amount_usd == 5.4
+
+
+def test_exit_runner_handles_multiple_positions_with_mixed_close_reasons() -> None:
+    config = make_execution_config()
+    runner = ExitRunner(config, make_live_data())
+    now = datetime.now(UTC)
+    positions = [
+        Position(
+            market_id="m_tp",
+            topic="geopolitics",
+            side="YES",
+            token_id="yes_tp",
+            entry_price=0.5,
+            entry_amount_usd=25.0,
+            current_price=0.5,
+            unrealized_pnl=0.0,
+            opened_at=now - timedelta(minutes=30),
+            last_updated=now - timedelta(minutes=30),
+            take_profit_pct=0.1,
+            stop_loss_pct=0.1,
+            max_hold_minutes=1440,
+            status="open",
+            entry_shares=50.0,
+            remaining_shares=50.0,
+        ),
+        Position(
+            market_id="m_sl",
+            topic="geopolitics",
+            side="NO",
+            token_id="no_sl",
+            entry_price=0.6,
+            entry_amount_usd=20.0,
+            current_price=0.6,
+            unrealized_pnl=0.0,
+            opened_at=now - timedelta(minutes=20),
+            last_updated=now - timedelta(minutes=20),
+            take_profit_pct=0.2,
+            stop_loss_pct=0.1,
+            max_hold_minutes=1440,
+            status="open",
+            entry_shares=40.0,
+            remaining_shares=40.0,
+        ),
+        Position(
+            market_id="m_hold",
+            topic="sports",
+            side="YES",
+            token_id="yes_hold",
+            entry_price=0.45,
+            entry_amount_usd=18.0,
+            current_price=0.45,
+            unrealized_pnl=0.0,
+            opened_at=now - timedelta(minutes=120),
+            last_updated=now - timedelta(minutes=120),
+            take_profit_pct=0.5,
+            stop_loss_pct=0.5,
+            max_hold_minutes=60,
+            status="open",
+            entry_shares=40.0,
+            remaining_shares=20.0,
+        ),
+        Position(
+            market_id="m_soon",
+            topic="sports",
+            side="YES",
+            token_id="yes_soon",
+            entry_price=0.52,
+            entry_amount_usd=15.0,
+            current_price=0.52,
+            unrealized_pnl=0.0,
+            opened_at=now - timedelta(minutes=10),
+            last_updated=now - timedelta(minutes=10),
+            take_profit_pct=0.5,
+            stop_loss_pct=0.5,
+            max_hold_minutes=1440,
+            status="open",
+            entry_shares=30.0,
+            remaining_shares=30.0,
+        ),
+        Position(
+            market_id="m_missing",
+            topic="sports",
+            side="YES",
+            token_id="yes_missing",
+            entry_price=0.5,
+            entry_amount_usd=10.0,
+            current_price=0.5,
+            unrealized_pnl=0.0,
+            opened_at=now - timedelta(minutes=15),
+            last_updated=now - timedelta(minutes=15),
+            take_profit_pct=0.1,
+            stop_loss_pct=0.1,
+            max_hold_minutes=1440,
+            status="open",
+        ),
+    ]
+    markets = {
+        "m_tp": MarketSnapshot(
+            market_id="m_tp",
+            topic="geopolitics",
+            title="Take Profit",
+            yes_ask=0.56,
+            no_ask=0.43,
+            best_bid=0.55,
+            liquidity_usd=12000,
+            minutes_to_resolution=180,
+            yes_token_id="yes_tp",
+            yes_bid=0.54,
+            orderbook_ready=True,
+        ),
+        "m_sl": MarketSnapshot(
+            market_id="m_sl",
+            topic="geopolitics",
+            title="Stop Loss",
+            yes_ask=0.52,
+            no_ask=0.5,
+            best_bid=0.5,
+            liquidity_usd=12000,
+            minutes_to_resolution=180,
+            no_token_id="no_sl",
+            no_bid=0.48,
+            orderbook_ready=True,
+        ),
+        "m_hold": MarketSnapshot(
+            market_id="m_hold",
+            topic="sports",
+            title="Max Hold",
+            yes_ask=0.46,
+            no_ask=0.5,
+            best_bid=0.45,
+            liquidity_usd=12000,
+            minutes_to_resolution=180,
+            yes_token_id="yes_hold",
+            yes_bid=0.44,
+            orderbook_ready=True,
+        ),
+        "m_soon": MarketSnapshot(
+            market_id="m_soon",
+            topic="sports",
+            title="Resolving Soon",
+            yes_ask=0.53,
+            no_ask=0.44,
+            best_bid=0.52,
+            liquidity_usd=12000,
+            minutes_to_resolution=5,
+            yes_token_id="yes_soon",
+            yes_bid=0.51,
+            orderbook_ready=True,
+        ),
+    }
+
+    intents, updated = runner.evaluate_and_close(positions, markets)
+
+    assert [intent.market_id for intent in intents] == [
+        "m_tp",
+        "m_sl",
+        "m_hold",
+        "m_soon",
+    ]
+    assert [intent.side for intent in intents] == [
+        "CLOSE",
+        "CLOSE",
+        "CLOSE",
+        "CLOSE",
+    ]
+    assert intents[0].amount_usd == 27.0
+    assert intents[1].amount_usd == 19.2
+    assert intents[2].amount_usd == 8.8
+    assert intents[3].amount_usd == 15.3
+    assert len(updated) == 5
+    assert next(
+        position for position in updated if position.market_id == "m_missing"
+    ) == positions[4]
 
 
 def test_live_executor_dry_run_preserves_close_side() -> None:
@@ -730,6 +1051,51 @@ def test_live_executor_dry_run_preserves_close_side() -> None:
     assert results[0].market_title == "One"
     assert results[0].side == "CLOSE"
     assert results[0].status == "dry_run"
+
+
+def test_execution_result_normalizes_legacy_uppercase_status() -> None:
+    result = replace(
+        LiveOrderExecutor(make_execution_config(), make_live_data())._dry_run_result(
+            ExecutionIntent(
+                market_id="m1",
+                topic="geopolitics",
+                side="YES",
+                token_id="yes_1",
+                amount_usd=25.0,
+                worst_price=0.54,
+                copyability_score=0.9,
+                order_type="FOK",
+                reason="first",
+                market_title="One",
+            )
+        ),
+        status="SUCCESS",
+    )
+
+    assert result.status == "filled"
+
+
+def test_position_normalizes_legacy_uppercase_status() -> None:
+    opened_at = datetime.now(UTC) - timedelta(minutes=30)
+    position = Position(
+        market_id="m1",
+        topic="geopolitics",
+        side="YES",
+        token_id="yes_1",
+        entry_price=0.5,
+        entry_amount_usd=25.0,
+        current_price=0.5,
+        unrealized_pnl=0.0,
+        opened_at=opened_at,
+        last_updated=opened_at,
+        take_profit_pct=0.3,
+        stop_loss_pct=0.1,
+        max_hold_minutes=1440,
+        status="OPEN",
+        market_title="One",
+    )
+
+    assert position.status == "open"
 
 
 def test_live_order_executor_closes_clients_and_preserves_result_order(monkeypatch) -> None:
@@ -792,6 +1158,201 @@ def test_live_order_executor_closes_clients_and_preserves_result_order(monkeypat
     assert [result.order_id for result in results] == ["0", "1"]
     assert len(built_clients) == 2
     assert all(client.closed for client in built_clients)
+
+
+def test_build_client_uses_pre_generated_api_creds_from_env(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeApiCreds:
+        def __init__(self, key: str, secret: str, passphrase: str) -> None:
+            self.key = key
+            self.secret = secret
+            self.passphrase = passphrase
+
+    class FakeClobClient:
+        def __init__(
+            self,
+            host: str,
+            *,
+            key: str,
+            chain_id: int,
+            signature_type: int,
+            funder: str,
+        ) -> None:
+            observed["init"] = {
+                "host": host,
+                "key": key,
+                "chain_id": chain_id,
+                "signature_type": signature_type,
+                "funder": funder,
+            }
+
+        def set_api_creds(self, creds) -> None:
+            observed["creds"] = creds
+
+        def create_or_derive_api_creds(self):
+            observed["derived"] = True
+            return {"unexpected": True}
+
+    install_fake_clob_client_module(
+        monkeypatch,
+        FakeClobClient,
+        api_creds_cls=FakeApiCreds,
+    )
+    monkeypatch.setenv("PREDICTCEL_POLY_PRIVATE_KEY", "0xabc")
+    monkeypatch.setenv("PREDICTCEL_POLY_FUNDER", "0xfunder")
+    monkeypatch.setenv("POLY_API_KEY", "api-key")
+    monkeypatch.setenv("POLY_API_SECRET", "api-secret")
+    monkeypatch.setenv("POLY_API_PASSPHRASE", "api-pass")
+
+    executor = LiveOrderExecutor(
+        replace(make_execution_config(), dry_run=False),
+        make_live_data(),
+    )
+    client = executor._build_client()
+
+    assert client is not None
+    assert observed["init"] == {
+        "host": "https://clob.polymarket.com",
+        "key": "0xabc",
+        "chain_id": 137,
+        "signature_type": 0,
+        "funder": "0xfunder",
+    }
+    assert observed.get("derived") is None
+    creds = observed["creds"]
+    assert isinstance(creds, FakeApiCreds)
+    assert creds.key == "api-key"
+    assert creds.secret == "api-secret"
+    assert creds.passphrase == "api-pass"
+
+
+def test_build_client_requires_complete_pre_generated_api_creds(monkeypatch) -> None:
+    class FakeClobClient:
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("client should not be constructed")
+
+    install_fake_clob_client_module(monkeypatch, FakeClobClient)
+    monkeypatch.setenv("PREDICTCEL_POLY_PRIVATE_KEY", "0xabc")
+    monkeypatch.setenv("PREDICTCEL_POLY_FUNDER", "0xfunder")
+    monkeypatch.setenv("POLY_API_KEY", "api-key")
+    monkeypatch.setenv("POLY_API_SECRET", "api-secret")
+    monkeypatch.delenv("POLY_API_PASSPHRASE", raising=False)
+
+    executor = LiveOrderExecutor(
+        replace(make_execution_config(), dry_run=False),
+        make_live_data(),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="POLY_API_KEY, POLY_API_SECRET, and POLY_API_PASSPHRASE",
+    ):
+        executor._build_client()
+
+
+def test_live_order_executor_reconciles_retryable_submission_by_client_order_id(
+    monkeypatch,
+) -> None:
+    install_fake_clob_modules(monkeypatch)
+    store = RecordingStore()
+    executor = LiveOrderExecutor(
+        replace(make_execution_config(), dry_run=False),
+        make_live_data(),
+        store=store,
+    )
+    intent = ExecutionIntent(
+        market_id="m1",
+        topic="geopolitics",
+        side="YES",
+        token_id="yes_1",
+        amount_usd=25.0,
+        worst_price=0.5,
+        copyability_score=0.9,
+        order_type="FOK",
+        reason="first",
+        market_title="One",
+    )
+    expected_client_order_id = executor._client_order_id_for_intent(intent)
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.post_calls = 0
+            self.lookup_calls = 0
+
+        def create_market_order(self, order_args):
+            return {"args": order_args.__dict__}
+
+        def post_order(self, _signed_order, _order_type):
+            self.post_calls += 1
+            raise RuntimeError("connection reset by peer")
+
+        def get_order_by_client_order_id(self, client_order_id: str):
+            self.lookup_calls += 1
+            return {
+                "client_order_id": client_order_id,
+                "status": "matched",
+                "orderID": "order-123",
+                "avgPrice": 0.5,
+                "filledShares": 50.0,
+            }
+
+    client = FakeClient()
+
+    result = executor._submit_intent(client, intent)
+
+    assert result.status == "filled"
+    assert result.order_id == "order-123"
+    assert result.client_order_id == expected_client_order_id
+    assert result.filled_shares == 50.0
+    assert client.post_calls == 1
+    assert client.lookup_calls == 1
+    assert store.records[-1]["status"] == "filled"
+    assert store.records[-1]["client_order_id"] == expected_client_order_id
+
+
+def test_live_order_executor_returns_pending_for_ambiguous_retry_without_lookup(
+    monkeypatch,
+) -> None:
+    install_fake_clob_modules(monkeypatch)
+    store = RecordingStore()
+    executor = LiveOrderExecutor(
+        replace(make_execution_config(), dry_run=False),
+        make_live_data(),
+        store=store,
+    )
+    intent = ExecutionIntent(
+        market_id="m1",
+        topic="geopolitics",
+        side="YES",
+        token_id="yes_1",
+        amount_usd=25.0,
+        worst_price=0.5,
+        copyability_score=0.9,
+        order_type="FOK",
+        reason="first",
+        market_title="One",
+    )
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.post_calls = 0
+
+        def create_market_order(self, order_args):
+            return {"args": order_args.__dict__}
+
+        def post_order(self, _signed_order, _order_type):
+            self.post_calls += 1
+            raise RuntimeError("connection timed out")
+
+    client = FakeClient()
+
+    result = executor._submit_intent(client, intent)
+
+    assert result.status == "pending"
+    assert "ambiguous submission" in result.error
+    assert client.post_calls == 1
+    assert store.records[-1]["status"] == "pending"
 
 
 def test_retry_delay_adds_bounded_jitter() -> None:

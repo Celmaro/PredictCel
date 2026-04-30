@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import sys
+import threading
 import time
 import traceback
 from datetime import UTC, datetime
@@ -12,6 +14,7 @@ from .main import main as run_cli
 
 VALID_MODES = {"paper", "live-data", "dry-run-trading", "live-trading"}
 LIVE_MODES = {"live-data", "dry-run-trading", "live-trading"}
+_shutdown_requested = threading.Event()
 
 
 def main() -> None:
@@ -20,8 +23,9 @@ def main() -> None:
     )
     run_once = _env_enabled("PREDICTCEL_RUN_ONCE", default=False)
     interval = max(interval_seconds, 30)
+    _install_signal_handlers()
 
-    while True:
+    while not _shutdown_requested.is_set():
         started = time.perf_counter()
         try:
             _run_once_from_env()
@@ -41,15 +45,27 @@ def main() -> None:
                     "traceback": traceback.format_exc(),
                 },
             )
-        if run_once:
+        if run_once or _shutdown_requested.is_set():
+            if _shutdown_requested.is_set():
+                _log_event(
+                    "predictcel_run_shutdown",
+                    {"next_interval_seconds": 0},
+                )
             return
-        time.sleep(interval)
+        _sleep_until_next_cycle(interval)
 
 
 def _run_once_from_env() -> None:
     config_path = os.getenv("PREDICTCEL_CONFIG", "config/predictcel.example.json")
     db_path = _default_db_path()
     mode = os.getenv("PREDICTCEL_MODE", "").strip().lower()
+    if (
+        _env_enabled("PREDICTCEL_REQUIRE_PERSISTENT_DB", default=False)
+        and _is_ephemeral_db_path(db_path)
+    ):
+        raise RuntimeError(
+            "Persistent DB path is required, but PredictCel resolved to an ephemeral path."
+        )
 
     argv = ["predictcel", "--config", config_path, "--db", db_path]
     if mode:
@@ -102,6 +118,10 @@ def _default_db_path() -> str:
     return "/tmp/predictcel.db"
 
 
+def _is_ephemeral_db_path(db_path: str) -> bool:
+    return db_path.startswith("/tmp/")
+
+
 def _env_enabled(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -111,6 +131,30 @@ def _env_enabled(name: str, default: bool) -> bool:
 
 def _elapsed_ms(started: float) -> int:
     return int((time.perf_counter() - started) * 1000)
+
+
+def _handle_shutdown_signal(signum, _frame) -> None:
+    _shutdown_requested.set()
+    _log_event(
+        "predictcel_run_signal",
+        {"signal": int(signum), "message": "Shutdown requested"},
+    )
+
+
+def _install_signal_handlers() -> None:
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _handle_shutdown_signal)
+        except ValueError:
+            continue
+
+
+def _sleep_until_next_cycle(interval_seconds: int) -> None:
+    remaining = max(interval_seconds, 0)
+    while remaining > 0 and not _shutdown_requested.is_set():
+        sleep_chunk = min(remaining, 1)
+        time.sleep(sleep_chunk)
+        remaining -= sleep_chunk
 
 
 def _log_event(event: str, payload: dict) -> None:

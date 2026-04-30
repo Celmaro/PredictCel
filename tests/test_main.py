@@ -26,6 +26,7 @@ from predictcel.main import (
     _propagate_canonical_market_updates,
     _recover_unresolved_token_market_rows,
     _run_wallet_discovery,
+    main as run_main,
     _wallet_topics_for_live_inputs,
 )
 from predictcel.models import (
@@ -48,6 +49,7 @@ class FakeStore:
     def __init__(self, recent_fingerprints: set[str] | None = None) -> None:
         self.recent_fingerprints = recent_fingerprints or set()
         self.marked_signals = []
+        self.atomic_filter_calls = 0
 
     def make_signal_fingerprint(self, market_id: str, topic: str, side: str) -> str:
         return f"{topic}:{market_id}:{side}"
@@ -62,6 +64,32 @@ class FakeStore:
 
     def mark_signals_seen(self, signals) -> None:
         self.marked_signals.extend(list(signals))
+
+    def filter_and_mark_candidates_atomically(self, candidates, ttl_minutes: int = 1440):
+        del ttl_minutes
+        self.atomic_filter_calls += 1
+        recent = self.has_recent_signals(
+            [(candidate.market_id, candidate.topic, candidate.side) for candidate in candidates]
+        )
+        fresh = []
+        seen_in_batch: set[str] = set()
+        for candidate in candidates:
+            fingerprint = self.make_signal_fingerprint(
+                candidate.market_id,
+                candidate.topic,
+                candidate.side,
+            )
+            if fingerprint in recent or fingerprint in seen_in_batch:
+                continue
+            fresh.append(candidate)
+            seen_in_batch.add(fingerprint)
+            self.marked_signals.append(
+                (candidate.market_id, candidate.topic, candidate.side)
+            )
+        return fresh, len(candidates) - len(fresh)
+
+    def close(self) -> None:
+        return None
 
 
 class ProbeSourceClient:
@@ -268,6 +296,11 @@ def test_filter_duplicate_candidates_skips_recent_and_same_batch_duplicates() ->
         ("m3", "NO"),
     ]
     assert skipped == 2
+    assert store.atomic_filter_calls == 1
+    assert store.marked_signals == [
+        ("m2", "geopolitics", "YES"),
+        ("m3", "geopolitics", "NO"),
+    ]
 
 
 def test_mark_execution_intents_seen_only_marks_planned_intents() -> None:
@@ -747,6 +780,23 @@ def test_load_live_inputs_raises_when_wallet_fetch_failures_exceed_threshold(
         match="wallet fetch failures exceeded threshold",
     ):
         _load_live_inputs(config, store)
+
+
+def test_load_live_inputs_honors_env_failure_ratio_override(monkeypatch) -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    captured: dict[str, object] = {}
+
+    def fake_impl(config, store=None, hooks=None):
+        del config, store
+        captured["failure_threshold"] = hooks.failure_threshold
+        return [], {}, {}
+
+    monkeypatch.setenv("PREDICTCEL_LIVE_FETCH_FAILURE_RATIO", "0.25")
+    monkeypatch.setattr("predictcel.main._load_live_inputs_impl", fake_impl)
+
+    _load_live_inputs(config, FakeStore())
+
+    assert captured["failure_threshold"] == 0.25
 
 
 def test_classify_unmatched_token_ids_breaks_down_gap_types() -> None:
@@ -1452,6 +1502,127 @@ def test_compact_cycle_output_includes_sensitive_state_when_requested() -> None:
     assert compact["open_positions"] == [{"market_id": "m1"}]
 
 
+def test_compact_cycle_output_includes_metrics() -> None:
+    compact = _compact_cycle_output(
+        {
+            "mode": "live",
+            "summary": {"copy_candidates": 1},
+            "latency_ms": {"total_cycle_ms": 10},
+            "db": {"path": "/data/predictcel.db"},
+            "portfolio_summary": {"current_exposure_usd": 0},
+            "metrics": {"api_requests_total": 5, "api_errors_total": 1},
+        }
+    )
+
+    assert compact["metrics"] == {"api_requests_total": 5, "api_errors_total": 1}
+
+
+def test_main_fail_closed_live_data_raises_and_alerts(monkeypatch) -> None:
+    config = load_config(Path("config/predictcel.example.json"))
+    alert_calls = {"warning": 0, "failure": 0}
+
+    class FakeParser:
+        def parse_args(self):
+            from argparse import Namespace
+
+            return Namespace(
+                config="config/predictcel.example.json",
+                db="predictcel.db",
+                live_data=True,
+                live_trading=False,
+            )
+
+    class FakeAlertManager:
+        is_enabled = True
+
+        def alert_warning(self, *args, **kwargs):
+            del args, kwargs
+            alert_calls["warning"] += 1
+            return True
+
+        def alert_cycle_failure(self, *args, **kwargs):
+            del args, kwargs
+            alert_calls["failure"] += 1
+            return True
+
+        def alert_no_signals(self, *args, **kwargs):
+            return True
+
+        def alert_cycle_success(self, *args, **kwargs):
+            return True
+
+    monkeypatch.setenv("PREDICTCEL_FAIL_CLOSED_LIVE_DATA", "1")
+    monkeypatch.setattr("predictcel.main.build_parser", lambda: FakeParser())
+    monkeypatch.setattr("predictcel.main.load_config", lambda _: config)
+    monkeypatch.setattr("predictcel.main.SignalStore", lambda _: FakeStore())
+    monkeypatch.setattr(
+        "predictcel.main._load_live_inputs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("live down")),
+    )
+    monkeypatch.setattr("predictcel.main.get_alert_manager", lambda: FakeAlertManager())
+
+    with pytest.raises(RuntimeError, match="live down"):
+        run_main()
+
+    assert alert_calls == {"warning": 1, "failure": 1}
+
+
+def test_run_main_aborts_live_trading_on_live_input_failure_without_fallback(
+    monkeypatch,
+) -> None:
+    config = replace(
+        load_config(Path("config/predictcel.example.json")),
+        live_data=replace(
+            load_config(Path("config/predictcel.example.json")).live_data,
+            enabled=True,
+        ),
+    )
+
+    class FakeParser:
+        def parse_args(self):
+            from argparse import Namespace
+
+            return Namespace(
+                config="config/predictcel.example.json",
+                db="predictcel.db",
+                live_data=True,
+                live_trading=True,
+            )
+
+    class QuietAlertManager:
+        is_enabled = False
+
+    fallback_calls = {"wallet_trades": 0, "market_snapshots": 0}
+
+    monkeypatch.setattr("predictcel.main.build_parser", lambda: FakeParser())
+    monkeypatch.setattr("predictcel.main.load_config", lambda _: config)
+    monkeypatch.setattr("predictcel.main.SignalStore", lambda _: FakeStore())
+    monkeypatch.setattr(
+        "predictcel.main._load_live_inputs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("live down")),
+    )
+    monkeypatch.setattr(
+        "predictcel.main.load_wallet_trades",
+        lambda _: fallback_calls.__setitem__(
+            "wallet_trades", fallback_calls["wallet_trades"] + 1
+        ),
+    )
+    monkeypatch.setattr(
+        "predictcel.main.load_market_snapshots",
+        lambda _: fallback_calls.__setitem__(
+            "market_snapshots", fallback_calls["market_snapshots"] + 1
+        ),
+    )
+    monkeypatch.setattr(
+        "predictcel.main.get_alert_manager", lambda: QuietAlertManager()
+    )
+
+    with pytest.raises(RuntimeError, match="live down"):
+        run_main()
+
+    assert fallback_calls == {"wallet_trades": 0, "market_snapshots": 0}
+
+
 def test_compact_cycle_output_includes_wallet_registry_summary() -> None:
     compact = _compact_cycle_output(
         {
@@ -1530,6 +1701,9 @@ def test_compact_live_input_diagnostics_includes_unmatched_token_breakdown() -> 
             "market_crossref": {"matched_count": 4},
             "trade_market_id_source_breakdown": {"asset": 1, "market.id": 2},
             "token_aliases_added_from_rows": 3,
+            "degraded_mode": True,
+            "input_source": "file_fallback",
+            "fallback_reason": "live fetch failed",
             "unmatched_token_breakdown": {
                 "absent_from_loaded_market_rows": 1,
                 "market_outside_loaded_universe": 1,
@@ -1549,9 +1723,26 @@ def test_compact_live_input_diagnostics_includes_unmatched_token_breakdown() -> 
         "asset": 1,
         "market.id": 2,
     }
+    assert diagnostics["degraded_mode"] is True
+    assert diagnostics["input_source"] == "file_fallback"
+    assert diagnostics["fallback_reason"] == "live fetch failed"
     assert diagnostics["sample_unmatched_tokens_by_class"] == {
         "absent_from_loaded_market_rows": ["token_absent"]
     }
+
+
+def test_compact_live_input_diagnostics_includes_degraded_fallback_marker() -> None:
+    diagnostics = _compact_live_input_diagnostics(
+        {
+            "degraded_mode": True,
+            "input_source": "file_fallback",
+            "fallback_reason": "live down",
+        }
+    )
+
+    assert diagnostics["degraded_mode"] is True
+    assert diagnostics["input_source"] == "file_fallback"
+    assert diagnostics["fallback_reason"] == "live down"
 
 
 def test_compact_scoring_diagnostics_includes_attrition_and_missing_breakdown() -> None:

@@ -112,14 +112,20 @@ class WalletQualityScorer:
             if not eligible:
                 continue
 
+            resolved_eligible = [
+                (trade, _resolve_market(trade.market_id, market_lookup))
+                for trade in eligible
+            ]
+            resolved_eligible = [
+                (trade, market)
+                for trade, market in resolved_eligible
+                if market is not None
+            ]
             topic = Counter(trade.topic for trade in eligible).most_common(1)[0][0]
             average_age = sum(trade.age_seconds for trade in eligible) / len(eligible)
             drifts = [
-                self._trade_drift(
-                    trade, _resolve_market(trade.market_id, market_lookup)
-                )
-                for trade in eligible
-                if _resolve_market(trade.market_id, market_lookup) is not None
+                self._trade_drift(trade, market)
+                for trade, market in resolved_eligible
             ]
             average_drift = (
                 sum(drifts) / len(drifts) if drifts else self.filters.max_price_drift
@@ -132,8 +138,11 @@ class WalletQualityScorer:
             sample_score = min(len(eligible) / 5.0, 1.0)
             specialization_score = _topic_specialization_score(eligible)
             activity_score = _human_pace_activity_score(eligible)
-            liquidity_score = _average_liquidity_score(eligible, markets, self.filters)
-            copy_safety_score = _copy_safety_score(eligible, markets)
+            liquidity_score = _average_liquidity_score(
+                resolved_eligible,
+                self.filters,
+            )
+            copy_safety_score = _copy_safety_score(resolved_eligible)
             quality_score = round(
                 (freshness_score * 0.22)
                 + (drift_score * 0.22)
@@ -342,7 +351,8 @@ def _build_market_lookup(
     markets: dict[str, MarketSnapshot],
 ) -> dict[str, MarketSnapshot]:
     lookup: dict[str, MarketSnapshot] = {}
-    for market_id, snapshot in markets.items():
+    market_items = markets.lookup_items() if hasattr(markets, "lookup_items") else markets.items()
+    for market_id, snapshot in market_items:
         normalized_key = _normalize_market_lookup_key(market_id)
         if normalized_key:
             lookup.setdefault(normalized_key, snapshot)
@@ -430,15 +440,10 @@ def _human_pace_activity_score(trades: list[WalletTrade]) -> float:
 
 
 def _average_liquidity_score(
-    trades: list[WalletTrade],
-    markets: dict[str, MarketSnapshot],
+    resolved_trades: list[tuple[WalletTrade, MarketSnapshot]],
     filters: FilterConfig,
 ) -> float:
-    liquidities = [
-        markets[trade.market_id].liquidity_usd
-        for trade in trades
-        if trade.market_id in markets
-    ]
+    liquidities = [market.liquidity_usd for _trade, market in resolved_trades]
     if not liquidities:
         return 0.0
     average_liquidity = sum(liquidities) / len(liquidities)
@@ -448,13 +453,11 @@ def _average_liquidity_score(
 
 
 def _copy_safety_score(
-    trades: list[WalletTrade],
-    markets: dict[str, MarketSnapshot],
+    resolved_trades: list[tuple[WalletTrade, MarketSnapshot]],
 ) -> float:
     size_to_liquidity = [
-        trade.size_usd / max(markets[trade.market_id].liquidity_usd, 1.0)
-        for trade in trades
-        if trade.market_id in markets
+        trade.size_usd / max(market.liquidity_usd, 1.0)
+        for trade, market in resolved_trades
     ]
     if not size_to_liquidity:
         return 0.0

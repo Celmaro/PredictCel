@@ -190,3 +190,86 @@ def test_manager_uses_registry_backed_current_wallets_when_provided() -> None:
 
     assert actions[0].action == "suspend"
     assert actions[0].basket == "sports"
+
+
+def test_rebalance_flags_baskets_with_material_allocation_drift() -> None:
+    config = make_config()
+    config = AppConfig(
+        baskets=[
+            BasketRule(
+                topic="sports",
+                wallets=["0xexisting"],
+                quorum_ratio=0.66,
+                target_allocation=0.75,
+            ),
+            BasketRule(
+                topic="crypto",
+                wallets=["0xbtc"],
+                quorum_ratio=0.66,
+                target_allocation=0.25,
+            ),
+        ],
+        filters=config.filters,
+        arbitrage=config.arbitrage,
+        wallet_trades_path=config.wallet_trades_path,
+        market_snapshots_path=config.market_snapshots_path,
+        live_data=config.live_data,
+        execution=config.execution,
+        consensus=config.consensus,
+        market_regime=config.market_regime,
+        wallet_discovery=config.wallet_discovery,
+        wallet_registry=config.wallet_registry,
+        basket_promotion=config.basket_promotion,
+        basket_controller=config.basket_controller,
+    )
+
+    actions = BasketManagerPlanner(config).rebalance(
+        [
+            {"topic": "sports", "exposure_usd": 20.0},
+            {"topic": "crypto", "exposure_usd": 80.0},
+        ]
+    )
+
+    assert {action.action for action in actions} == {"rebalance"}
+    assert {action.basket for action in actions} == {"sports", "crypto"}
+
+
+def test_rebalance_skips_when_allocations_are_within_drift_threshold() -> None:
+    config = make_config()
+    config = AppConfig(
+        baskets=[
+            BasketRule(
+                topic="sports",
+                wallets=["0xexisting"],
+                quorum_ratio=0.66,
+                target_allocation=0.75,
+            ),
+            BasketRule(
+                topic="crypto",
+                wallets=["0xbtc"],
+                quorum_ratio=0.66,
+                target_allocation=0.25,
+            ),
+        ],
+        filters=config.filters,
+        arbitrage=config.arbitrage,
+        wallet_trades_path=config.wallet_trades_path,
+        market_snapshots_path=config.market_snapshots_path,
+        live_data=config.live_data,
+        execution=config.execution,
+        consensus=config.consensus,
+        market_regime=config.market_regime,
+        wallet_discovery=config.wallet_discovery,
+        wallet_registry=config.wallet_registry,
+        basket_promotion=config.basket_promotion,
+        basket_controller=config.basket_controller,
+    )
+
+    actions = BasketManagerPlanner(config).rebalance(
+        [
+            {"topic": "sports", "exposure_usd": 74.0},
+            {"topic": "crypto", "exposure_usd": 26.0},
+        ]
+    )
+
+    assert actions == []

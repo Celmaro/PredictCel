@@ -14,6 +14,7 @@ from concurrent.futures import as_completed
 from typing import Any
 
 from .basket_controller import evaluate_basket_consensus_gate
+from .constants import max_entry_price
 from .config import AppConfig, BasketRule
 from .models import (
     CopyCandidate,
@@ -31,7 +32,6 @@ __all__ = ["CopyEngine"]
 
 logger = logging.getLogger(__name__)
 
-LATE_ENTRY_PRICE_THRESHOLD = 0.95
 NO_VALID_TRADE_REASON_KEYS = (
     "topic_mismatch",
     "wallet_not_in_basket",
@@ -208,7 +208,7 @@ class CopyEngine:
                 local_no_valid_trade_reason_counts,
             )
 
-        workers = max(1, min(8, len(grouped)))
+        workers = max(1, min(len(grouped), max(8, min(32, os.cpu_count() or 8))))
         executor = shared_compute_executor()
         grouped_items = list(grouped.items())
         futures = {
@@ -405,7 +405,7 @@ class CopyEngine:
             return None, "orderbook_not_ready", Counter()
         if side_depth_usd <= 0:
             return None, "insufficient_side_depth", Counter()
-        if current_price >= LATE_ENTRY_PRICE_THRESHOLD:
+        if current_price >= max_entry_price():
             return None, "too_late_price", Counter()
         drift = abs(current_price - reference_price)
         if drift > self.config.filters.max_price_drift:
