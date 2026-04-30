@@ -161,7 +161,7 @@ class MarketCatalog(MutableMapping[str, MarketSnapshot]):
 
     def update(
         self,
-        other: MutableMapping[str, MarketSnapshot] | dict[str, MarketSnapshot] | "MarketCatalog",
+        other: MutableMapping[str, MarketSnapshot],
         **kwargs: MarketSnapshot,
     ) -> None:
         if isinstance(other, MarketCatalog):
