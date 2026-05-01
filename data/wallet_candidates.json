@@ -744,6 +744,70 @@
     "reason": "Weather-specific identity and a reasonably human-scale PolymarketScan profile with 138 trades and positive ROI make it a useful secondary weather bench wallet despite older activity."
   },
   {
+    "wallet": "0x57ee70867b4e387de9de34fd62bc685aa02a8112",
+    "username": "HenryTheAtmoPhD",
+    "dominant_topic": "weather",
+    "source": "user weather top-50 list",
+    "curation_tier": "core",
+    "reason": "Added from the user-provided weather PnL list because the wallet is explicitly weather-branded, appears human-led rather than bot-branded, and fits PredictCel's copy-safe bias better than the heavier weather leaderboard names."
+  },
+  {
+    "wallet": "0x05e70727a2e2dcd079baa2ef1c0b88af06bb9641",
+    "username": "Handsanitizer23",
+    "dominant_topic": "weather",
+    "source": "user weather top-50 list",
+    "curation_tier": "core",
+    "reason": "Added from the user-provided weather PnL list as one of the cleaner mid-volume weather specialists, with strong realized PnL but without the obvious automation cues or giant flow profile of the top leaderboard wallets."
+  },
+  {
+    "wallet": "0xe5c8026239919339b988fdb150a7ef4ea196d3e7",
+    "username": "bama124",
+    "dominant_topic": "weather",
+    "source": "user weather top-50 list",
+    "curation_tier": "core",
+    "reason": "Added from the user-provided weather PnL list because its profit is strong while total volume stays in a more copyable range than the biggest weather whales, making it a reasonable direct seed for a new weather basket."
+  },
+  {
+    "wallet": "0x331bf91c132af9d921e1908ca0979363fc47193f",
+    "username": "BeefSlayer",
+    "dominant_topic": "weather",
+    "source": "user weather top-50 list",
+    "curation_tier": "core",
+    "reason": "Added from the user-provided weather PnL list as a direct weather seed because the wallet is clearly weather-relevant and more on-theme than a generic profitable account, while still avoiding the most extreme automation cues in the leaderboard."
+  },
+  {
+    "wallet": "0xecdbd79566a25693b9971c48d7de84bc05f7da79",
+    "username": "BigMike11",
+    "dominant_topic": "weather",
+    "source": "user weather top-50 list",
+    "curation_tier": "watchlist",
+    "reason": "Added as secondary weather depth from the user-provided PnL list because the wallet remains profitable at a manageable volume band, but it lacks the topic-specific identity of the strongest direct seeds."
+  },
+  {
+    "wallet": "0xc1b399b26020a4f689108e9640fd3dc8ffc8501c",
+    "username": "CoffeeLover",
+    "dominant_topic": "weather",
+    "source": "user weather top-50 list",
+    "curation_tier": "watchlist",
+    "reason": "Added from the user-provided weather PnL list as a smaller, more human-scale profitable account that can deepen weather coverage without leaning on the most systematized leaderboard names."
+  },
+  {
+    "wallet": "0x62d2bcd198bb6eab8b7eeb9d2061815dc02b9eb7",
+    "username": "ANudeEgg",
+    "dominant_topic": "weather",
+    "source": "user weather top-50 list",
+    "curation_tier": "watchlist",
+    "reason": "Added as extra weather bench coverage from the user-provided PnL list because the wallet is profitable with relatively modest turnover, even though it has less direct weather branding than the core seeds."
+  },
+  {
+    "wallet": "0x63a49a02c71d3a63f391878ec310dc81a524b5dc",
+    "username": "9985",
+    "dominant_topic": "weather",
+    "source": "user weather top-50 list",
+    "curation_tier": "watchlist",
+    "reason": "Added from the user-provided weather PnL list as low-volume profitable weather depth, suitable for candidate monitoring while the new basket builds a broader live roster."
+  },
+  {
     "wallet": "0xa11376e9f170aaf97664cac13e9ab210a70193f4",
     "username": "ballzi",
     "dominant_topic": "climate",
@@ -822,5 +886,109 @@
     "source": "polymarket + exa + polyscan",
     "curation_tier": "watchlist",
     "reason": "Cleaner than the tweet-bucket specialists, with a small but profitable PolymarketScan profile, retail classification, and enough focused Elon exposure to merit further screening."
+  },
+  {
+    "wallet": "0x04891f4064ed4a0ffcf13f08db56a7e597e9ddf7",
+    "username": "besmart2025",
+    "dominant_topic": "culture",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Culture-only leaderboard recurrence across day, week, and month made it a reasonable second-wave culture candidate after the strongest live-basket adds."
+  },
+  {
+    "wallet": "0xd7ad2823643b9ebb132d221aa73be62af0264953",
+    "username": "Harmonicca",
+    "dominant_topic": "culture",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "The culture-family pass kept this as culture-specific bench depth rather than a broad generalist, so it is retained as a candidate instead of forced live."
+  },
+  {
+    "wallet": "0xce395892fc7a14abb61077e45095f8ccd65404d6",
+    "username": "",
+    "dominant_topic": "culture",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Agent review surfaced it as culture bench depth, but not strong enough to move directly into the live culture basket."
+  },
+  {
+    "wallet": "0xf705fa045201391d9632b7f3cde06a5e24453ca7",
+    "username": "0xf705fa045201391d9632b7f3cde06a5e24453ca7",
+    "dominant_topic": "crypto",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Strong crypto-only leaderboard presence made it worth tracking, but the current crypto basket is already full so it stays in candidates for now."
+  },
+  {
+    "wallet": "0x014c4e7ae2145992861c2d1b124af633a97f820c",
+    "username": "Hyperlong",
+    "dominant_topic": "crypto",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Crypto-category recurrence was good enough for taxonomy depth, but not yet compelling enough to displace any existing live crypto wallet."
+  },
+  {
+    "wallet": "0x6075106cd4f0155a68a0eb4cfd3b78f241aa3a62",
+    "username": "0x6075106cD4f0155a68A0eb4CFd3b78F241Aa3a62-1777444298131",
+    "dominant_topic": "crypto",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Kept as additional crypto bench depth from the leaderboard pass while the live crypto basket remains full."
+  },
+  {
+    "wallet": "0x00425c692a667981118f679ef68fdc775257321e",
+    "username": "99problems123",
+    "dominant_topic": "tech",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Tech-only leaderboard recurrence was enough for continued monitoring, but the signal was not clean enough for direct live-basket promotion."
+  },
+  {
+    "wallet": "0xc3262aeb0bd81deab067726635f5b5bd39201db1",
+    "username": "",
+    "dominant_topic": "tech",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "The tech-family pass kept this as taxonomy depth rather than a live addition, so it is stored as a candidate for later validation."
+  },
+  {
+    "wallet": "0x4c353dd347c2e7d8bcdc5cd6ee569de7baf23e2f",
+    "username": "",
+    "dominant_topic": "crypto",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Category-agent review treated it as a lower-conviction crypto follow-up, suitable for candidates but not live assignment."
+  },
+  {
+    "wallet": "0xfc7612db87dc5d3b234fb673eda2858f9de00ad0",
+    "username": "",
+    "dominant_topic": "tech",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Retained as a monitored tech candidate after the leaderboard pass, but below the bar for immediate live-basket use."
+  },
+  {
+    "wallet": "0x736539924a5602b37a03a54fc12c1cc8f98964da",
+    "username": "cqk",
+    "dominant_topic": "tech",
+    "source": "polymarket leaderboard + category-agent",
+    "curation_tier": "watchlist",
+    "reason": "Tech-only leaderboard recurrence kept it in the candidate bench even though it was not strong enough for live promotion."
+  },
+  {
+    "wallet": "0x73b9f535338c78291d634e39ee727aeacc0e7aa3",
+    "username": "",
+    "dominant_topic": "elections",
+    "source": "dune 6757452 + polyscan",
+    "curation_tier": "watchlist",
+    "reason": "Fresh April 28, 2026 election activity made it worth tracking as a low-confidence elections candidate, but current realized results are weak so it stays on the bench."
+  },
+  {
+    "wallet": "0xb914cfbcd234d5e4d75b7480daf3f27742746f94",
+    "username": "",
+    "dominant_topic": "tech",
+    "source": "dune 6757452 + polyscan",
+    "curation_tier": "watchlist",
+    "reason": "Recent April 28, 2026 activity around the Printr public sale keeps it as a speculative tech bench wallet, but the small sample and weak realized PnL are not strong enough for live use."
   }
 ]
