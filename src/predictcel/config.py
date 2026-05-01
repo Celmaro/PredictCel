@@ -49,7 +49,7 @@ class FilterConfig:
     max_price_drift: float
     min_liquidity_usd: float
     min_minutes_to_resolution: int
-    max_minutes_to_resolution: int
+    max_minutes_to_resolution: int | None
     min_position_size_usd: float
 
 
@@ -285,7 +285,10 @@ def _validate_filters(filters: FilterConfig) -> None:
     _validate_positive(filters.max_trade_age_seconds, "max_trade_age_seconds")
     _validate_range(filters.max_price_drift, 0, 1, "max_price_drift")
 
-    if filters.min_minutes_to_resolution >= filters.max_minutes_to_resolution:
+    if (
+        filters.max_minutes_to_resolution is not None
+        and filters.min_minutes_to_resolution >= filters.max_minutes_to_resolution
+    ):
         raise ConfigError("Resolution window is invalid.")
 
 

@@ -15,7 +15,7 @@
     "max_price_drift": 0.65,
     "min_liquidity_usd": 500,
     "min_minutes_to_resolution": 15,
-    "max_minutes_to_resolution": 43200,
+    "max_minutes_to_resolution": null,
     "min_position_size_usd": 1
   },
   "arbitrage": {
@@ -176,7 +176,7 @@
         "0xf0d9af9effd0b4a039899901ba19a05ea1a3e4ee",
         "0xd7375270e4769d3cc31885773070a5f12d5bbe95"
       ],
-      "quorum_ratio": 0.8,
+      "quorum_ratio": 0.5,
       "target_allocation": 0.14
     },
     {
@@ -198,16 +198,22 @@
         "0xd7375270e4769d3cc31885773070a5f12d5bbe95",
         "0x2005d16a84ceefa912d4e380cd32e7ff827875ea"
       ],
-      "quorum_ratio": 0.8,
+      "quorum_ratio": 0.5,
       "target_allocation": 0.13
     },
     {
       "topic": "elections",
       "wallets": [
-        "0x7177a7f5c216809c577c50c77b12aae81f81ddef"
+        "0x7177a7f5c216809c577c50c77b12aae81f81ddef",
+        "0x1f2dd6d473f3e824cd2f8a89d9c69fb96f6ad0cf",
+        "0x78b9ac44a6d7d7a076c14e0ad518b301b63c6b76",
+        "0x885783760858e1bd5dd09a3c3f916cfa251ac270",
+        "0x8119010a6e589062aa03583bb3f39ca632d9f887",
+        "0xed2239a9150c3920000d0094d28fa51c7db03dd0",
+        "0x863134d00841b2e200492805a01e1e2f5defaa53"
       ],
       "quorum_ratio": 0.5,
-      "target_allocation": 0.0
+      "target_allocation": 0.05
     },
     {
       "topic": "global-events",
@@ -228,8 +234,26 @@
         "0xed107a85a4585a381e48c7f7ca4144909e7dd2e5",
         "0x12d6cccfc7470a3f4bafc53599a4779cbf2cf2a8"
       ],
-      "quorum_ratio": 0.8,
+      "quorum_ratio": 0.5,
       "target_allocation": 0.1
+    },
+    {
+      "topic": "weather",
+      "wallets": [
+        "0xffe0fe97dc52f69d17df0b6a0490b9b5f152919e",
+        "0xd06f9b9147113082f59289e8c0354a08fa306719",
+        "0x1838cca016850ac7185a9b149fe7d0bd2d6629b4",
+        "0x57ee70867b4e387de9de34fd62bc685aa02a8112",
+        "0x05e70727a2e2dcd079baa2ef1c0b88af06bb9641",
+        "0xe5c8026239919339b988fdb150a7ef4ea196d3e7",
+        "0x331bf91c132af9d921e1908ca0979363fc47193f",
+        "0xecdbd79566a25693b9971c48d7de84bc05f7da79",
+        "0xc1b399b26020a4f689108e9640fd3dc8ffc8501c",
+        "0x62d2bcd198bb6eab8b7eeb9d2061815dc02b9eb7",
+        "0x63a49a02c71d3a63f391878ec310dc81a524b5dc"
+      ],
+      "quorum_ratio": 0.5,
+      "target_allocation": 0.05
     },
     {
       "topic": "sports",
@@ -250,7 +274,7 @@
         "0x36a3f17401e395ef4cb1b7f42bcdb8ab8e15fafb",
         "0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee"
       ],
-      "quorum_ratio": 0.8,
+      "quorum_ratio": 0.5,
       "target_allocation": 0.2
     },
     {
@@ -280,7 +304,7 @@
         "0xd1a63a243042d864520512fbdbd2fd20e0ab1507",
         "0x6adcccb0ea0b93a66e67f0d7b2b625b135a8beba"
       ],
-      "quorum_ratio": 0.8,
+      "quorum_ratio": 0.5,
       "target_allocation": 0.15
     },
     {
@@ -302,7 +326,7 @@
         "0x6adcccb0ea0b93a66e67f0d7b2b625b135a8beba",
         "0x2005d16a84ceefa912d4e380cd32e7ff827875ea"
       ],
-      "quorum_ratio": 0.8,
+      "quorum_ratio": 0.5,
       "target_allocation": 0.12
     },
     {
@@ -314,9 +338,10 @@
         "0x2af01ed18869d9b35f9a7de71c7a565d806fb2a8",
         "0x2ce69d54f4d4a2602ca378d71b59ebe9a927e378",
         "0x0fe9a395a0be3a7c8337a135a5c469d5f985d372",
-        "0x8ace6b1016214876667444d2b3055065da996069"
+        "0x8ace6b1016214876667444d2b3055065da996069",
+        "0xa445c59c0531d28a13550f29d734b33520530286"
       ],
-      "quorum_ratio": 0.8,
+      "quorum_ratio": 0.5,
       "target_allocation": 0.09
     },
     {
@@ -326,9 +351,12 @@
         "0xc4d1a863e9cc45d02ba22d3a1ae9ba7822018ce8",
         "0x75253f58071564ba95f36258fcfb1e918552cde1",
         "0x44c1dfe43260c94ed4f1d00de2e1f80fb113ebc1",
-        "0xdc876e6873772d38716fda7f2452a78d426d7ab6"
+        "0xdc876e6873772d38716fda7f2452a78d426d7ab6",
+        "0x68146921df11eab44296dc4e58025ca84741a9e7",
+        "0xdf17f4a8dd01a4cfa6fc3da323a2baee5f8697d1",
+        "0x78048aa26ac1967566b8ed11910b529e5f2d7025"
       ],
-      "quorum_ratio": 0.8,
+      "quorum_ratio": 0.5,
       "target_allocation": 0.07
     }
   ]

@@ -319,7 +319,11 @@ class CopyEngine:
             return None, "low_liquidity", Counter()
         if market.minutes_to_resolution < self.config.filters.min_minutes_to_resolution:
             return None, "too_close_to_resolution", Counter()
-        if market.minutes_to_resolution > self.config.filters.max_minutes_to_resolution:
+        max_minutes_to_resolution = self.config.filters.max_minutes_to_resolution
+        if (
+            max_minutes_to_resolution is not None
+            and market.minutes_to_resolution > max_minutes_to_resolution
+        ):
             return None, "too_far_from_resolution", Counter()
 
         wallet_votes = self._latest_wallet_votes(valid_trades)
