@@ -842,7 +842,7 @@ def test_recommend_basket_promotions_flags_taxonomy_topic_ready_for_live_rollout
     captured_at = datetime(2026, 1, 20, tzinfo=UTC)
     memberships = [
         BasketMembership(
-            "esports",
+            "health-fda",
             f"w{index}",
             tier,
             index,
@@ -858,11 +858,11 @@ def test_recommend_basket_promotions_flags_taxonomy_topic_ready_for_live_rollout
         )
     ]
     trades = [
-        WalletTrade("w1", "esports", "m1", "YES", 0.51, 20.0, 300),
-        WalletTrade("w2", "esports", "m2", "YES", 0.52, 20.0, 600),
-        WalletTrade("w3", "esports", "m3", "YES", 0.53, 20.0, 900),
-        WalletTrade("w4", "esports", "m4", "YES", 0.54, 20.0, 1_200),
-        WalletTrade("w5", "esports", "m5", "YES", 0.55, 20.0, 1_500),
+        WalletTrade("w1", "health-fda", "m1", "YES", 0.51, 20.0, 300),
+        WalletTrade("w2", "health-fda", "m2", "YES", 0.52, 20.0, 600),
+        WalletTrade("w3", "health-fda", "m3", "YES", 0.53, 20.0, 900),
+        WalletTrade("w4", "health-fda", "m4", "YES", 0.54, 20.0, 1_200),
+        WalletTrade("w5", "health-fda", "m5", "YES", 0.55, 20.0, 1_500),
     ]
     registry_entries = [
         WalletRegistryEntry(
@@ -884,11 +884,14 @@ def test_recommend_basket_promotions_flags_taxonomy_topic_ready_for_live_rollout
         captured_at=captured_at,
     )
 
-    esports = recommendations["esports"]
-    assert esports.should_promote is True
-    assert esports.recommended_wallets == ("w1", "w2", "w3")
-    assert esports.missing_requirements == ()
-    assert esports.recommended_quorum_ratio == 0.8
+    health_fda = recommendations["health-fda"]
+    assert health_fda.should_promote is True
+    assert health_fda.recommended_wallets == ("w1", "w2", "w3")
+    assert health_fda.missing_requirements == ()
+    assert (
+        health_fda.recommended_quorum_ratio
+        == config.basket_controller.min_basket_participation_ratio
+    )
 
 
 def test_recommend_basket_promotions_reports_threshold_gaps_for_thin_topic() -> None:

@@ -202,6 +202,14 @@
       "target_allocation": 0.13
     },
     {
+      "topic": "elections",
+      "wallets": [
+        "0x7177a7f5c216809c577c50c77b12aae81f81ddef"
+      ],
+      "quorum_ratio": 0.5,
+      "target_allocation": 0.0
+    },
+    {
       "topic": "global-events",
       "wallets": [
         "0x4bbe10ba5b7f6df147c0dae17b46c44a6e562cf3",
@@ -244,6 +252,14 @@
       ],
       "quorum_ratio": 0.8,
       "target_allocation": 0.2
+    },
+    {
+      "topic": "esports",
+      "wallets": [
+        "0x45fd8677d4bd9cd63da19a6b2e33145f09994026"
+      ],
+      "quorum_ratio": 0.5,
+      "target_allocation": 0.0
     },
     {
       "topic": "crypto",

@@ -2588,13 +2588,13 @@ def test_build_wallet_registry_summary_includes_basket_promotion_recommendations
         ],
         memberships=[
             BasketMembership(
-                "esports", "w1", "core", 1, True, captured_at, None, "discovered", ""
+                "health-fda", "w1", "core", 1, True, captured_at, None, "discovered", ""
             ),
             BasketMembership(
-                "esports", "w2", "core", 2, True, captured_at, None, "discovered", ""
+                "health-fda", "w2", "core", 2, True, captured_at, None, "discovered", ""
             ),
             BasketMembership(
-                "esports",
+                "health-fda",
                 "w3",
                 "rotating",
                 3,
@@ -2605,7 +2605,7 @@ def test_build_wallet_registry_summary_includes_basket_promotion_recommendations
                 "",
             ),
             BasketMembership(
-                "esports",
+                "health-fda",
                 "w4",
                 "explorer",
                 4,
@@ -2618,15 +2618,15 @@ def test_build_wallet_registry_summary_includes_basket_promotion_recommendations
         ],
     )
     trades = [
-        WalletTrade("w1", "esports", "m1", "YES", 0.61, 15.0, 300),
-        WalletTrade("w2", "esports", "m2", "YES", 0.62, 15.0, 600),
-        WalletTrade("w3", "esports", "m3", "YES", 0.63, 15.0, 900),
+        WalletTrade("w1", "health-fda", "m1", "YES", 0.61, 15.0, 300),
+        WalletTrade("w2", "health-fda", "m2", "YES", 0.62, 15.0, 600),
+        WalletTrade("w3", "health-fda", "m3", "YES", 0.63, 15.0, 900),
     ]
 
     summary = _build_wallet_registry_summary(config, store, trades)
 
-    assert summary["basket_promotion_by_topic"]["esports"] == {
-        "topic": "esports",
+    assert summary["basket_promotion_by_topic"]["health-fda"] == {
+        "topic": "health-fda",
         "should_promote": True,
         "tracked_wallet_count": 4,
         "fresh_active_wallets_7d": 3,
@@ -2634,7 +2634,7 @@ def test_build_wallet_registry_summary_includes_basket_promotion_recommendations
         "fresh_core_wallets_24h": 1,
         "eligible_trades_7d": 3,
         "stale_ratio": 0.25,
-        "recommended_quorum_ratio": 0.8,
+        "recommended_quorum_ratio": config.basket_controller.min_basket_participation_ratio,
         "recommended_wallets": ["w1", "w2"],
         "missing_requirements": [],
     }

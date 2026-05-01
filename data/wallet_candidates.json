@@ -75,9 +75,9 @@
     "wallet": "0x7177a7f5c216809c577c50c77b12aae81f81ddef",
     "username": "kcnyekchno",
     "dominant_topic": "elections",
-    "source": "predicts_guru",
+    "source": "predicts_guru + polyscan",
     "curation_tier": "watchlist",
-    "reason": "Strong realized PnL and election-heavy examples in public profile text."
+    "reason": "Election-heavy public profile plus strong PolymarketScan PnL and 385-trade history make it a usable but heavier elections bench wallet."
   },
   {
     "wallet": "0x0b7a6030507efe5db145fbb57a25ba0c5f9d86cf",
@@ -574,5 +574,253 @@
     "source": "polymarket_official_leaderboard",
     "curation_tier": "core",
     "reason": "Official leaderboard culture wallet used to launch the live culture basket."
+  },
+  {
+    "wallet": "0x1f2dd6d473f3e824cd2f8a89d9c69fb96f6ad0cf",
+    "username": "Fredi9999",
+    "dominant_topic": "elections",
+    "source": "cointrenches + polyintel + polymarket",
+    "curation_tier": "core",
+    "reason": "Publicly linked election whale with low market count, discretionary classification, and set-and-forget behavior that is more copyable than bot-style grinders."
+  },
+  {
+    "wallet": "0x78b9ac44a6d7d7a076c14e0ad518b301b63c6b76",
+    "username": "Len9311238",
+    "dominant_topic": "elections",
+    "source": "polyintel",
+    "curation_tier": "core",
+    "reason": "Discretionary election specialist with only a handful of resolved markets and position-trader behavior, making it a strong taxonomy-to-basket seed."
+  },
+  {
+    "wallet": "0x885783760858e1bd5dd09a3c3f916cfa251ac270",
+    "username": "BetTom42",
+    "dominant_topic": "elections",
+    "source": "polyintel",
+    "curation_tier": "core",
+    "reason": "Election-focused discretionary whale with a small market set and position-trader profile, which fits PredictCel better than broad sports scalpers."
+  },
+  {
+    "wallet": "0x8119010a6e589062aa03583bb3f39ca632d9f887",
+    "username": "PrincessCaro",
+    "dominant_topic": "elections",
+    "source": "polynoob + polyintel",
+    "curation_tier": "watchlist",
+    "reason": "High-signal election account in the Theo/Fredi cluster; useful for depth, but kept at watchlist tier because the cluster relationship raises concentration risk."
+  },
+  {
+    "wallet": "0xed2239a9150c3920000d0094d28fa51c7db03dd0",
+    "username": "Michie",
+    "dominant_topic": "elections",
+    "source": "polynoob + polyintel",
+    "curation_tier": "watchlist",
+    "reason": "Election-oriented discretionary alt tied to the Fredi cluster; worth tracking for taxonomy depth, but not treated as independent core capacity."
+  },
+  {
+    "wallet": "0x863134d00841b2e200492805a01e1e2f5defaa53",
+    "username": "RepTrump",
+    "dominant_topic": "elections",
+    "source": "thesupermodel + polyintel",
+    "curation_tier": "watchlist",
+    "reason": "Election specialist publicly tracked alongside the Fredi accounts; included as cluster-aware watchlist depth rather than an independent core wallet."
+  },
+  {
+    "wallet": "0x16f91db2592924cfed6e03b7e5cb5bb1e32299e3",
+    "username": "Jenzigo",
+    "dominant_topic": "politics",
+    "source": "polyintel",
+    "curation_tier": "core",
+    "reason": "Independent discretionary politics trader with concentrated market count and strong resolved win profile."
+  },
+  {
+    "wallet": "0x94a428cfa4f84b264e01f70d93d02bc96cb36356",
+    "username": "GCottrell93",
+    "dominant_topic": "politics",
+    "source": "polyintel + merlin",
+    "curation_tier": "core",
+    "reason": "Politics-focused discretionary wallet appearing on public category leaderboards with manageable breadth and enough history to merit direct screening."
+  },
+  {
+    "wallet": "0x0562c423912e325f83fa79df55085979e1f5594f",
+    "username": "trezorisbest",
+    "dominant_topic": "politics",
+    "source": "polyintel",
+    "curation_tier": "watchlist",
+    "reason": "Position-trader profile in politics with sub-20 market concentration, making it a plausible live-basket candidate if the local cadence checks stay human."
+  },
+  {
+    "wallet": "0x7058c8a7cec79010b1927d05837dcf25f1a53505",
+    "username": "deetown",
+    "dominant_topic": "politics",
+    "source": "polyintel",
+    "curation_tier": "watchlist",
+    "reason": "Compact politics wallet with discretionary labeling and single-digit market breadth, suitable for screening into a future political bench."
+  },
+  {
+    "wallet": "0x94f199fb7789f1aef7fff6b758d6b375100f4c7a",
+    "username": "KeyTransporter",
+    "dominant_topic": "sports",
+    "source": "polyintel + polymarket",
+    "curation_tier": "watchlist",
+    "reason": "Discretionary sports whale with only 14 markets traded; still fast-moving, but far more selective than the obvious sports bots already rejected by the model."
+  },
+  {
+    "wallet": "0xac44cb78be973ec7d91b69678c4bdfa7009afbd7",
+    "username": "blackwall",
+    "dominant_topic": "sports",
+    "source": "polyintel + polymarket",
+    "curation_tier": "watchlist",
+    "reason": "Sports trader with low market breadth and discretionary labeling, useful for deepening the live sports bench without leaning harder into bot-heavy names."
+  },
+  {
+    "wallet": "0xd25c72ac0928385610611c8148803dc717334d20",
+    "username": "FeatherLeather",
+    "dominant_topic": "sports",
+    "source": "polyintel + polymarket",
+    "curation_tier": "watchlist",
+    "reason": "Selective sports wallet with single-digit market count and discretionary classification, which makes it a better fit than high-frequency market-wide scalpers."
+  },
+  {
+    "wallet": "0xa445c59c0531d28a13550f29d734b33520530286",
+    "username": "AnimalEater",
+    "dominant_topic": "tech",
+    "source": "struct",
+    "curation_tier": "watchlist",
+    "reason": "Public explorer profile shows repeated exposure to AI and large-cap tech markets such as Z.ai, Apple, Alibaba, and Baidu, making it a credible web-sourced tech candidate."
+  },
+  {
+    "wallet": "0xd7f85d0eb0fe0732ca38d9107ad0d4d01b1289e4",
+    "username": "fortaellinger",
+    "dominant_topic": "geopolitics",
+    "source": "struct",
+    "curation_tier": "watchlist",
+    "reason": "Long-hold event trader with explicit Ukraine, Iran, Israel, Fed, and election exposure; the public profile looks more like discretionary position building than the instant-turn bot cohort."
+  },
+  {
+    "wallet": "0x000d257d2dc7616feaef4ae0f14600fdf50a758e",
+    "username": "scottonPoly",
+    "dominant_topic": "global-events",
+    "source": "mexc + struct",
+    "curation_tier": "core",
+    "reason": "Publicly identified political scientist with international-election and regime-change exposure, 28-day average hold behavior, and a discretionary profile that is suitable for event-driven basket depth."
+  },
+  {
+    "wallet": "0x6bab41a0dc40d6dd4c1a915b8c01969479fd1292",
+    "username": "DropperPM",
+    "dominant_topic": "geopolitics",
+    "source": "struct + polymarketanalytics + merlin",
+    "curation_tier": "core",
+    "reason": "Profitable geopolitics trader with explicit Iran, Hormuz, and ceasefire market exposure plus multi-day holding periods, making it more copyable than market-making style accounts."
+  },
+  {
+    "wallet": "0xf02db46acae920edccfd3801c2820bef59a7efcf",
+    "username": "bdltestacco",
+    "dominant_topic": "ai",
+    "source": "polymarket + exa + firecrawl",
+    "curation_tier": "core",
+    "reason": "Public profile repeatedly concentrates in OpenAI, Claude, DeepSeek, and xAI winner markets, which makes it the clearest exact-wallet AI specialist from this pass."
+  },
+  {
+    "wallet": "0xffe0fe97dc52f69d17df0b6a0490b9b5f152919e",
+    "username": "weatherqueen",
+    "dominant_topic": "weather",
+    "source": "polymarket + exa + firecrawl",
+    "curation_tier": "core",
+    "reason": "Profile shows repeated city-temperature and earthquake/weather contracts across multiple geographies, giving weather its strongest exact-wallet seed so far."
+  },
+  {
+    "wallet": "0xd06f9b9147113082f59289e8c0354a08fa306719",
+    "username": "Climatologist",
+    "dominant_topic": "weather",
+    "source": "polymarket + exa + firecrawl + polyscan",
+    "curation_tier": "core",
+    "reason": "One of the cleanest weather-oriented wallets from the PolymarketScan pass, with 491 trades, recent activity, retail classification, and a strongest-known fit for weather basket expansion."
+  },
+  {
+    "wallet": "0x1838cca016850ac7185a9b149fe7d0bd2d6629b4",
+    "username": "JoeTheMeteorologist",
+    "dominant_topic": "weather",
+    "source": "polymarket + exa + polyscan",
+    "curation_tier": "watchlist",
+    "reason": "Weather-specific identity and a reasonably human-scale PolymarketScan profile with 138 trades and positive ROI make it a useful secondary weather bench wallet despite older activity."
+  },
+  {
+    "wallet": "0xa11376e9f170aaf97664cac13e9ab210a70193f4",
+    "username": "ballzi",
+    "dominant_topic": "climate",
+    "source": "polymarket + exa + firecrawl",
+    "curation_tier": "watchlist",
+    "reason": "Visible profile includes repeated global-temperature bracket markets, which is the cleanest climate-specific public evidence found even though the wallet also touches F1."
+  },
+  {
+    "wallet": "0xd16332376fb97c5b17bbe1aa9145092bfc42d100",
+    "username": "Anon",
+    "dominant_topic": "science",
+    "source": "polymarket + exa + firecrawl",
+    "curation_tier": "watchlist",
+    "reason": "Mixed discretionary profile, but the repeated SpaceX Starship and space-adjacent contracts make it a reasonable science seed while that topic is still empty."
+  },
+  {
+    "wallet": "0x51e7cd98844cd4e5b63100f499f33aea9879c125",
+    "username": "tonynba",
+    "dominant_topic": "nba",
+    "source": "polymarket + exa + firecrawl",
+    "curation_tier": "watchlist",
+    "reason": "Direct NBA-branded profile with visible NBA spread exposure; not strong enough for core, but useful as an exact-wallet seed for a currently empty NBA topic."
+  },
+  {
+    "wallet": "0x5a844487f3dbda104c151374078c37200ccff2ae",
+    "username": "psveiga.eth",
+    "dominant_topic": "soccer",
+    "source": "polymarket + exa + firecrawl",
+    "curation_tier": "core",
+    "reason": "Public profile repeatedly concentrates in 2026 FIFA World Cup winner markets across national teams, making it a strong soccer-specific candidate rather than a generic sports wallet."
+  },
+  {
+    "wallet": "0xc174aedc592d0500ed297a6ea8dc5f0f02c31234",
+    "username": "zega99q",
+    "dominant_topic": "soccer",
+    "source": "polymarket + exa + firecrawl",
+    "curation_tier": "watchlist",
+    "reason": "Mixed with politics, but visible Colombia World Cup and Arsenal EPL exposure gives soccer another exact-wallet bench candidate without leaning on the same generalist names."
+  },
+  {
+    "wallet": "0x15ceffed7bf820cd2d90f90ea24ae9909f5cd5fa",
+    "username": "HondaCivic",
+    "dominant_topic": "motorsport",
+    "source": "polymarket + exa + polyscan",
+    "curation_tier": "watchlist",
+    "reason": "Repeated F1 championship exposure plus strong PolymarketScan profitability make it a usable motorsport wallet, though the trade count is still too heavy for a clean core promotion."
+  },
+  {
+    "wallet": "0x029b1235adac2fe8f11adf38b10926a841625937",
+    "username": "irinanitu",
+    "dominant_topic": "entertainment",
+    "source": "polymarket + exa",
+    "curation_tier": "watchlist",
+    "reason": "Visible profile repeatedly hits Oscars and Netflix title markets, giving entertainment a usable public-profile seed despite some unrelated adjacent positions."
+  },
+  {
+    "wallet": "0x6c004cdfe6540dab4f086bb72d455042038e0b36",
+    "username": "Anon",
+    "dominant_topic": "bitcoin",
+    "source": "polymarket + exa + firecrawl",
+    "curation_tier": "watchlist",
+    "reason": "Public search results show repeated Bitcoin target and dip markets rather than only five-minute up-down contracts, so it is a safer bitcoin seed than the obvious microstructure bots."
+  },
+  {
+    "wallet": "0x65ea1f2a91b032b9021bcac01cec9f630b8c1bba",
+    "username": "therewillbetomorrow",
+    "dominant_topic": "elon-musk",
+    "source": "polymarket + exa",
+    "curation_tier": "watchlist",
+    "reason": "Repeated Elon tweet-count markets make it a direct taxonomy seed for Elon coverage, but the bucketed short-horizon structure keeps it on the watchlist instead of core."
+  },
+  {
+    "wallet": "0xc307c1e79af3b0ab24eea46a136e4d601724f309",
+    "username": "ElonExpert",
+    "dominant_topic": "elon-musk",
+    "source": "polymarket + exa + polyscan",
+    "curation_tier": "watchlist",
+    "reason": "Cleaner than the tweet-bucket specialists, with a small but profitable PolymarketScan profile, retail classification, and enough focused Elon exposure to merit further screening."
   }
 ]
