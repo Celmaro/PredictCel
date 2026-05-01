@@ -16,7 +16,8 @@ def test_example_config_loads() -> None:
     assert config.execution is not None
     assert any(basket.target_allocation == 0 for basket in config.baskets)
     assert sum(1 for basket in config.baskets if basket.target_allocation > 0) >= 8
-    assert all(basket.quorum_ratio == 0.8 for basket in config.baskets)
+    assert sum(1 for basket in config.baskets if basket.quorum_ratio == 0.8) >= 8
+    assert sum(1 for basket in config.baskets if basket.quorum_ratio == 0.5) == 2
     assert config.wallet_registry.enabled is True
     assert config.basket_promotion.enabled is True
     assert config.basket_controller.enabled is True
